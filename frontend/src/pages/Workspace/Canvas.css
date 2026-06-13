@@ -42,7 +42,7 @@
 
 .canvas-lanes {
   display: flex;
-  gap: 32px;
+  gap: 56px;
   padding: 60px;
   width: max-content;
   position: absolute;
@@ -121,14 +121,16 @@
 
 /* ── 卡片样式 ── */
 .canvas-card {
-  background: var(--bg-surface);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border);
-  border-radius: var(--r-xl);
+  border-radius: var(--r-lg);
   padding: var(--sp-4);
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.035), 0 1px 2px rgba(0,0,0,0.015);
   transition: all var(--t-fast) var(--ease);
   cursor: pointer;
   position: relative;
@@ -136,9 +138,34 @@
 }
 
 .canvas-card:hover {
+  background: rgba(255, 255, 255, 0.9);
   border-color: var(--border-strong);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.02);
   transform: translateY(-2px);
+}
+
+.canvas-card.active-self {
+  border-color: #007aff !important;
+  box-shadow: 0 4px 20px rgba(0, 122, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+
+.canvas-card.active-related {
+  border-color: rgba(0, 122, 255, 0.35) !important;
+  box-shadow: 0 4px 14px rgba(0, 122, 255, 0.04) !important;
+}
+
+.canvas-card-header-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-tags-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .canvas-card-header {
@@ -179,9 +206,9 @@
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.4);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);
   color: var(--text-secondary);
   font-size: 11px;
@@ -201,9 +228,9 @@
 
 .structured-list {
   padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .structured-list-item {
@@ -227,9 +254,9 @@
 
 .structured-checkpoints {
   padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .structured-checkpoint-item {
@@ -361,10 +388,11 @@
 }
 
 /* 多彩 Tag */
-.tag-red { background: #fee2e2; color: #b91c1c; }
-.tag-yellow { background: #fef3c7; color: #b45309; }
-.tag-green { background: #dcfce7; color: #15803d; }
-.tag-blue { background: #dbeafe; color: #1d4ed8; }
+.tag-red { background: rgba(255, 59, 48, 0.08); color: #ff3b30; border: 1px solid rgba(255, 59, 48, 0.15); }
+.tag-yellow { background: rgba(255, 149, 0, 0.08); color: #ff9500; border: 1px solid rgba(255, 149, 0, 0.18); }
+.tag-green { background: rgba(52, 199, 89, 0.08); color: #34c759; border: 1px solid rgba(52, 199, 89, 0.15); }
+.tag-blue { background: rgba(0, 122, 255, 0.08); color: #007aff; border: 1px solid rgba(0, 122, 255, 0.15); }
+.tag-gray { background: rgba(142, 142, 147, 0.08); color: #8e8e93; border: 1px solid rgba(142, 142, 147, 0.15); }
 
 .canvas-badge {
   font-size: 10px;
@@ -421,14 +449,14 @@
   align-items: center;
   justify-content: center;
 }
-.card-avatar-violet { background: linear-gradient(135deg, #8b82d9, #b2a7eb); }
-.card-avatar-teal { background: linear-gradient(135deg, #6da8a7, #93c9c4); }
-.card-avatar-amber { background: linear-gradient(135deg, #d2a86d, #e9c596); }
-.card-avatar-slate { background: linear-gradient(135deg, #8d97ab, #b1b9c8); }
-.card-avatar-rose { background: linear-gradient(135deg, #d08ea0, #e7b2c0); }
-.card-avatar-emerald { background: linear-gradient(135deg, #82b59e, #add5bf); }
-.card-avatar-orange { background: linear-gradient(135deg, #d6a083, #ebc0a9); }
-.card-avatar-sky { background: linear-gradient(135deg, #84afca, #b1d1e6); }
+.card-avatar-violet { background: linear-gradient(135deg, #af52de, #c37aeb); }
+.card-avatar-teal { background: linear-gradient(135deg, #30b0c7, #54c5db); }
+.card-avatar-amber { background: linear-gradient(135deg, #ff9500, #ffb340); }
+.card-avatar-slate { background: linear-gradient(135deg, #8e8e93, #aeaeae); }
+.card-avatar-rose { background: linear-gradient(135deg, #ff2d55, #ff6b8b); }
+.card-avatar-emerald { background: linear-gradient(135deg, #34c759, #54db7a); }
+.card-avatar-orange { background: linear-gradient(135deg, #ff9500, #ffb340); }
+.card-avatar-sky { background: linear-gradient(135deg, #007aff, #40a0ff); }
 .card-status-row {
   margin-top: 4px;
 }

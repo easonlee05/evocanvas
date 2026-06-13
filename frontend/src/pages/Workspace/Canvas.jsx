@@ -3,7 +3,7 @@ import './Canvas.css';
 import { FileText, MessageSquare, AlertCircle, FileCode2, CheckSquare, ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 
-function CustomArrow({ start, end, transform }) {
+function CustomArrow({ start, end, transform, activeCardId, outIndex = 0, outCount = 1, inIndex = 0, inCount = 1 }) {
   const [path, setPath] = useState('');
   
   useEffect(() => {
@@ -18,33 +18,113 @@ function CustomArrow({ start, end, transform }) {
       const cRect = container.getBoundingClientRect();
       
       const scale = transform.scale;
+      
+      // 检测起止点是否处于同一列
+      const isSameColumn = Math.abs(sRect.left - eRect.left) < 10;
+      
+      // 基础起点坐标
       const startX = (sRect.right - cRect.left) / scale;
-      const startY = (sRect.top + sRect.height / 2 - cRect.top) / scale;
-      const endX = (eRect.left - cRect.left) / scale;
-      const endY = (eRect.top + eRect.height / 2 - cRect.top) / scale;
+      const startYBase = (sRect.top + sRect.height / 2 - cRect.top) / scale;
       
-      const cp1X = startX + (endX - startX) / 2;
-      const cp1Y = startY;
-      const cp2X = cp1X;
-      const cp2Y = endY;
+      // 基础终点坐标：如果是同列，终点重定向至右边缘，否则取左边缘
+      let endX = 0;
+      if (isSameColumn) {
+        endX = (eRect.right - cRect.left) / scale;
+      } else {
+        endX = (eRect.left - cRect.left) / scale;
+      }
+      const endYBase = (eRect.top + eRect.height / 2 - cRect.top) / scale;
       
-      setPath(`M ${startX} ${startY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${endX} ${endY}`);
+      // 流出起点偏置 (垂直方向错开 16px 间距)
+      const outOffset = outCount > 1 ? (outIndex - (outCount - 1) / 2) * 16 : 0;
+      const startY = startYBase + outOffset;
+      
+      // 流入终点偏置 (垂直方向错开 16px 间距)
+      const inOffset = inCount > 1 ? (inIndex - (inCount - 1) / 2) * 16 : 0;
+      const endY = endYBase + inOffset;
+      
+      // 计算折点 X 轴坐标
+      let midX = 0;
+      if (isSameColumn) {
+        // 同列连接：折向右侧通道绕行，多条线水平错开 12px
+        midX = startX + 24 + outIndex * 12;
+      } else {
+        // 不同列连接：折点取中点并偏置错开 12px，同时进行无条件强限幅（由于列距拓宽为 56px，在此保留 12px 安全侧距）
+        const midXBase = startX + (endX - startX) / 2;
+        const midOffset = (outIndex - inIndex) * 12;
+        midX = midXBase + midOffset;
+        
+        const minMidX = startX + 12;
+        const maxMidX = endX - 12;
+        if (minMidX < maxMidX) {
+          midX = Math.max(minMidX, Math.min(maxMidX, midX));
+        } else {
+          midX = midXBase;
+        }
+      }
+      
+      // 动态计算平滑圆角半径，最大 12px，在极窄间距时自适应变小
+      const signY = endY > startY ? 1 : -1;
+      const r = Math.min(12, Math.abs(midX - startX), Math.abs(endX - midX), Math.abs(endY - startY) / 2);
+      
+      if (r > 0 && Math.abs(endY - startY) > 2) {
+        // 使用 Q 指令绘制圆角折线
+        setPath(
+          `M ${startX} ${startY} ` +
+          `L ${midX - r} ${startY} ` +
+          `Q ${midX} ${startY}, ${midX} ${startY + r * signY} ` +
+          `L ${midX} ${endY - r * signY} ` +
+          `Q ${midX} ${endY}, ${midX + r} ${endY} ` +
+          `L ${endX} ${endY}`
+        );
+      } else {
+        // 几乎在同一水平线时，退化为常规直线
+        setPath(`M ${startX} ${startY} L ${endX} ${endY}`);
+      }
     };
     
     update();
     const interval = setInterval(update, 50);
     return () => clearInterval(interval);
-  }, [start, end, transform]);
+  }, [start, end, transform, outIndex, outCount, inIndex, inCount]);
   
   if (!path) return null;
+
+  // 根据当前 activeCardId 计算高亮状态
+  const isRelated = activeCardId === start || activeCardId === end;
+  
+  let opacity = 1.0; // 平时透明度拉满
+  let strokeColor = '#94a3b8'; // 使用高质感中灰
+  let strokeWidth = 1.8;
+  
+  if (activeCardId !== null) {
+    if (isRelated) {
+      opacity = 1.0;
+      strokeColor = '#007aff'; // 苹果系统蓝
+      strokeWidth = 2.8;
+    } else {
+      opacity = 0.18; // 弱化状态保持 0.18，使其依稀可见
+      strokeColor = '#cbd5e1';
+      strokeWidth = 1.5;
+    }
+  }
+
   return (
-    <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1, overflow: 'visible' }}>
+    <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10, overflow: 'visible' }}>
       <defs>
-        <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
-          <polygon points="0 0, 6 2, 0 4" fill="#cbd5e1" />
+        <marker id={`arrowhead-${start}-${end}`} markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+          <polygon points="0 0, 6 2, 0 4" fill={strokeColor} />
         </marker>
       </defs>
-      <path d={path} fill="none" stroke="#cbd5e1" strokeWidth="2" markerEnd="url(#arrowhead)" />
+      <path 
+        d={path} 
+        fill="none" 
+        stroke={strokeColor} 
+        strokeWidth={strokeWidth} 
+        opacity={opacity}
+        style={{ transition: 'stroke 0.2s, stroke-width 0.2s, opacity 0.2s' }}
+        markerEnd={`url(#arrowhead-${start}-${end})`} 
+      />
     </svg>
   );
 }
@@ -105,35 +185,40 @@ function StructuredContent({ kind = 'list', items = [] }) {
   );
 }
 
-function CanvasCard({ data }) {
+function CanvasCard({ data, activeCardId, setActiveCardId, isActiveSelf, isRelated }) {
   const primaryTag = data.tags?.[0];
   const secondaryTags = data.tags?.slice(1) || [];
+  const hasTags = primaryTag || data.statusPill;
+
+  const cardClassName = `canvas-card${isActiveSelf ? ' active-self' : ''}${isRelated && !isActiveSelf ? ' active-related' : ''}`;
 
   return (
-    <div className="canvas-card" id={data.id}>
-      {primaryTag && (
-        <div className="card-eyebrow-row">
-          <span className={`canvas-tag canvas-tag-eyebrow tag-${primaryTag.color}`}>{primaryTag.label}</span>
-          {secondaryTags.length > 0 && (
-            <div className="card-secondary-tags">
-              {secondaryTags.map((t, i) => (
-                <span key={i} className={`canvas-tag canvas-tag-subtle tag-${t.color}`}>{t.label}</span>
-              ))}
-            </div>
-          )}
+    <div 
+      className={cardClassName} 
+      id={data.id}
+      onMouseEnter={() => setActiveCardId(data.id)}
+      onMouseLeave={() => setActiveCardId(null)}
+    >
+      <div className="canvas-card-header-group">
+        <div className="canvas-card-header">
+          <span className="canvas-card-title">{data.title}</span>
+          <button className="icon-btn" style={{width: 20, height: 20}}><MoreHorizontal size={14}/></button>
         </div>
-      )}
 
-      <div className="canvas-card-header">
-        <span className="canvas-card-title">{data.title}</span>
-        <button className="icon-btn" style={{width: 20, height: 20}}><MoreHorizontal size={14}/></button>
+        {hasTags && (
+          <div className="card-tags-row">
+            {primaryTag && (
+              <span className={`canvas-tag tag-${primaryTag.color}`}>{primaryTag.label}</span>
+            )}
+            {secondaryTags.length > 0 && secondaryTags.map((t, i) => (
+              <span key={i} className={`canvas-tag tag-${t.color}`}>{t.label}</span>
+            ))}
+            {data.statusPill && (
+              <span className={`canvas-tag tag-${data.statusPill.color}`}>{data.statusPill.label}</span>
+            )}
+          </div>
+        )}
       </div>
-
-      {data.statusPill && (
-        <div className="card-status-row">
-          <span className={`canvas-tag tag-${data.statusPill.color}`}>{data.statusPill.label}</span>
-        </div>
-      )}
 
       {data.desc && <div className="canvas-card-desc">{data.desc}</div>}
 
@@ -257,6 +342,7 @@ function TimelineScrubber({ isChatOpen }) {
 export default function Canvas({ isChatOpen = true }) {
   const [showTodos, setShowTodos] = useState(false);
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const [activeCardId, setActiveCardId] = useState(null);
   const isDragging = React.useRef(false);
   const dragStart = React.useRef({ x: 0, y: 0 });
 
@@ -307,24 +393,64 @@ export default function Canvas({ isChatOpen = true }) {
     e.target.releasePointerCapture(e.pointerId);
   };
 
-  // 收集所有箭头的配置
-  const arrows = [];
+  // 统计每个节点的发出和流入关系以计算偏置
+  const outConnections = {};
+  const inConnections = {};
+  const rawArrows = [];
+
   Object.values(DEMO_CANVAS_SECTIONS).flat().forEach(card => {
     if (card.next) {
       const nextArr = Array.isArray(card.next) ? card.next : [card.next];
       nextArr.forEach(targetId => {
-        arrows.push({
-          start: card.id,
-          end: targetId,
-          color: '#cbd5e1',
-          strokeWidth: 2,
-          path: 'smooth',
-          showHead: true,
-          headSize: 4
-        });
+        rawArrows.push({ start: card.id, end: targetId });
+        
+        if (!outConnections[card.id]) outConnections[card.id] = [];
+        outConnections[card.id].push(targetId);
+        
+        if (!inConnections[targetId]) inConnections[targetId] = [];
+        inConnections[targetId].push(card.id);
       });
     }
   });
+
+  // 映射为带有偏置属性的 arrows 数组
+  const arrows = rawArrows.map(arr => {
+    const outs = outConnections[arr.start] || [];
+    const ins = inConnections[arr.end] || [];
+    return {
+      start: arr.start,
+      end: arr.end,
+      outIndex: outs.indexOf(arr.end),
+      outCount: outs.length,
+      inIndex: ins.indexOf(arr.start),
+      inCount: ins.length
+    };
+  });
+
+  // 辅助函数判断卡片高亮关系
+  const checkCardActiveState = (cardId) => {
+    if (activeCardId === null) return { isActiveSelf: false, isRelated: false };
+    if (activeCardId === cardId) return { isActiveSelf: true, isRelated: true };
+    const isRelated = arrows.some(arr => 
+      (arr.start === activeCardId && arr.end === cardId) || 
+      (arr.end === activeCardId && arr.start === cardId)
+    );
+    return { isActiveSelf: false, isRelated };
+  };
+
+  const renderCard = (card) => {
+    const { isActiveSelf, isRelated } = checkCardActiveState(card.id);
+    return (
+      <CanvasCard 
+        key={card.id} 
+        data={card} 
+        activeCardId={activeCardId}
+        setActiveCardId={setActiveCardId}
+        isActiveSelf={isActiveSelf}
+        isRelated={isRelated}
+      />
+    );
+  };
 
   return (
     <div 
@@ -364,7 +490,7 @@ export default function Canvas({ isChatOpen = true }) {
               <div className="module-cluster">
                 <div className="cluster-title">用户反馈</div>
                 <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.evidence.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.evidence.map(renderCard)}
                 </div>
               </div>
             </div>
@@ -378,13 +504,7 @@ export default function Canvas({ isChatOpen = true }) {
               <div className="module-cluster">
                 <div className="cluster-title">功能设计</div>
                 <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.problems.map(card => <CanvasCard key={card.id} data={card} />)}
-                </div>
-              </div>
-              <div className="module-cluster">
-                <div className="cluster-title">待澄清问题</div>
-                <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.clarify.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.problems.map(renderCard)}
                 </div>
               </div>
             </div>
@@ -392,13 +512,27 @@ export default function Canvas({ isChatOpen = true }) {
 
           <div className="canvas-lane">
             <div className="lane-header">
-              <h3>3. 方案规划</h3>
+              <h3>3. 问题澄清</h3>
+            </div>
+            <div className="lane-content">
+              <div className="module-cluster">
+                <div className="cluster-title">待澄清问题</div>
+                <div className="cluster-cards">
+                  {DEMO_CANVAS_SECTIONS.clarify.map(renderCard)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="canvas-lane">
+            <div className="lane-header">
+              <h3>4. 方案规划</h3>
             </div>
             <div className="lane-content">
               <div className="module-cluster">
                 <div className="cluster-title">决策确认</div>
                 <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.rules.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.rules.map(renderCard)}
                 </div>
               </div>
             </div>
@@ -406,20 +540,32 @@ export default function Canvas({ isChatOpen = true }) {
 
           <div className="canvas-lane">
             <div className="lane-header">
-              <h3>4. 落地执行</h3>
+              <h3>5. 落地执行</h3>
             </div>
             <div className="lane-content">
               <div className="module-cluster">
                 <div className="cluster-title">迭代计划</div>
                 <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.planning.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.planning.map(renderCard)}
                 </div>
               </div>
             </div>
           </div>
 
           {/* 渲染所有箭头 */}
-          {arrows.map((arr, i) => <CustomArrow key={i} start={arr.start} end={arr.end} transform={transform} />)}
+          {arrows.map((arr, i) => (
+            <CustomArrow 
+              key={i} 
+              start={arr.start} 
+              end={arr.end} 
+              transform={transform} 
+              activeCardId={activeCardId}
+              outIndex={arr.outIndex}
+              outCount={arr.outCount}
+              inIndex={arr.inIndex}
+              inCount={arr.inCount}
+            />
+          ))}
 
         </div>
 

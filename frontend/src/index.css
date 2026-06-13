@@ -9,14 +9,14 @@
   --bg-active:  #ebebeb;
 
   /* Text */
-  --text-primary:   #0a0a0a;
-  --text-secondary: #6b6b6b;
-  --text-tertiary:  #a0a0a0;
-  --text-disabled:  #c8c8c8;
+  --text-primary:   #0f172a; /* Slate 900 */
+  --text-secondary: #475569; /* Slate 600 */
+  --text-tertiary:  #94a3b8; /* Slate 400 */
+  --text-disabled:  #cbd5e1; /* Slate 300 */
 
   /* Borders */
-  --border:        #e8e8e8;
-  --border-strong: #d0d0d0;
+  --border:        rgba(0, 0, 0, 0.06); /* Translucent thin border */
+  --border-strong: rgba(0, 0, 0, 0.12);
 
   /* Accent */
   --accent:       #0a0a0a;

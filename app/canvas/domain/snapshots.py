@@ -5,23 +5,21 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-from app.canvas.domain.cards import CanvasCard
 from app.canvas.domain.handoff import StructuredHandoff, TodoProjection
-from app.canvas.domain.relations import CanvasRelation
 
 
 @dataclass
 class CanvasSnapshot:
-    """记录某一时刻画布结构的快照。"""
+    """记录某一时刻画布工作状态的轻量快照。"""
 
     snapshot_id: str
     workspace_id: str
     title: str
     summary: str = ""
     created_at: str = ""
-    cards: List[CanvasCard] = field(default_factory=list)
-    relations: List[CanvasRelation] = field(default_factory=list)
-    active_todos: List[TodoProjection] = field(default_factory=list)
+    active_card_ids: List[str] = field(default_factory=list)
+    active_relation_ids: List[str] = field(default_factory=list)
+    todo_projection: Optional[TodoProjection] = None
     handoff: Optional[StructuredHandoff] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -29,9 +27,7 @@ class CanvasSnapshot:
         """将快照序列化为字典。"""
 
         data = asdict(self)
-        data["cards"] = [card.to_dict() for card in self.cards]
-        data["relations"] = [relation.to_dict() for relation in self.relations]
-        data["active_todos"] = [todo.to_dict() for todo in self.active_todos]
+        data["todo_projection"] = self.todo_projection.to_dict() if self.todo_projection else None
         data["handoff"] = self.handoff.to_dict() if self.handoff else None
         return data
 
@@ -45,10 +41,9 @@ class CanvasSnapshot:
             title=data.get("title", ""),
             summary=data.get("summary", ""),
             created_at=data.get("created_at", ""),
-            cards=[CanvasCard.from_dict(item) for item in data.get("cards", [])],
-            relations=[CanvasRelation.from_dict(item) for item in data.get("relations", [])],
-            active_todos=[TodoProjection.from_dict(item) for item in data.get("active_todos", [])],
+            active_card_ids=list(data.get("active_card_ids", [])),
+            active_relation_ids=list(data.get("active_relation_ids", [])),
+            todo_projection=TodoProjection.from_dict(data["todo_projection"]) if data.get("todo_projection") else None,
             handoff=StructuredHandoff.from_dict(data["handoff"]) if data.get("handoff") else None,
             metadata=dict(data.get("metadata", {})),
         )
-

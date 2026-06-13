@@ -3,34 +3,28 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List
-
-from app.canvas.domain.cards import CanvasCard
-from app.canvas.domain.relations import CanvasRelation
-from app.canvas.domain.snapshots import CanvasSnapshot
+from typing import Any, Dict
 
 
 @dataclass
 class CanvasWorkspace:
-    """承载当前画布状态的工作区根对象。"""
+    """承载当前工作台身份与元信息的根对象。
+
+    Workspace 本身不内嵌完整对象图，只引用当前活跃快照和交接状态。
+    """
 
     workspace_id: str
     title: str
-    goal: str = ""
-    stage: str = "discovery"
-    cards: List[CanvasCard] = field(default_factory=list)
-    relations: List[CanvasRelation] = field(default_factory=list)
-    snapshots: List[CanvasSnapshot] = field(default_factory=list)
+    objective: str = ""
+    active_snapshot_id: str = ""
+    handoff_status: str = "not_ready"
     metadata: Dict[str, Any] = field(default_factory=dict)
+    handoff_metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """将工作区序列化为字典。"""
 
-        data = asdict(self)
-        data["cards"] = [card.to_dict() for card in self.cards]
-        data["relations"] = [relation.to_dict() for relation in self.relations]
-        data["snapshots"] = [snapshot.to_dict() for snapshot in self.snapshots]
-        return data
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CanvasWorkspace":
@@ -39,10 +33,9 @@ class CanvasWorkspace:
         return cls(
             workspace_id=data["workspace_id"],
             title=data.get("title", ""),
-            goal=data.get("goal", ""),
-            stage=data.get("stage", "discovery"),
-            cards=[CanvasCard.from_dict(item) for item in data.get("cards", [])],
-            relations=[CanvasRelation.from_dict(item) for item in data.get("relations", [])],
-            snapshots=[CanvasSnapshot.from_dict(item) for item in data.get("snapshots", [])],
+            objective=data.get("objective", ""),
+            active_snapshot_id=data.get("active_snapshot_id", ""),
+            handoff_status=data.get("handoff_status", "not_ready"),
             metadata=dict(data.get("metadata", {})),
+            handoff_metadata=dict(data.get("handoff_metadata", {})),
         )

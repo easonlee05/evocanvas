@@ -14,7 +14,7 @@ class CanvasCardKind(str, Enum):
     """
 
     EVIDENCE = "evidence"
-    QUESTION = "question"
+    PROBLEM = "problem"
     CLARIFICATION = "clarification"
     CONSTRAINT = "constraint"
     DECISION = "decision"
@@ -61,4 +61,3 @@ class CanvasCard:
             evidence_refs=list(data.get("evidence_refs", [])),
             metadata=dict(data.get("metadata", {})),
         )
-

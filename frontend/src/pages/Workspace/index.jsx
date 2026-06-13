@@ -13,66 +13,28 @@ import {
   Square, CheckCircle2, ChevronRight, ChevronDown, ChevronUp, X,
   BookOpen, AlertCircle, Clock, Loader2, Terminal, Bot,
   Bold, Italic, Underline, List, Code, RotateCcw, PanelRight,
+  CheckSquare, FileText, ArrowUp,
 } from 'lucide-react';
 import './workspace.css';
+import Canvas from './Canvas';
 
 // ── Mock 数据 ──
-const MOCK_STEPS = [
+const MOCK_CHAT = [
   {
-    id: 's1', role: 'Compiler', title: '分析需求', status: 'done', expanded: false,
-    summary: '已提取核心目标：积分防刷网关，包含幂等校验、熔断降级、布隆过滤器三个关键模块。',
-    output: '已提取核心目标：积分防刷网关，包含幂等校验、熔断降级、布隆过滤器三个关键模块。\n\n识别到高优先级约束：P95 延迟 < 100ms，日志留存率 100%。',
-    startedAt: new Date(Date.now() - 65000).toISOString(),
-    endedAt: new Date(Date.now() - 53000).toISOString(),
+    id: 'm1', role: 'ai',
+    text: '你好！我是 Canvas AI，我已经准备好为您评估新的功能需求了。需要我帮您总结一下“增强搜索功能”的核心改动吗？'
   },
   {
-    id: 's2', role: 'Reviewer', title: '质量评审', status: 'done', expanded: false,
-    summary: '方案健壮性通过评审。建议补充业务方接入规范说明，其余逻辑符合预期。',
-    output: '方案健壮性通过评审。\n\n**建议**：\n1. 强调业务方接入规范（流水唯一、设备指纹）\n2. 影子模式需明确切换条件\n3. 熔断阈值建议写入配置文件而非硬编码',
-    startedAt: new Date(Date.now() - 52000).toISOString(),
-    endedAt: new Date(Date.now() - 38000).toISOString(),
+    id: 'm2', role: 'user',
+    text: '能总结一下增强搜索功能的核心需求吗？'
   },
   {
-    id: 's3', role: 'Writer', title: '生成文档', status: 'running', expanded: true,
-    summary: null, output: '',
-    startedAt: new Date(Date.now() - 12000).toISOString(), endedAt: null,
-  },
+    id: 'm3', role: 'ai',
+    text: '当然可以，关于“增强搜索功能 (v1.0)”的核心需求如下：\n\n- 在搜索结果中支持按日期、标签进行多维过滤\n- 搜索速度 P95 延迟需控制在 100ms 以内\n- 支持拼写纠错和智能搜索补全\n- 需同步更新相关的 UI 交互规范\n- 确认并审批新版搜索框视觉稿'
+  }
 ];
-const MOCK_DOC = `# 结构化交接物：积分防刷网关\n\n## 当前目标\n\n- 降低作弊刷分风险\n- 保证正常积分发放链路可继续推进\n\n## 已确认约束\n\n- P95 延迟 < 100ms\n- 日志留存率 100%\n- 需要支持幂等校验与熔断降级\n\n## 待决策\n\n- 布隆过滤器是否在 1.0 首版启用\n\n## 仍未解决的问题\n\n- 业务侧接入规范是否由平台统一下发\n`;
-const MOCK_STREAM = '正在整理当前约束、冲突点和待决策项，并生成可继续交给 AI 推进的结构化交接物……▋';
 
-// ── 常量 ──
-const STEP_LABELS = { Compiler: '分析需求', Reviewer: '质量评审', Writer: '生成文档', SYSTEM: '系统调度' };
-const STEP_COLORS = { Compiler: '#7c3aed', Reviewer: '#d97706', Writer: '#16a34a', SYSTEM: '#6b7280' };
-const stepLabel = (role) => STEP_LABELS[role] || role || '执行中';
-const stepColor = (role) => STEP_COLORS[role] || '#6b7280';
-
-// ── 子组件 ──
-function StepIcon({ status, color }) {
-  if (status === 'running') return <Loader2 size={14} className="spin" style={{ color }} />;
-  if (status === 'done') return <CheckCircle2 size={14} style={{ color: '#16a34a' }} />;
-  if (status === 'failed') return <AlertCircle size={14} style={{ color: '#dc2626' }} />;
-  return <div className="step-dot-pending" />;
-}
-
-function LiveTimer({ startedAt, endedAt }) {
-  const [label, setLabel] = useState('');
-  useEffect(() => {
-    if (!startedAt) return;
-    const start = new Date(startedAt).getTime();
-    const fmt = () => {
-      const end = endedAt ? new Date(endedAt).getTime() : Date.now();
-      const s = Math.max(0, Math.floor((end - start) / 1000));
-      setLabel(`${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`);
-    };
-    fmt();
-    if (endedAt) return;
-    const t = setInterval(fmt, 1000);
-    return () => clearInterval(t);
-  }, [startedAt, endedAt]);
-  if (!label) return null;
-  return <span className="step-timer"><Clock size={10} />{label}</span>;
-}
+const MOCK_DOC = `# 结构化交接物：增强搜索功能\n\n## 当前目标\n\n- 提升用户搜索体验与准度\n\n## 已确认约束\n\n- P95 延迟 < 100ms\n`;
 
 function TiptapEditor({ content, onChange, onBlur }) {
   const editor = useEditor({
@@ -93,11 +55,16 @@ function TiptapEditor({ content, onChange, onBlur }) {
 export default function Workspace() {
   const { id: taskId } = useParams();
 
+  const [chatMessages, setChatMessages] = useState([]);
+  const [streamingMessage, setStreamingMessage] = useState('');
   const [steps, setSteps] = useState([]);
   const [streamingStep, setStreamingStep] = useState(null);
   const [taskStatus, setTaskStatus] = useState(null);
-  const [taskTitle, setTaskTitle] = useState('AI 工作台');
+  const [taskTitle, setTaskTitle] = useState('Canvas AI');
   const [isLive, setIsLive] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [model, setModel] = useState('Gemini 3.5 Flash');
+  const [showModelMenu, setShowModelMenu] = useState(false);
   const [arbitration, setArbitration] = useState(null);
   const [userMessages, setUserMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -129,12 +96,11 @@ export default function Workspace() {
     if (!taskId || taskId === 'new') { setTaskTitle('新建任务'); setIsLive(true); return; }
 
     if (taskId === 'demo') {
-      setTaskTitle('积分防刷网关 EvoCanvas 工作面'); setTaskType('evocanvas');
-      setSteps(MOCK_STEPS);
-      setStreamingStep({ stepId: 's3', text: MOCK_STREAM, isThinking: false });
+      setTaskTitle('Canvas AI'); setTaskType('evocanvas');
+      setChatMessages(MOCK_CHAT);
       setDoc(MOCK_DOC);
       setDocSecondary('# 画布快照说明\n\n当前仅展示结构化交接物与工作面状态。');
-      setIsLive(true);
+      setIsLive(false);
       return;
     }
 
@@ -156,7 +122,7 @@ export default function Workspace() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [steps, streamingStep, userMessages, arbitration]);
+  }, [chatMessages, streamingMessage, userMessages, arbitration]);
 
   function connectStream(id) {
     if (streamRef.current) streamRef.current.close();
@@ -294,10 +260,21 @@ export default function Workspace() {
   const currentDocContent = openedDoc === 'secondary' ? docSecondary : doc;
 
   return (
-    <div className="workspace">
+    <div className="workspace" style={{ position: 'relative' }}>
+      <Canvas isChatOpen={isChatOpen} />
+
+      {/* 展开按钮 */}
+      {!isChatOpen && (
+        <button 
+          className="chat-toggle-btn"
+          onClick={() => setIsChatOpen(true)}
+        >
+          <Bot size={14} color="var(--clr-blue)" /> Canvas AI
+        </button>
+      )}
 
       {/* ── 执行看板 ── */}
-      <div className="ws-chat">
+      <div className={`ws-chat ${isChatOpen ? 'open' : 'closed'}`}>
         <div className="ws-chat-header">
           <div className="ws-chat-title">
             <span>{taskTitle}</span>
@@ -307,77 +284,45 @@ export default function Workspace() {
             {taskStatus === 'cancelled' && <span className="paused-badge">已暂停</span>}
           </div>
           <div className="ws-chat-header-actions">
-            <button className="icon-btn" title="设置"><Settings2 size={15} /></button>
-            {hasOutput && !openedDoc && (
-              <button
-                className="icon-btn panel-toggle-btn"
-                title="展开侧边栏"
-                onClick={() => setOpenedDoc(outputItems.find(i => i.content)?.key || null)}
-              >
-                <PanelRight size={15} />
-              </button>
-            )}
+            <button
+              className="icon-btn"
+              title="收起助手"
+              onClick={() => setIsChatOpen(false)}
+            >
+              <PanelRight size={15} />
+            </button>
           </div>
         </div>
 
         <div className="ws-messages" ref={scrollRef}>
-          {steps.length === 0 && !isLive && <div className="step-empty">暂无执行记录</div>}
+          {chatMessages.length === 0 && !isLive && <div className="step-empty">暂无对话记录</div>}
 
-          {steps.map((step, idx) => {
-            const isStreaming = streamingStep?.stepId === step.id;
-            const streamText = isStreaming ? streamingStep.text : '';
-            const isThinking = isStreaming && streamingStep?.isThinking;
-            return (
-              <div key={step.id} className={`step-row step-${step.status}`}>
-                <div className="step-track">
-                  <StepIcon status={step.status} color={stepColor(step.role)} />
-                  {idx < steps.length - 1 && <div className={`step-line${step.status === 'done' ? ' done' : ''}`} />}
-                </div>
-                <div className="step-body">
-                  <div className="step-header"
-                    onClick={() => step.status !== 'running' &&
-                      setSteps(prev => prev.map(s => s.id === step.id ? { ...s, expanded: !s.expanded } : s))}>
-                    <span className="step-title" style={{ color: step.status === 'running' ? stepColor(step.role) : undefined }}>
-                      {step.title}
-                    </span>
-                    <LiveTimer startedAt={step.startedAt} endedAt={step.endedAt} />
-                    {step.status === 'running' && (
-                      <button className="interrupt-btn" onClick={e => { e.stopPropagation(); handleInterrupt(); }}>
-                        <Square size={9} />打断
-                      </button>
-                    )}
-                    {step.status !== 'running' && (
-                      <button className="step-expand-btn">
-                        {step.expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                      </button>
-                    )}
-                  </div>
-                  {step.status === 'running' && (
-                    <div className="step-stream markdown-body">
-                      {isThinking
-                        ? <span className="thinking-inline"><span className="thinking-dots"><span /><span /><span /></span>深度思考中...</span>
-                        : <ReactMarkdown remarkPlugins={[remarkGfm]}>{sanitizeWorkspaceContent(streamText)}</ReactMarkdown>}
-                    </div>
-                  )}
-                  {step.status !== 'running' && step.expanded && (step.output || step.summary) && (
-                    <div className="step-output markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{sanitizeWorkspaceContent(step.output || step.summary)}</ReactMarkdown>
-                    </div>
-                  )}
-                  {step.status === 'done' && !step.expanded && step.summary && (
-                    <div className="step-summary">{step.summary.slice(0, 80)}{step.summary.length > 80 ? '…' : ''}</div>
-                  )}
-                  {step.status === 'failed' && !step.expanded && (
-                    <div className="step-summary" style={{ color: '#dc2626' }}>执行失败，点击展开查看详情</div>
-                  )}
-                </div>
+          {chatMessages.map(m => (
+            <div key={m.id} className={`chat-bubble-row ${m.role}`}>
+              <div className={`chat-bubble ${m.role}`}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
               </div>
-            );
-          })}
-
-          {userMessages.map(m => (
-            <div key={m.id} className="msg msg-user"><div className="msg-user-bubble">{m.text}</div></div>
+            </div>
           ))}
+
+          {isLive && (
+            <div className="chat-bubble-row ai">
+              <div className="chat-bubble ai">
+                {streamingMessage ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingMessage}</ReactMarkdown>
+                ) : (
+                  <span className="thinking-dots"><span/><span/><span/></span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 快捷追问指令 */}
+        <div className="chat-suggestions">
+          <button className="suggestion-chip" onClick={() => setInput('总结一下需求')}><List size={12}/> 总结需求</button>
+          <button className="suggestion-chip" onClick={() => setInput('检查一致性')}><CheckSquare size={12}/> 检查一致性</button>
+          <button className="suggestion-chip" onClick={() => setInput('生成用户故事')}><FileText size={12}/> 生成用户故事</button>
         </div>
 
         {/* 输入区 / 裁决卡 */}
@@ -396,40 +341,46 @@ export default function Workspace() {
             </div>
           ) : (
             <div className="ws-input-box">
-              <div className="ws-input-row">
-                <textarea className="ws-input"
-                  placeholder={isLive ? '运行中，可打断并下达新指令…' : '向 EvoLoop 发送指令…'}
-                  value={input} onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  rows={1}
-                />
-                <button className={`ws-send${input.trim() ? ' active' : ''}`} onClick={handleSend}>
-                  <Send size={14} />
-                </button>
-              </div>
-              <div className="ws-input-tools">
-                <button className="tool-btn"><Mic size={13} /></button>
-                <button className="tool-btn" onClick={() => fileInputRef.current?.click()}>
-                  <Paperclip size={13} />上传文件
-                </button>
-                <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }}
-                  onChange={async e => {
-                    for (const f of Array.from(e.target.files)) await apiUpload('/api/materials', f, null);
-                    e.target.value = '';
-                  }}
-                />
-                <div className="peer-icons">
-                  {PEERS.map(p => (
-                    <button key={p.id} className="peer-icon-btn" title={p.label}
-                      onClick={() => taskId && taskId !== 'new' && taskId !== 'demo' &&
-                        apiPost(`/api/tasks/${taskId}/peer-dispatch`, { peer_target: p.id }, null)}>
-                      <p.Icon size={13} />
-                    </button>
-                  ))}
+              <textarea className="ws-input"
+                placeholder={isLive ? 'AI 正在思考...' : '输入您的想法，与助手探讨...'}
+                value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                rows={1}
+              />
+              <div className="ws-input-bottom-bar">
+                <div className="bottom-bar-left">
+                  <button className="tool-btn" onClick={() => fileInputRef.current?.click()} data-tooltip="上传文件">
+                    <Paperclip size={13} />
+                  </button>
+                  <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }}
+                    onChange={async e => {
+                      for (const f of Array.from(e.target.files)) await apiUpload('/api/materials', f, null);
+                      e.target.value = '';
+                    }}
+                  />
                 </div>
-                {canResume && (
-                  <button className="tool-btn resume-tool-btn" onClick={handleResume}><Zap size={13} />继续执行</button>
-                )}
+
+                <div className="bottom-bar-right">
+                  <div className="model-selector-wrap">
+                    <button className="model-selector-btn" onClick={() => setShowModelMenu(!showModelMenu)} title="选择模型">
+                      <span>{model === 'Gemini 3.5 Flash' ? '3.5 Flash' : '3.1 Pro'}</span>
+                      <ChevronDown size={10} style={{ marginLeft: 2 }} />
+                    </button>
+                    {showModelMenu && (
+                      <div className="model-dropdown-menu">
+                        <div className="model-dropdown-item" onClick={() => { setModel('Gemini 3.5 Flash'); setShowModelMenu(false); }}>Gemini 3.5 Flash</div>
+                        <div className="model-dropdown-item" onClick={() => { setModel('Gemini 3.1 Pro'); setShowModelMenu(false); }}>Gemini 3.1 Pro</div>
+                      </div>
+                    )}
+                  </div>
+                  <button 
+                    className={`ws-send-codex${isLive ? ' active stop' : (input.trim() ? ' active' : '')}`} 
+                    onClick={isLive ? handleInterrupt : handleSend}
+                    data-tooltip={isLive ? '停止生成' : '发送消息'}
+                  >
+                    {isLive ? <Square size={10} fill="#fff" style={{ stroke: 'none' }} /> : <ArrowUp size={14} />}
+                  </button>
+                </div>
               </div>
             </div>
           )}

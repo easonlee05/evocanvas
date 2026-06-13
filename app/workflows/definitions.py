@@ -1,30 +1,52 @@
-"""工作流任务注册表模块。
+"""EvoCanvas 工作流任务注册表。
 
-该模块负责为所有产品线注册和构建 `TaskDefinition`，确保新旧任务类型的兼容性，
-并在 Evoloop 3.0 系统中提供统一的任务定义检索机制。
+该模块负责集中注册当前可用的任务定义。
+在迁移期内优先保证 EvoCanvas 1.0 的 `evocanvas_canvas_turn` 可用，
+同时对历史任务定义采用可选加载，避免缺失旧模块时阻断新产品能力。
 """
 from __future__ import annotations
 
+from typing import Callable
+
 from app.core.task import TaskDefinition
-from app.workflows.acceptance_review import build_acceptance_review_definition
-from app.workflows.spec_to_agent import build_spec_to_agent_definition
+from app.workflows.canvas_session import build_canvas_turn_definition
+
+
+DefinitionBuilder = Callable[[], TaskDefinition]
+
+
+def _load_legacy_builders() -> dict[str, DefinitionBuilder]:
+    """按需加载仍可用的历史任务定义构造器。
+
+    Returns:
+        dict[str, DefinitionBuilder]: 仅包含当前环境中可成功导入的历史定义。
+    """
+    builders: dict[str, DefinitionBuilder] = {}
+
+    try:
+        from app.workflows.acceptance_review import build_acceptance_review_definition
+    except ModuleNotFoundError:
+        build_acceptance_review_definition = None
+    if build_acceptance_review_definition is not None:
+        builders["acceptance_review"] = build_acceptance_review_definition
+
+    try:
+        from app.workflows.spec_to_agent import build_spec_to_agent_definition
+    except ModuleNotFoundError:
+        build_spec_to_agent_definition = None
+    if build_spec_to_agent_definition is not None:
+        builders["spec_to_agent"] = build_spec_to_agent_definition
+
+    return builders
 
 
 def build_task_registry() -> dict[str, TaskDefinition]:
-    """构建并返回全局任务定义注册表。
-
-    该函数会加载并配置系统在 3.0 架构下的核心原生工作流，包括规范编译（Spec to Agent）和验收评审任务。
-
-    Returns:
-        dict[str, TaskDefinition]: 键为任务类型标识，值为对应 `TaskDefinition` 的映射字典。
-    """
-    # 构建 3.0 的 spec_to_agent 任务定义
-    spec_to_agent = build_spec_to_agent_definition()
-    # 构建 3.0 的 acceptance_review 任务定义
-    acceptance_review = build_acceptance_review_definition()
-    
-    return {
-        "spec_to_agent": spec_to_agent,
-        "acceptance_review": acceptance_review,
+    """构建并返回全局任务定义注册表。"""
+    registry = {
+        "evocanvas_canvas_turn": build_canvas_turn_definition(),
     }
 
+    for task_type, builder in _load_legacy_builders().items():
+        registry[task_type] = builder()
+
+    return registry

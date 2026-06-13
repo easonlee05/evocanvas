@@ -1,0 +1,25 @@
+.main-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  background: var(--bg-app);
+}
+
+.layout-content {
+  flex: 1 1 0%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-8);
+}
+
+.main-area:has(.workspace) {
+  padding: 0;
+  overflow: hidden;
+}

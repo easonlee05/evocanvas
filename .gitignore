@@ -1,0 +1,44 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+
+# Local tool settings
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Runtime workspace
+/workspace/
+.manual-agent/
+
+# Legacy local artifacts
+input/
+output/
+memory/
+data/
+cache/
+logs/
+
+# Logs
+*.log
+
+# GBrain
+knowledge_repo/
+
+.evoloop_storage/
+
+# Human Only Documents (AI Ignored)
+/human_docs/

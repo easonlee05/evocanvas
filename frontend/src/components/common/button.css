@@ -1,0 +1,98 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-weight: 500;
+  border-radius: var(--r-md);
+  border: none;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  outline: none;
+}
+
+.btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+
+/* Variants */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-accent);
+}
+.btn-primary:hover  { background: var(--accent-hover); }
+.btn-primary:active { background: var(--accent-hover); box-shadow: none; }
+
+.btn-secondary {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-xs);
+}
+.btn-secondary:hover  { background: var(--bg-hover); border-color: var(--border-medium); }
+.btn-secondary:active { background: var(--bg-panel); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:hover  { background: var(--bg-hover); color: var(--text-primary); }
+.btn-ghost:active { background: var(--bg-panel); }
+
+.btn-danger {
+  background: var(--clr-red-bg);
+  color: var(--clr-red);
+  border: 1px solid rgba(239,68,68,0.15);
+}
+.btn-danger:hover { background: rgba(239,68,68,0.14); }
+
+/* Icon-only button */
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+  flex-shrink: 0;
+}
+.btn-icon:hover  { background: var(--bg-hover); color: var(--text-primary); }
+.btn-icon:active { background: var(--bg-panel); }
+
+/* Sizes */
+.btn-xs {
+  height: 24px;
+  padding: 0 var(--sp-2);
+  font-size: var(--text-xs);
+  border-radius: var(--r-sm);
+}
+.btn-sm {
+  height: 28px;
+  padding: 0 var(--sp-3);
+  font-size: var(--text-sm);
+}
+.btn-md {
+  height: 34px;
+  padding: 0 var(--sp-4);
+  font-size: var(--text-sm);
+}
+.btn-lg {
+  height: 40px;
+  padding: 0 var(--sp-5);
+  font-size: var(--text-base);
+}
+
+/* Icon layout */
+.btn-icon-left  { display: flex; margin-right: var(--sp-2); }
+.btn-icon-right { display: flex; margin-left: var(--sp-2); }
+.btn-text { flex: 1; }

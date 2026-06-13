@@ -160,10 +160,151 @@
   font-size: var(--text-xs);
   color: var(--text-secondary);
   line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+}
+
+.structured-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.structured-quote,
+.structured-list,
+.structured-checkpoints {
+  padding: 2px 0 0;
+}
+
+.structured-quote-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.structured-quote-text {
+  flex: 1;
+}
+
+.structured-quote-mark {
+  color: #cbd5e1;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.structured-list {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+}
+
+.structured-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.structured-list-item + .structured-list-item {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(226, 232, 240, 0.7);
+}
+
+.structured-list-text {
+  flex: 1;
+}
+
+.structured-checkpoints {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+}
+
+.structured-checkpoint-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  position: relative;
+}
+
+.structured-checkpoint-item + .structured-checkpoint-item {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.structured-checkpoint-item + .structured-checkpoint-item::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: -12px;
+  width: 1px;
+  height: 12px;
+  background: #dbe3ee;
+}
+
+.fact-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: #94a3b8;
+  flex-shrink: 0;
+}
+
+.checkpoint-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 2px solid #cbd5e1;
+  flex-shrink: 0;
+}
+
+.checkpoint-dot-done {
+  background: #5bb88a;
+  border-color: #5bb88a;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.55);
+}
+
+.checkpoint-dot-current {
+  background: #ffffff;
+  border-color: #5f89ff;
+}
+
+.checkpoint-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.checkpoint-text {
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.checkpoint-date {
+  color: #94a3b8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding-left: 12px;
 }
 
 .canvas-card-meta {
@@ -210,6 +351,15 @@
   font-weight: 600;
 }
 
+.canvas-tag-eyebrow {
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
+.canvas-tag-subtle {
+  opacity: 0.72;
+}
+
 /* 多彩 Tag */
 .tag-red { background: #fee2e2; color: #b91c1c; }
 .tag-yellow { background: #fef3c7; color: #b45309; }
@@ -248,46 +398,37 @@
 }
 
 /* ── 富文本卡片专属样式 ── */
-.card-tags-row {
+.card-eyebrow-row {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 4px;
 }
-.card-title-rating {
+
+.card-secondary-tags {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
+  gap: 6px;
 }
-.card-stars {
-  display: flex;
-  gap: 2px;
-  margin-left: auto;
-}
-.card-avatar-sm {
-  width: 24px;
-  height: 24px;
+.card-avatar {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: var(--clr-blue);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.card-avatar-xs {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #64748b;
-  color: #fff;
-  font-size: 9px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+.card-avatar-violet { background: linear-gradient(135deg, #8b82d9, #b2a7eb); }
+.card-avatar-teal { background: linear-gradient(135deg, #6da8a7, #93c9c4); }
+.card-avatar-amber { background: linear-gradient(135deg, #d2a86d, #e9c596); }
+.card-avatar-slate { background: linear-gradient(135deg, #8d97ab, #b1b9c8); }
+.card-avatar-rose { background: linear-gradient(135deg, #d08ea0, #e7b2c0); }
+.card-avatar-emerald { background: linear-gradient(135deg, #82b59e, #add5bf); }
+.card-avatar-orange { background: linear-gradient(135deg, #d6a083, #ebc0a9); }
+.card-avatar-sky { background: linear-gradient(135deg, #84afca, #b1d1e6); }
 .card-status-row {
   margin-top: 4px;
 }
@@ -295,24 +436,65 @@
   background: #f1f5f9;
   color: #475569;
 }
-.card-owner-row, .card-user-row {
+.card-persona-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
   font-size: 11px;
+}
+.canvas-card-bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
+}
+.card-meta-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .owner-label {
   color: var(--text-tertiary);
+  min-width: 42px;
 }
 .owner-name {
   color: var(--text-primary);
   font-weight: 500;
 }
+.card-confidence-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card-confidence-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.confidence-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+.confidence-meter {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+.confidence-meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffffff, #d9e0ea);
+}
 .card-attachments {
   display: flex;
   gap: 8px;
-  margin-top: 8px;
   flex-wrap: wrap;
 }
 .attachment-pill {
@@ -460,4 +642,3 @@
   padding: 1px 4px;
   border-radius: 2px;
 }
-

@@ -17,24 +17,12 @@ import {
 } from 'lucide-react';
 import './workspace.css';
 import Canvas from './Canvas';
-
-// ── Mock 数据 ──
-const MOCK_CHAT = [
-  {
-    id: 'm1', role: 'ai',
-    text: '你好！我是 Canvas AI，我已经准备好为您评估新的功能需求了。需要我帮您总结一下“增强搜索功能”的核心改动吗？'
-  },
-  {
-    id: 'm2', role: 'user',
-    text: '能总结一下增强搜索功能的核心需求吗？'
-  },
-  {
-    id: 'm3', role: 'ai',
-    text: '当然可以，关于“增强搜索功能 (v1.0)”的核心需求如下：\n\n- 在搜索结果中支持按日期、标签进行多维过滤\n- 搜索速度 P95 延迟需控制在 100ms 以内\n- 支持拼写纠错和智能搜索补全\n- 需同步更新相关的 UI 交互规范\n- 确认并审批新版搜索框视觉稿'
-  }
-];
-
-const MOCK_DOC = `# 结构化交接物：增强搜索功能\n\n## 当前目标\n\n- 提升用户搜索体验与准度\n\n## 已确认约束\n\n- P95 延迟 < 100ms\n`;
+import {
+  DEMO_CHAT,
+  DEMO_DOC,
+  DEMO_DOC_SECONDARY,
+  DEMO_PROJECT_TITLE,
+} from './demoScenario.js';
 
 function TiptapEditor({ content, onChange, onBlur }) {
   const editor = useEditor({
@@ -96,10 +84,10 @@ export default function Workspace() {
     if (!taskId || taskId === 'new') { setTaskTitle('新建任务'); setIsLive(true); return; }
 
     if (taskId === 'demo') {
-      setTaskTitle('Canvas AI'); setTaskType('evocanvas');
-      setChatMessages(MOCK_CHAT);
-      setDoc(MOCK_DOC);
-      setDocSecondary('# 画布快照说明\n\n当前仅展示结构化交接物与工作面状态。');
+      setTaskTitle(DEMO_PROJECT_TITLE); setTaskType('evocanvas');
+      setChatMessages(DEMO_CHAT);
+      setDoc(DEMO_DOC);
+      setDocSecondary(DEMO_DOC_SECONDARY);
       setIsLive(false);
       return;
     }

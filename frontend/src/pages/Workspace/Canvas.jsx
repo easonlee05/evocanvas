@@ -1,50 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './Canvas.css';
-import { FileText, MessageSquare, AlertCircle, FileCode2, CheckSquare, ListTodo, MoreHorizontal, ChevronRight, Star, ChevronDown, ChevronUp } from 'lucide-react';
-
-const mockCards = {
-  evidence: [
-    {
-      id: 'e1', title: '王经理', rating: 4, 
-      desc: '目前的刷分漏洞严重影响了产品体验，我们需要尽快修复。核心功能用着还可以。', 
-      userAvatar: '王', userName: '王经理',
-      tags: [{ label: '缺陷', color: 'red' }, { label: '需求', color: 'yellow' }],
-      next: 'p1'
-    },
-    {
-      id: 'e2', title: '李总监', rating: 5, 
-      desc: '竞品采用了布隆过滤器的方案，不仅降低了延迟，防刷效果也很好。', 
-      userAvatar: '李', userName: '李总监',
-      tags: [{ label: '建议', color: 'gray' }],
-      next: 'p1'
-    }
-  ],
-  problems: [
-    { 
-      id: 'p1', title: '增强搜索功能 (v1.0)', 
-      statusPill: { label: '草稿', color: 'gray' },
-      owner: { name: 'PM 张三', avatar: '张' },
-      attachments: [{ icon: '📄', label: 'PRD文档' }, { icon: '🖼', label: '原型图' }],
-      next: ['r1'] 
-    },
-    { 
-      id: 'p2', title: '用户画像重构', 
-      next: [] 
-    }
-  ],
-  clarify: [],
-  rules: [
-    { 
-      id: 'r1', title: '决策记录：防刷策略', 
-      statusPill: { label: '已审批', color: 'green' },
-      owner: { name: '干系人团队', avatar: '多' },
-      next: 'd1' 
-    }
-  ],
-  planning: [
-    { id: 'd1', title: '落地迭代任务', isSimple: true }
-  ]
-};
+import { FileText, MessageSquare, AlertCircle, FileCode2, CheckSquare, ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 
 function CustomArrow({ start, end, transform }) {
   const [path, setPath] = useState('');
@@ -92,42 +49,83 @@ function CustomArrow({ start, end, transform }) {
   );
 }
 
-function CanvasCard({ data }) {
-  if (data.isSimple) {
+function CardPersonaRow({ meta }) {
+  if (!meta) return null;
+
+  return (
+    <div className="card-persona-row">
+      <span className="owner-label">{meta.label || '负责人'}</span>
+      <div className={`card-avatar card-avatar-${meta.avatarTone || 'slate'}`}>{meta.avatar}</div>
+      <span className="owner-name">{meta.name}</span>
+    </div>
+  );
+}
+
+function StructuredContent({ kind = 'list', items = [] }) {
+  if (!items?.length) return null;
+
+  if (kind === 'quote') {
     return (
-      <div className="canvas-card" id={data.id}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" />
-          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>{data.title}</span>
-        </div>
+      <div className="structured-block structured-quote">
+        {items.map((item) => (
+          <div key={item} className="structured-quote-item">
+            <span className="structured-quote-text">{item}</span>
+            <span className="structured-quote-mark">”</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (kind === 'checkpoints') {
+    return (
+      <div className="structured-block structured-checkpoints">
+        {items.map((item) => (
+          <div key={`${item.text}-${item.date || ''}`} className="structured-checkpoint-item">
+            <span className={`checkpoint-dot checkpoint-dot-${item.state || 'pending'}`} />
+            <div className="checkpoint-copy">
+              <span className="checkpoint-text">{item.text}</span>
+            </div>
+            {item.date && <span className="checkpoint-date">{item.date}</span>}
+          </div>
+        ))}
       </div>
     );
   }
 
   return (
+    <div className="structured-block structured-list">
+      {items.map((item) => (
+        <div key={item} className="structured-list-item">
+          <span className="fact-dot" />
+          <span className="structured-list-text">{item}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CanvasCard({ data }) {
+  const primaryTag = data.tags?.[0];
+  const secondaryTags = data.tags?.slice(1) || [];
+
+  return (
     <div className="canvas-card" id={data.id}>
-      {data.tags && (
-        <div className="card-tags-row">
-          {data.tags.map((t, i) => (
-            <span key={i} className={`canvas-tag tag-${t.color}`}>{t.label}</span>
-          ))}
+      {primaryTag && (
+        <div className="card-eyebrow-row">
+          <span className={`canvas-tag canvas-tag-eyebrow tag-${primaryTag.color}`}>{primaryTag.label}</span>
+          {secondaryTags.length > 0 && (
+            <div className="card-secondary-tags">
+              {secondaryTags.map((t, i) => (
+                <span key={i} className={`canvas-tag canvas-tag-subtle tag-${t.color}`}>{t.label}</span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       <div className="canvas-card-header">
-        {data.rating ? (
-          <div className="card-title-rating">
-            <div className="card-avatar-sm">{data.userAvatar}</div>
-            <span className="canvas-card-title">{data.title}</span>
-            <div className="card-stars">
-              {[...Array(5)].map((_, i) => (
-                <Star key={i} size={10} fill={i < data.rating ? "#f59e0b" : "transparent"} color={i < data.rating ? "#f59e0b" : "#cbd5e1"} />
-              ))}
-            </div>
-          </div>
-        ) : (
-          <span className="canvas-card-title">{data.title}</span>
-        )}
+        <span className="canvas-card-title">{data.title}</span>
         <button className="icon-btn" style={{width: 20, height: 20}}><MoreHorizontal size={14}/></button>
       </div>
 
@@ -139,13 +137,7 @@ function CanvasCard({ data }) {
 
       {data.desc && <div className="canvas-card-desc">{data.desc}</div>}
 
-      {data.owner && (
-        <div className="card-owner-row">
-          <span className="owner-label">负责人: </span>
-          <div className="card-avatar-xs">{data.owner.avatar}</div>
-          <span className="owner-name">{data.owner.name}</span>
-        </div>
-      )}
+      <StructuredContent kind={data.structureKind} items={data.structuredItems} />
 
       {data.attachments && (
         <div className="card-attachments">
@@ -158,12 +150,26 @@ function CanvasCard({ data }) {
         </div>
       )}
 
-      {data.userName && !data.rating && (
-        <div className="card-user-row">
-          <div className="card-avatar-sm">{data.userAvatar}</div>
-          <span className="owner-name">{data.userName}</span>
-        </div>
-      )}
+      <div className="canvas-card-bottom">
+        {(data.source || data.owner) && (
+          <div className="card-meta-stack">
+            <CardPersonaRow meta={data.source} />
+            <CardPersonaRow meta={data.owner} />
+          </div>
+        )}
+
+        {typeof data.confidence === 'number' && (
+          <div className="card-confidence-row">
+            <div className="card-confidence-copy">
+              <span className="owner-label">置信度</span>
+              <span className="confidence-value">{data.confidence}%</span>
+            </div>
+            <div className="confidence-meter" aria-label={`置信度 ${data.confidence}%`}>
+              <div className="confidence-meter-fill" style={{ width: `${data.confidence}%` }} />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -303,7 +309,7 @@ export default function Canvas({ isChatOpen = true }) {
 
   // 收集所有箭头的配置
   const arrows = [];
-  Object.values(mockCards).flat().forEach(card => {
+  Object.values(DEMO_CANVAS_SECTIONS).flat().forEach(card => {
     if (card.next) {
       const nextArr = Array.isArray(card.next) ? card.next : [card.next];
       nextArr.forEach(targetId => {
@@ -358,7 +364,7 @@ export default function Canvas({ isChatOpen = true }) {
               <div className="module-cluster">
                 <div className="cluster-title">用户反馈</div>
                 <div className="cluster-cards">
-                  {mockCards.evidence.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.evidence.map(card => <CanvasCard key={card.id} data={card} />)}
                 </div>
               </div>
             </div>
@@ -372,13 +378,13 @@ export default function Canvas({ isChatOpen = true }) {
               <div className="module-cluster">
                 <div className="cluster-title">功能设计</div>
                 <div className="cluster-cards">
-                  {mockCards.problems.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.problems.map(card => <CanvasCard key={card.id} data={card} />)}
                 </div>
               </div>
               <div className="module-cluster">
                 <div className="cluster-title">待澄清问题</div>
                 <div className="cluster-cards">
-                  {mockCards.clarify.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.clarify.map(card => <CanvasCard key={card.id} data={card} />)}
                 </div>
               </div>
             </div>
@@ -392,7 +398,7 @@ export default function Canvas({ isChatOpen = true }) {
               <div className="module-cluster">
                 <div className="cluster-title">决策确认</div>
                 <div className="cluster-cards">
-                  {mockCards.rules.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.rules.map(card => <CanvasCard key={card.id} data={card} />)}
                 </div>
               </div>
             </div>
@@ -406,7 +412,7 @@ export default function Canvas({ isChatOpen = true }) {
               <div className="module-cluster">
                 <div className="cluster-title">迭代计划</div>
                 <div className="cluster-cards">
-                  {mockCards.planning.map(card => <CanvasCard key={card.id} data={card} />)}
+                  {DEMO_CANVAS_SECTIONS.planning.map(card => <CanvasCard key={card.id} data={card} />)}
                 </div>
               </div>
             </div>

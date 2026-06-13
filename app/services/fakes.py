@@ -156,6 +156,16 @@ class FakeStorage:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def canvas_root(self) -> Path:
+        """获取并创建 EvoCanvas 工作区数据的根目录。
+
+        当前首版将画布数据统一放在 `canvas/` 命名空间下，
+        供工作区根对象等 EvoCanvas 原生结构逐步迁移复用。
+        """
+        path = self.root / "canvas"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def save_task(self, task: Task) -> None:
         """持久化任务的元数据及状态到 task.json 文件。
 

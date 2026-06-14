@@ -346,6 +346,34 @@ class CanvasTurnFlowTests(unittest.TestCase):
         self.assertIn("canvas.confirmation.requested", event_types)
         self.assertIn("canvas.confirmation.rejected", event_types)
 
+    def test_execute_turn_with_real_llm_proposals(self) -> None:
+        import unittest.mock
+        from app.core.ports import LLMResult
+
+        mock_llm = unittest.mock.MagicMock()
+        mock_llm.api_key = "some_valid_key"
+        mock_llm.invoke.side_effect = [
+            LLMResult(content='{"intent": "clarification", "roles": ["Clarifier"]}'),
+            LLMResult(content='{"title": "大模型提取问题", "summary": "这表明大模型提取确实生效了"}')
+        ]
+
+        canvas_service = CanvasService(storage=self.storage, llm=mock_llm)
+        turn_data = canvas_service.start_turn(
+            workspace_id="demo",
+            message="一些复杂的语义输入",
+            selected_card_ids=[],
+            material_ids=[]
+        )
+
+        self.assertEqual(turn_data["intent"], "clarification")
+        self.assertEqual(turn_data["action"], "auto_apply")
+
+        canvas = canvas_service.get_canvas_view("demo")
+        mock_cards = [c for c in canvas["cards"] if c["title"] == "大模型提取问题"]
+        self.assertEqual(len(mock_cards), 1)
+        self.assertEqual(mock_cards[0]["summary"], "这表明大模型提取确实生效了")
+        self.assertEqual(mock_cards[0]["kind"], "clarification")
+
     def test_failed_turn_publishes_failed_event_and_releases_turn(self) -> None:
         event_bus = EventBus()
         storage = FakeStorage(Path(gettempdir()) / "manual-agent-phase1" / f"canvas-failed-events-{uuid4().hex[:8]}", event_bus=event_bus)

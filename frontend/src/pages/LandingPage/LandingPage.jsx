@@ -39,6 +39,7 @@ const MODELS = [
   { id: 'gpt-5.5', name: 'GPT-5.5' },
   { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
   { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
+  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
   { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
 ];
 
@@ -89,15 +90,21 @@ export default function LandingPage() {
     setError('');
     setStatus('thinking');
     
-    // 调用 API 接口，向后端发起新任务包的编译与创建请求
-    const task = await apiPost('/api/tasks', { prompt: msg, model }, null);
-    const taskId = task?.taskId || task?.task_id || task?.id;
-    if (taskId) {
-      // 创建成功后，使用 react-router-dom 的 navigate 进行页面重定向，进入该任务的独立工作台
-      navigate(`/workspace/${taskId}`);
+    // 生成随机工作区 ID 并在后端初始化新工作区回合
+    const workspaceId = 'ws_' + Math.random().toString(36).substring(2, 11);
+    const result = await apiPost(`/api/canvas/workspaces/${workspaceId}/messages`, {
+      message: msg,
+      selected_card_ids: [],
+      material_ids: [],
+      model: model
+    }, null);
+
+    if (result && result.workspace_id) {
+      // 创建成功后，重定向至工作台页面
+      navigate(`/workspace/${result.workspace_id}`);
       return;
     }
-    setError('任务创建失败：请确认后端 API 已启动并可访问。');
+    setError('工作区初始化失败：请确认后端 API 已启动并可访问。');
     setStatus('idle');
   };
 

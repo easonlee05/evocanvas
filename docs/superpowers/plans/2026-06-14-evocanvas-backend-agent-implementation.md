@@ -43,7 +43,7 @@
 - 新建：`app/canvas/domain/mutations.py`
 - 测试：`tests/test_canvas_domain.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import unittest
@@ -106,12 +106,12 @@ class CanvasDomainTests(unittest.TestCase):
         self.assertEqual(CanvasMutationProposal.from_dict(proposal.to_dict()).risk_level, MutationRiskLevel.LOW)
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_domain -v`
 预期：由于 `app/canvas/domain/*` 还不存在，测试报 `ModuleNotFoundError` 或属性缺失并 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/canvas/domain/cards.py
@@ -234,12 +234,12 @@ class CanvasMutationProposal:
         )
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_domain -v`
 预期：`CanvasDomainTests` 全部 PASS，输出 `OK`。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/canvas/__init__.py app/canvas/domain/__init__.py app/canvas/domain/workspace.py app/canvas/domain/cards.py app/canvas/domain/relations.py app/canvas/domain/snapshots.py app/canvas/domain/handoff.py app/canvas/domain/mutations.py tests/test_canvas_domain.py
@@ -253,7 +253,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: add evocanvas domain cont
 - 修改：`app/services/fakes.py`
 - 测试：`tests/test_canvas_repository.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import tempfile
@@ -283,12 +283,12 @@ class CanvasRepositoryTests(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "canvas" / "workspaces" / "ws_demo" / "workspace.json").exists())
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_repository -v`
 预期：由于 `CanvasRepository` 与 `canvas/workspaces/*` 存储布局尚未实现，测试 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/canvas/repository.py
@@ -325,12 +325,12 @@ def canvas_root(self) -> Path:
     return path
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_repository -v`
 预期：workspace 持久化位置正确，测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/canvas/repository.py app/services/fakes.py tests/test_canvas_repository.py
@@ -344,7 +344,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: add evocanvas repository 
 - 修改：`app/canvas/repository.py`
 - 测试：`tests/test_canvas_governance.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import unittest
@@ -374,12 +374,12 @@ class CanvasGovernanceTests(unittest.TestCase):
         self.assertEqual(outcome.risk_level, "high")
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_governance -v`
 预期：`MutationGovernance` 和风险分类逻辑不存在，测试 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/canvas/governance.py
@@ -417,12 +417,12 @@ def save_confirmation_queue(self, workspace_id: str, proposal_ids: List[str]) ->
     path.write_text(json.dumps({"proposal_ids": proposal_ids}, ensure_ascii=False, indent=2), encoding="utf-8")
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_governance -v`
 预期：高风险 mutation 被识别为 `pending_confirmation`，测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/canvas/governance.py app/canvas/repository.py tests/test_canvas_governance.py
@@ -438,7 +438,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: add evocanvas mutation go
 - 新建：`app/canvas/agent/supervisor.py`
 - 测试：`tests/test_canvas_supervisor.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import unittest
@@ -460,12 +460,12 @@ class CanvasSupervisorTests(unittest.TestCase):
         self.assertNotIn("HandoffBuilder", plan.roles)
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_supervisor -v`
 预期：Supervisor 和角色规划不存在，测试 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/canvas/agent/contracts.py
@@ -518,12 +518,12 @@ class CanvasSupervisor:
         )
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_supervisor -v`
 预期：意图识别与角色选择断言 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/canvas/agent/__init__.py app/canvas/agent/contracts.py app/canvas/agent/roles.py app/canvas/agent/supervisor.py tests/test_canvas_supervisor.py
@@ -537,7 +537,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: add evocanvas supervisor 
 - 修改：`app/workflows/definitions.py`
 - 测试：`tests/test_canvas_workflow_definition.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import unittest
@@ -552,12 +552,12 @@ class CanvasWorkflowDefinitionTests(unittest.TestCase):
         self.assertEqual(registry["evocanvas_canvas_turn"].display_name, "EvoCanvas Canvas Turn")
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_workflow_definition -v`
 预期：注册表中没有 `evocanvas_canvas_turn`，测试 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/workflows/canvas_session.py
@@ -605,12 +605,12 @@ def build_task_registry() -> dict[str, TaskDefinition]:
     }
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_workflow_definition -v`
 预期：新 task definition 已注册，测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/workflows/canvas_session.py app/workflows/definitions.py tests/test_canvas_workflow_definition.py
@@ -624,7 +624,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: register evocanvas canvas
 - 修改：`app/api/server.py`
 - 测试：`tests/test_canvas_api.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import tempfile
@@ -653,12 +653,12 @@ class CanvasApiTests(unittest.TestCase):
         self.assertIn("workspace_id", response.json())
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_api -v`
 预期：`/api/canvas/workspaces/demo` 尚不存在，测试 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/api/canvas_schemas.py
@@ -704,12 +704,12 @@ async def get_canvas_view(workspace_id: str, snapshot_id: Optional[str] = None, 
     }
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_api -v`
 预期：workspace 和 canvas 读取接口 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/api/canvas_schemas.py app/api/server.py tests/test_canvas_api.py
@@ -723,7 +723,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: add evocanvas read api en
 - 新建：`app/canvas/service.py`
 - 测试：`tests/test_canvas_turn_flow.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import unittest
@@ -751,12 +751,12 @@ class CanvasTurnFlowTests(unittest.TestCase):
         self.assertIn("turn_id", response.json())
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_turn_flow -v`
 预期：消息提交接口还不存在，测试 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/canvas/service.py
@@ -802,12 +802,12 @@ async def get_canvas_events(workspace_id: str, service: TaskService = Depends(ge
     return StreamingResponse(stream(), media_type="text/event-stream")
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_turn_flow -v`
 预期：消息提交返回 `turn_id`，测试 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/canvas/service.py app/api/server.py tests/test_canvas_turn_flow.py
@@ -822,7 +822,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: add evocanvas turn submis
 - 修改：`app/api/server.py`
 - 测试：`tests/test_canvas_confirmation_api.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import unittest
@@ -847,12 +847,12 @@ class CanvasConfirmationApiTests(unittest.TestCase):
         self.assertIn("items", response.json())
 ```
 
-- [ ] **步骤 2：运行测试，确认当前会失败**
+- [x] **步骤 2：运行测试，确认当前会失败**
 
 运行：`python3 -m unittest tests.test_canvas_confirmation_api -v`
 预期：确认、快照和 handoff 接口不存在，测试 FAIL。
 
-- [ ] **步骤 3：补最小实现**
+- [x] **步骤 3：补最小实现**
 
 ```python
 # app/canvas/service.py
@@ -899,12 +899,12 @@ async def get_canvas_handoff(workspace_id: str, service: TaskService = Depends(g
     return CanvasService().get_handoff(workspace_id)
 ```
 
-- [ ] **步骤 4：再次运行测试，确认通过**
+- [x] **步骤 4：再次运行测试，确认通过**
 
 运行：`python3 -m unittest tests.test_canvas_confirmation_api -v`
 预期：确认、snapshot、handoff 接口全部 PASS。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add app/canvas/repository.py app/canvas/service.py app/api/server.py tests/test_canvas_confirmation_api.py
@@ -916,7 +916,7 @@ git -C /Users/apple/Desktop/evocanvas commit -m "feat: add evocanvas confirmatio
 **文件：**
 - 新建：`tests/test_canvas_regression.py`
 
-- [ ] **步骤 1：先写失败测试**
+- [x] **步骤 1：先写失败测试**
 
 ```python
 import unittest
@@ -932,12 +932,12 @@ class CanvasRegressionTests(unittest.TestCase):
         self.assertIn("evocanvas_canvas_turn", registry)
 ```
 
-- [ ] **步骤 2：运行验证，确认当前仍有缺口**
+- [x] **步骤 2：运行验证，确认当前仍有缺口**
 
 运行：`python3 -m unittest tests.test_canvas_domain tests.test_canvas_repository tests.test_canvas_governance tests.test_canvas_supervisor tests.test_canvas_workflow_definition tests.test_canvas_api tests.test_canvas_turn_flow tests.test_canvas_confirmation_api tests.test_canvas_regression -v`
 预期：在全部实现和路由补齐之前，至少会有一个测试 FAIL。
 
-- [ ] **步骤 3：补最小实现与验证命令**
+- [x] **步骤 3：补最小实现与验证命令**
 
 ```text
 验证命令 1：
@@ -947,7 +947,7 @@ python3 -m unittest tests.test_canvas_domain tests.test_canvas_repository tests.
 python3 -m py_compile app/api/server.py app/api/canvas_schemas.py app/canvas/repository.py app/canvas/governance.py app/canvas/service.py app/canvas/agent/supervisor.py app/workflows/canvas_session.py
 ```
 
-- [ ] **步骤 4：执行完整回归，确认全部通过**
+- [x] **步骤 4：执行完整回归，确认全部通过**
 
 运行：
 
@@ -961,7 +961,7 @@ python3 -m py_compile app/api/server.py app/api/canvas_schemas.py app/canvas/rep
 - `unittest` 输出 `OK`
 - `py_compile` 无报错输出
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git -C /Users/apple/Desktop/evocanvas add tests/test_canvas_regression.py

@@ -58,6 +58,7 @@ class CanvasService:
 
     def __init__(self, storage: Any, llm: Any = None):
         self.storage = storage
+        self.llm = llm
         self.repository = CanvasRepository(storage)
         self.supervisor = CanvasSupervisor(llm=llm or FakeLLM())
         self.governance = MutationGovernance(repository=self.repository)
@@ -102,6 +103,7 @@ class CanvasService:
         selected_card_ids: List[str],
         material_ids: List[str],
         mode: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Dict[str, Any]:
         del mode
 
@@ -121,11 +123,34 @@ class CanvasService:
             )
             existing_cards = self.repository.load_cards(workspace_id)
             self._validate_selected_cards(selected_card_ids, existing_cards)
+
+            selected_cards_info = []
+            card_map = {c.card_id: c for c in existing_cards}
+            for cid in selected_card_ids:
+                if cid in card_map:
+                    card = card_map[cid]
+                    selected_cards_info.append({
+                        "card_id": card.card_id,
+                        "kind": card.kind.value if hasattr(card.kind, "value") else str(card.kind),
+                        "status": card.status,
+                    })
+
+            # 映射前端发送的模型标识符至后端实际的 API model 名称
+            resolved_model = None
+            if model:
+                model_lower = model.lower()
+                if "deepseek" in model_lower:
+                    resolved_model = "deepseek-chat"
+                elif "gemini" in model_lower:
+                    resolved_model = "gemini-1.5-flash"
+
             plan = self.supervisor.recognize_and_plan(
                 workspace_context={
                     "workspace_id": workspace_id,
                     "selected_card_ids": list(selected_card_ids),
+                    "selected_cards": selected_cards_info,
                     "material_ids": list(material_ids),
+                    "model": resolved_model,
                 },
                 message=message,
             )
@@ -137,6 +162,7 @@ class CanvasService:
                 existing_cards=existing_cards,
                 selected_card_ids=selected_card_ids,
                 material_ids=material_ids,
+                model=resolved_model,
             )
             self.repository.append_proposal_history(workspace_id, proposal)
             self._publish_event(
@@ -616,7 +642,25 @@ class CanvasService:
         existing_cards: List[CanvasCard],
         selected_card_ids: List[str],
         material_ids: List[str],
+        model: Optional[str] = None,
     ) -> CanvasMutationProposal:
+        # 1. 检查是否为真实大模型运行环境 (非 FakeLLM，且 API 秘钥有效)
+        from app.services.fakes import FakeLLM
+        is_fake = (
+            self.llm is None
+            or isinstance(self.llm, FakeLLM)
+            or getattr(self.llm, "api_key", "") == ""
+        )
+
+        if not is_fake:
+            # 真实大模型调用，获取语义匹配的提案建议
+            proposal = self._build_mutation_proposal_with_llm(
+                workspace, turn_id, message, plan, existing_cards, selected_card_ids, material_ids, model=model
+            )
+            if proposal is not None:
+                return proposal
+
+        # 2. 本地回退规则分支
         mutations: list[CanvasMutation] = []
         selected_cards = [card for card in existing_cards if card.card_id in set(selected_card_ids)]
         contextual_summary = self._build_contextual_summary(message, selected_cards)
@@ -740,6 +784,194 @@ class CanvasService:
                         selected_card_ids=selected_card_ids,
                     )
                 )
+
+        return CanvasMutationProposal(
+            proposal_id=f"proposal_{uuid4().hex[:12]}",
+            workspace_id=workspace.workspace_id,
+            turn_id=turn_id,
+            mutations=mutations,
+            metadata={
+                "selected_card_ids": list(selected_card_ids),
+                "material_ids": list(material_ids),
+            },
+        )
+
+    def _build_mutation_proposal_with_llm(
+        self,
+        workspace: CanvasWorkspace,
+        turn_id: str,
+        message: str,
+        plan,
+        existing_cards: List[CanvasCard],
+        selected_card_ids: List[str],
+        material_ids: List[str],
+        model: Optional[str] = None,
+    ) -> CanvasMutationProposal | None:
+        import json
+        import re
+        from app.canvas.domain.cards import CanvasCardKind, CanvasCard
+        from app.canvas.domain.mutations import CanvasMutation, CanvasMutationAction, CanvasMutationTarget
+
+        mutations: list[CanvasMutation] = []
+        selected_cards = [card for card in existing_cards if card.card_id in set(selected_card_ids)]
+
+        selected_cards_json = json.dumps([c.to_dict() for c in selected_cards], ensure_ascii=False)
+        
+        # 从全局内存缓存中水合材料具体内容，供协作角色直接读取文件文本
+        materials_content_list = []
+        try:
+            from app.api.server import global_materials_cache
+            for mid in material_ids:
+                if mid in global_materials_cache:
+                    mat = global_materials_cache[mid]
+                    materials_content_list.append(
+                        f"--- 材料文件名: {mat['filename']} (ID: {mid}) ---\n{mat['content']}\n"
+                    )
+        except Exception:
+            pass
+        materials_str = "\n".join(materials_content_list) if materials_content_list else "（无新引入材料内容）"
+
+        for role_name in plan.roles:
+            role_instruction = ""
+            expected_kind = ""
+            expected_mutation_type = ""
+
+            if role_name == "Clarifier":
+                expected_kind = "clarification"
+                expected_mutation_type = "add_card"
+                role_instruction = "你负责发现歧义、缺失信息与冲突，并提出待澄清缺口。请深入提取出至少一个当前最需要向相关方澄清的问题（即不确定性）。"
+            elif role_name == "ConstraintSteward":
+                expected_kind = "constraint"
+                expected_mutation_type = "promote_to_constraint_draft"
+                role_instruction = "你负责沉淀业务边界、状态、口径、权限和计费等限制。请深度分析提取出目前应该沉淀的规则约束草稿。"
+            elif role_name == "DecisionSteward":
+                expected_kind = "decision"
+                expected_mutation_type = "create_decision_request"
+                role_instruction = "你负责识别必须由 PM 拍板的待决策项，而非单纯的信息缺失。请深度分析并生成待拍板决策卡（要给出备选方案和影响面）。"
+            elif role_name == "HandoffBuilder":
+                expected_kind = "handoff"
+                expected_mutation_type = "refresh_handoff_card"
+                role_instruction = "你负责收束结构化交接物草稿。请依据用户的意图和已有的卡片结构，撰写一份结构化交接物的草稿建议。"
+            else:
+                expected_kind = "evidence"
+                expected_mutation_type = "add_card"
+                role_instruction = "你负责接收新输入，编译多源材料，提取核心证据。"
+
+            prompt = f"""你是一个需求分析协作 Agent，目前分配给你的角色是: "{role_name}"。
+你的职责和指导方针如下:
+{role_instruction}
+
+上下文信息:
+- 用户输入/对话消息: "{message}"
+- 关联被选中卡片: {selected_cards_json}
+- 新引入参考材料具体内容如下:
+{materials_str}
+
+请基于上述上下文信息进行语义分析与智能归纳，并生成拟建议的画布卡片修改提案（必须是 JSON 格式的 mutations 列表）。
+注意：请使用以下拟建议的字段属性：
+- 卡片的 kind 必须是: "{expected_kind}"
+- mutations 的 mutation_type 必须是: "{expected_mutation_type}"
+
+你必须输出符合以下 JSON 格式的回复，不需要任何 Markdown 包裹或说明：
+{{
+  "title": "拟建议的卡片标题（15字内，要求精炼）",
+  "summary": "提炼出的详细内容摘要（包含核心事实、冲突点、约束规则陈述或待拍板抉择的具体背景）"
+}}
+"""
+            try:
+                result = self.llm.invoke(
+                    role=role_name,
+                    prompt=prompt,
+                    context={
+                        "title": f"Agent {role_name}",
+                        "goal": "Generate canvas mutation proposal",
+                        "model": model,
+                    }
+                )
+                raw_content = result.content.strip()
+                match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+                if match:
+                    raw_content = match.group(0)
+
+                card_data = json.loads(raw_content)
+                title = card_data["title"]
+                summary = card_data["summary"]
+
+                # 构造真正的 CanvasMutation
+                if role_name == "HandoffBuilder":
+                    handoff_card = CanvasCard(
+                        card_id=f"card_{uuid4().hex[:10]}",
+                        kind=CanvasCardKind.HANDOFF,
+                        title=title,
+                        summary=summary,
+                        stage="handoff",
+                        status="draft",
+                        evidence_refs=list(material_ids),
+                        metadata={
+                            "created_by": "canvas_agent",
+                            "source_turn_id": turn_id,
+                            "selected_card_ids": list(selected_card_ids),
+                        },
+                    )
+                    mutations.append(
+                        CanvasMutation(
+                            mutation_id=f"mutation_{uuid4().hex[:10]}",
+                            action=CanvasMutationAction.ADD,
+                            target=CanvasMutationTarget.CARD,
+                            target_id=handoff_card.card_id,
+                            payload={"card": handoff_card.to_dict()},
+                            metadata={
+                                "mutation_type": "refresh_handoff_card",
+                                "selected_card_ids": list(selected_card_ids),
+                                "material_ids": list(material_ids),
+                            },
+                        )
+                    )
+                    mutations.append(
+                        CanvasMutation(
+                            mutation_id=f"mutation_{uuid4().hex[:10]}",
+                            action=CanvasMutationAction.UPDATE,
+                            target=CanvasMutationTarget.HANDOFF,
+                            target_id="handoff_draft",
+                            payload={
+                                "handoff": {
+                                    "handoff_id": f"handoff_{workspace.workspace_id}",
+                                    "summary": summary,
+                                    "constraints": self._handoff_items(existing_cards, CanvasCardKind.CONSTRAINT),
+                                    "open_questions": self._handoff_items(existing_cards, CanvasCardKind.CLARIFICATION),
+                                    "decisions": self._handoff_items(existing_cards, CanvasCardKind.DECISION),
+                                    "metadata": {
+                                        "source_turn_id": turn_id,
+                                        "material_ids": list(material_ids),
+                                        "selected_card_ids": list(selected_card_ids),
+                                    },
+                                }
+                            },
+                            metadata={"mutation_type": "refresh_handoff_draft"},
+                        )
+                    )
+                else:
+                    kind_enum = CanvasCardKind(expected_kind)
+                    card_status = "open" if kind_enum in (CanvasCardKind.CLARIFICATION, CanvasCardKind.EVIDENCE, CanvasCardKind.PROBLEM) else "draft"
+                    if kind_enum == CanvasCardKind.DECISION:
+                        card_status = "pending"
+
+                    mutations.append(
+                        self._card_mutation(
+                            mutation_type=expected_mutation_type,
+                            kind=kind_enum,
+                            title=title,
+                            summary=summary,
+                            status=card_status,
+                            evidence_refs=material_ids,
+                            selected_card_ids=selected_card_ids,
+                        )
+                    )
+            except Exception:
+                return None
+
+        if not mutations:
+            return None
 
         return CanvasMutationProposal(
             proposal_id=f"proposal_{uuid4().hex[:12]}",

@@ -60,6 +60,7 @@ from app.core.events import EventBus
 
 # 全局事件总线，用于实时推送工作流中的 Event 消息
 global_event_bus = EventBus()
+global_materials_cache = {}
 
 
 # 智能 Agent 角色的前端展示元数据，包括名称、状态标签、头像缩写与配色设计
@@ -155,8 +156,7 @@ def create_app(task_service: TaskService | None = None):
         RuntimeError: 当运行环境未安装 FastAPI 库时抛出。
     """
     global _test_service
-    if task_service:
-        _test_service = task_service
+    _test_service = task_service
     if FastAPI is None:
         raise RuntimeError("fastapi is required to create the HTTP app")
     
@@ -166,6 +166,10 @@ def create_app(task_service: TaskService | None = None):
         allow_origins=[
             "http://localhost:4000",
             "http://127.0.0.1:4000",
+            "http://localhost:4001",
+            "http://127.0.0.1:4001",
+            "http://localhost:4002",
+            "http://127.0.0.1:4002",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
             "http://localhost:3000",
@@ -241,6 +245,7 @@ def create_app(task_service: TaskService | None = None):
                 selected_card_ids=list(request.selected_card_ids),
                 material_ids=list(request.material_ids),
                 mode=request.mode,
+                model=request.model,
             )
         except CanvasTurnInProgressError as exc:
             return JSONResponse(
@@ -915,7 +920,14 @@ def create_app(task_service: TaskService | None = None):
         Returns:
             MaterialUploadResponse: 材料上传响应模型。
         """
-        return MaterialUploadResponse(material_id=f"material_{uuid4().hex[:12]}", status="uploaded", summary=f"{file.filename} uploaded; full local path is not exposed.")
+        content = await file.read()
+        text_content = content.decode("utf-8", errors="ignore")
+        material_id = f"material_{uuid4().hex[:12]}"
+        global_materials_cache[material_id] = {
+            "filename": file.filename,
+            "content": text_content
+        }
+        return MaterialUploadResponse(material_id=material_id, status="uploaded", summary=f"{file.filename} uploaded; full local path is not exposed.")
 
     @app.get("/api/knowledge")
     async def list_knowledge(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:

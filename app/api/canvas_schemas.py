@@ -22,6 +22,7 @@ class CanvasMessageRequest(BaseModel):
     selected_card_ids: List[str] = Field(default_factory=list)
     material_ids: List[str] = Field(default_factory=list)
     mode: Optional[str] = None
+    model: Optional[str] = None
 
 
 class CanvasCardPatchRequest(BaseModel):

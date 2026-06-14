@@ -41,8 +41,14 @@
 }
 
 .canvas-lanes {
-  display: flex;
-  gap: 56px;
+  display: grid;
+  grid-template-columns: 320px 380px 320px;
+  grid-template-rows: auto auto auto;
+  grid-template-areas:
+    "evidence rules    planning"
+    "evidence problems planning"
+    "evidence clarify  planning";
+  gap: 48px 80px;
   padding: 60px;
   width: max-content;
   position: absolute;
@@ -54,7 +60,7 @@
 .canvas-lane {
   display: flex;
   flex-direction: column;
-  width: 320px;
+  width: 100%;
   flex-shrink: 0;
   height: 100%;
 }

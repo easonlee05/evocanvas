@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import './Canvas.css';
 import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
+import { apiPost, apiUrl } from '../../api';
 import { collectCanvasArrows, getArrowKey, getArrowPresentation, getFocusedRelationColors, getRelatedCardIds } from './canvasRelations.js';
 import {
   createInitialCanvasSections,
@@ -432,11 +433,20 @@ function TimelineScrubber({ isChatOpen }) {
   );
 }
 
-export default function Canvas({ isChatOpen = true }) {
+export default function Canvas({ 
+  isChatOpen = true,
+  workspaceId,
+  cards = [],
+  relations = [],
+  todos = [],
+  confirmations = [],
+  selectedCardId,
+  setSelectedCardId,
+  onRefresh,
+}) {
   const [showTodos, setShowTodos] = useState(false);
   const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
-  const [selectedCardId, setSelectedCardId] = useState(null);
   const [hoveredCardId, setHoveredCardId] = useState(null);
   const [editingState, setEditingState] = useState(null);
   const [draggingCardId, setDraggingCardId] = useState(null);
@@ -445,6 +455,91 @@ export default function Canvas({ isChatOpen = true }) {
   const [moveError, setMoveError] = useState(null);
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
+
+  function mapSectionToBackendStage(sectionKey) {
+    if (sectionKey === 'evidence') return 'discovery';
+    if (sectionKey === 'problems' || sectionKey === 'clarify' || sectionKey === 'rules') return 'define';
+    if (sectionKey === 'planning') return 'handoff';
+    return sectionKey;
+  }
+
+  function mapBackendCardsToSections(backendCards, backendRelations) {
+    const sections = {
+      evidence: [],
+      problems: [],
+      clarify: [],
+      rules: [],
+      planning: [],
+    };
+
+    const nextMap = {};
+    (backendRelations || []).forEach(rel => {
+      const fromId = rel.from_card_id;
+      const toId = rel.to_card_id;
+      if (fromId && toId) {
+        if (!nextMap[fromId]) nextMap[fromId] = [];
+        nextMap[fromId].push(toId);
+      }
+    });
+
+    (backendCards || []).forEach(card => {
+      let sectionKey = 'evidence';
+      if (card.kind === 'problem') sectionKey = 'problems';
+      else if (card.kind === 'clarification') sectionKey = 'clarify';
+      else if (card.kind === 'constraint' || card.kind === 'decision') sectionKey = 'rules';
+      else if (card.kind === 'handoff') sectionKey = 'planning';
+
+      const mappedTags = (card.tags || []).map(t => {
+        let color = 'blue';
+        if (t.includes('高') || t.includes('风险') || t.includes('冲突')) color = 'red';
+        else if (t.includes('数据') || t.includes('参考')) color = 'blue';
+        else if (t.includes('已确认') || t.includes('已生效')) color = 'green';
+        else if (t.includes('待澄清') || t.includes('待决策')) color = 'yellow';
+        return { label: t, color };
+      });
+
+      const source = card.metadata?.source || (card.kind === 'evidence' ? { label: '来源', name: card.metadata?.created_by || 'AI 提炼', avatar: 'A', avatarTone: 'violet' } : null);
+      const owner = card.metadata?.owner || (card.metadata?.owner_name ? { label: '负责人', name: card.metadata.owner_name, avatar: (card.metadata.owner_name[0] || 'U'), avatarTone: 'slate' } : null);
+
+      const mappedCard = {
+        id: card.card_id,
+        title: card.title,
+        desc: card.summary,
+        tags: mappedTags,
+        statusPill: card.status ? { 
+          label: card.status === 'open' ? '激活中' : card.status === 'draft' ? '草稿' : card.status === 'pending' ? '待确认' : card.status === 'confirmed' || card.status === 'effective' ? '已确认' : card.status, 
+          color: card.status === 'confirmed' || card.status === 'effective' || card.status === 'resolved' ? 'green' : card.status === 'pending' ? 'yellow' : 'gray' 
+        } : null,
+        structureKind: card.metadata?.structure_kind || null,
+        structuredItems: card.metadata?.structured_items || [],
+        attachments: card.metadata?.attachments || null,
+        confidence: card.metadata?.confidence || null,
+        source,
+        owner,
+        next: nextMap[card.card_id] || [],
+      };
+
+      sections[sectionKey].push(mappedCard);
+    });
+
+    return sections;
+  }
+
+  useEffect(() => {
+    if (workspaceId === 'demo') {
+      setCanvasSections(createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
+    } else if (cards && cards.length > 0) {
+      setCanvasSections(mapBackendCardsToSections(cards, relations));
+    } else {
+      setCanvasSections({
+        evidence: [],
+        problems: [],
+        clarify: [],
+        rules: [],
+        planning: [],
+      });
+    }
+  }, [cards, relations, workspaceId]);
 
   // 绑定原生 wheel 事件以防止 default scroll
   const containerRef = useRef(null);
@@ -545,14 +640,26 @@ export default function Canvas({ isChatOpen = true }) {
     });
   };
 
-  const saveEdit = (cardId, field, value, { commit }) => {
+  const saveEdit = async (cardId, field, value, { commit }) => {
     if (commit) {
       const normalized = value.trim();
-      setCanvasSections((current) =>
-        updateCanvasCard(current, cardId, {
-          [field]: normalized || (field === 'title' ? '未命名卡片' : ''),
-        }),
-      );
+      if (workspaceId && workspaceId !== 'demo') {
+        const payload = {
+          [field === 'desc' ? 'summary' : field]: normalized || (field === 'title' ? '未命名卡片' : '')
+        };
+        await fetch(apiUrl(`/api/canvas/workspaces/${workspaceId}/cards/${cardId}`), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (onRefresh) onRefresh();
+      } else {
+        setCanvasSections((current) =>
+          updateCanvasCard(current, cardId, {
+            [field]: normalized || (field === 'title' ? '未命名卡片' : ''),
+          }),
+        );
+      }
     }
 
     setEditingState(null);
@@ -649,16 +756,25 @@ export default function Canvas({ isChatOpen = true }) {
     setDropTarget(null);
   };
 
-  const confirmPendingMove = () => {
+  const confirmPendingMove = async () => {
     if (!pendingMove) return;
 
-    setCanvasSections((current) =>
-      moveCanvasCard(current, {
-        cardId: pendingMove.cardId,
-        toSection: pendingMove.toSection,
-        toIndex: pendingMove.toIndex,
-      }),
-    );
+    if (workspaceId && workspaceId !== 'demo') {
+      const backendStage = mapSectionToBackendStage(pendingMove.toSection);
+      await apiPost(`/api/canvas/workspaces/${workspaceId}/cards/${pendingMove.cardId}/move`, {
+        stage: backendStage,
+        reason: 'user drag'
+      }, null);
+      if (onRefresh) onRefresh();
+    } else {
+      setCanvasSections((current) =>
+        moveCanvasCard(current, {
+          cardId: pendingMove.cardId,
+          toSection: pendingMove.toSection,
+          toIndex: pendingMove.toIndex,
+        }),
+      );
+    }
     setPendingMove(null);
   };
 
@@ -714,7 +830,7 @@ export default function Canvas({ isChatOpen = true }) {
     const isDropEndTarget = dropTarget?.legal && dropTarget.sectionKey === sectionKey && dropTarget.index === cards.length;
 
     return (
-      <div className="canvas-lane" key={sectionKey}>
+      <div className="canvas-lane" key={sectionKey} style={{ gridArea: sectionKey }}>
         <div className="lane-header">
           <h3>{laneTitle}</h3>
         </div>

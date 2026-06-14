@@ -104,6 +104,51 @@ class CanvasSupervisorTests(unittest.TestCase):
         self.assertEqual(plan.metadata["matched"]["roles"], ("Clarifier",))
         self.assertEqual(output.proposed_mutations[0]["payload"]["tags"], ("gap",))
 
+    def test_context_recommends_input_compilation_for_materials(self) -> None:
+        plan = self.supervisor.recognize_and_plan(
+            workspace_context={"workspace_id": "ws_demo", "material_ids": ["mat_1"]},
+            message="对这个新来的处理一下",
+        )
+        self.assertEqual(plan.intent, "input_compilation")
+        self.assertEqual(plan.roles, ("InputCompiler",))
+
+    def test_context_recommends_role_based_on_selected_cards(self) -> None:
+        plan = self.supervisor.recognize_and_plan(
+            workspace_context={
+                "workspace_id": "ws_demo",
+                "selected_cards": [
+                    {"card_id": "card_1", "kind": "clarification", "status": "open"},
+                    {"card_id": "card_2", "kind": "constraint", "status": "open"},
+                ]
+            },
+            message="对这些选中卡片做些什么",
+        )
+        self.assertIn("clarification", plan.intent)
+        self.assertIn("constraint", plan.intent)
+        self.assertIn("Clarifier", plan.roles)
+        self.assertIn("ConstraintSteward", plan.roles)
+
+    def test_recognize_and_plan_with_real_llm_json(self) -> None:
+        import unittest.mock
+        from app.core.ports import LLMResult
+        
+        mock_llm = unittest.mock.MagicMock()
+        mock_llm.api_key = "some_valid_key"
+        mock_llm.invoke.return_value = LLMResult(
+            content='```json\n{"intent": "clarification+decision", "roles": ["Clarifier", "DecisionSteward"]}\n```'
+        )
+        
+        supervisor = CanvasSupervisor(llm=mock_llm)
+        plan = supervisor.recognize_and_plan(
+            workspace_context={"workspace_id": "ws_demo"},
+            message="一些复杂的语义输入"
+        )
+        
+        self.assertEqual(plan.intent, "clarification+decision")
+        self.assertEqual(plan.roles, ("Clarifier", "DecisionSteward"))
+        self.assertIn("mark_conflict", plan.allowed_mutation_types)
+        self.assertIn("create_decision_request", plan.allowed_mutation_types)
+
     def test_every_route_references_registered_roles(self) -> None:
         for route in get_intent_routes():
             self.assertGreater(len(route.roles), 0)

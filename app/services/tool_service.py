@@ -61,7 +61,42 @@ class ToolService:
         # 定义材料读取处理器 (material.read)
         def material_read(context: TaskContext, call: ToolCall) -> ToolResult:
             material_id = call.arguments.get("material_id")
-            return ToolResult(call_id=call.id, status="succeeded", summary="material summary loaded", data={"material_id": material_id, "summary": "材料摘要占位，不泄露完整原文。"})
+            target_material = None
+            for mat in context.source_materials:
+                if mat.get("material_id") == material_id:
+                    target_material = mat
+                    break
+            
+            if target_material:
+                content = target_material.get("content", "")
+                summary = target_material.get("summary")
+                if not summary:
+                    if content:
+                        summary = content[:200] + ("..." if len(content) > 200 else "")
+                    else:
+                        summary = f"Material input: {material_id}"
+                
+                return ToolResult(
+                    call_id=call.id,
+                    status="succeeded",
+                    summary="material summary loaded",
+                    data={
+                        "material_id": material_id,
+                        "summary": summary,
+                        "content": content
+                    }
+                )
+            else:
+                return ToolResult(
+                    call_id=call.id,
+                    status="succeeded",
+                    summary="material summary loaded",
+                    data={
+                        "material_id": material_id,
+                        "summary": f"Material input: {material_id}",
+                        "content": ""
+                    }
+                )
 
         # 定义材料解析处理器 (material.parse)
         def material_parse(context: TaskContext, call: ToolCall) -> ToolResult:
@@ -94,11 +129,48 @@ class ToolService:
 
         # 定义格式校验处理器 (format.validate)
         def format_validate(context: TaskContext, call: ToolCall) -> ToolResult:
-            return ToolResult(call_id=call.id, status="succeeded", summary="format validated", data={"passed": True, "violations": []})
+            spec = context.format_spec
+            content = call.arguments.get("content", "") or call.arguments.get("text", "")
+            
+            violations = []
+            passed = True
+            
+            if spec and content:
+                if "title" in spec.lower() and not content.strip().startswith("#"):
+                    violations.append("Content must start with a level 1 heading (#).")
+                    passed = False
+                    
+            return ToolResult(
+                call_id=call.id,
+                status="succeeded" if passed else "failed",
+                summary="format validated" if passed else "format validation failed",
+                data={"passed": passed, "violations": violations}
+            )
 
         # 定义规则差异提取处理器 (diff.extract_rules)
         def diff_extract_rules(context: TaskContext, call: ToolCall) -> ToolResult:
-            return ToolResult(call_id=call.id, status="succeeded", summary="candidate rules extracted", data={"candidates": []})
+            diff_text = call.arguments.get("diff", "")
+            candidates = []
+            
+            if diff_text:
+                lines = diff_text.splitlines()
+                for line in lines:
+                    if line.startswith("+") and not line.startswith("+++"):
+                        cleaned = line[1:].strip()
+                        if any(k in cleaned.lower() for k in ["rule", "rules", "规则", "法则", "r-"]):
+                            statement = cleaned.replace("#", "").replace("//", "").strip()
+                            candidates.append({
+                                "requirement_id": f"R-{1000 + len(candidates) + 1}",
+                                "statement": statement,
+                                "source": "diff_extraction"
+                            })
+            
+            return ToolResult(
+                call_id=call.id,
+                status="succeeded",
+                summary="candidate rules extracted",
+                data={"candidates": candidates}
+            )
 
         # 定义事件发送处理器 (event.emit)
         def event_emit(context: TaskContext, call: ToolCall) -> ToolResult:

@@ -130,6 +130,15 @@ class CanvasDomainRoundtripTests(unittest.TestCase):
             created_at="2026-06-14T10:00:00+00:00",
             active_card_ids=["card-1", "card-2"],
             active_relation_ids=["rel-1"],
+            cards=[CanvasCard(card_id="card-1", kind=CanvasCardKind.CLARIFICATION, title="确认 1.0 是否需要方案卡")],
+            relations=[
+                CanvasRelation(
+                    relation_id="rel-1",
+                    kind=CanvasRelationKind.SUPPORTS,
+                    from_card_id="card-1",
+                    to_card_id="card-2",
+                )
+            ],
             todo_projection=TodoProjection(
                 projection_id="todo-projection-1",
                 workspace_id="workspace-1",
@@ -156,7 +165,8 @@ class CanvasDomainRoundtripTests(unittest.TestCase):
         data = snapshot.to_dict()
 
         self.assertEqual(data["active_card_ids"], ["card-1", "card-2"])
-        self.assertNotIn("cards", data)
+        self.assertEqual(data["cards"][0]["title"], "确认 1.0 是否需要方案卡")
+        self.assertEqual(data["relations"][0]["kind"], "supports")
         self.assertEqual(CanvasSnapshot.from_dict(data), snapshot)
 
     def test_canvas_workspace_roundtrip(self) -> None:
@@ -165,6 +175,9 @@ class CanvasDomainRoundtripTests(unittest.TestCase):
             title="EvoCanvas 1.0",
             objective="把多源输入收束为待澄清问题、约束、待决策和结构化交接物。",
             active_snapshot_id="snapshot-1",
+            active_turn_id="turn-1",
+            active_turn_status="running",
+            active_turn_started_at="2026-06-14T10:00:00Z",
             handoff_status="in_progress",
             metadata={"owner_role": "pm"},
             handoff_metadata={"last_handoff_id": "handoff-1"},
@@ -174,6 +187,8 @@ class CanvasDomainRoundtripTests(unittest.TestCase):
 
         self.assertEqual(data["objective"], "把多源输入收束为待澄清问题、约束、待决策和结构化交接物。")
         self.assertEqual(data["active_snapshot_id"], "snapshot-1")
+        self.assertEqual(data["active_turn_id"], "turn-1")
+        self.assertEqual(data["active_turn_status"], "running")
         self.assertNotIn("cards", data)
         self.assertEqual(CanvasWorkspace.from_dict(data), workspace)
 

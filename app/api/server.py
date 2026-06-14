@@ -1,8 +1,4 @@
-"""FastAPI 接口服务模块，用于暴露 Phase 1 阶段 PM-Agent 后端及对接 EvoLoop 前端。
-
-本模块构建并导出了主 FastAPI 实例，定义了面向工作区任务管理、用户决策裁决、
-材料上传、知识库与可信规则管理的所有核心 REST API，并通过 SSE (Server-Sent Events) 支持实时事件推送。
-"""
+"""FastAPI 接口服务模块，负责暴露 EvoCanvas 工作台与可复用底座能力。"""
 from __future__ import annotations
 
 import json
@@ -16,7 +12,7 @@ from uuid import uuid4
 try:
     from fastapi import FastAPI, File, HTTPException, UploadFile, BackgroundTasks, Body, Depends, Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
     from app.api.auth import get_tenant_workspace
 except Exception:  # pragma: no cover - 允许在无 fastapi 等 Web 依赖时安全导入
     FastAPI = None  # type: ignore
@@ -27,13 +23,30 @@ except Exception:  # pragma: no cover - 允许在无 fastapi 等 Web 依赖时�
     CORSMiddleware = None  # type: ignore
     Depends = object # type: ignore
     Request = object # type: ignore
+    JSONResponse = None  # type: ignore
     StreamingResponse = None  # type: ignore
     class DummyBody:
         def __call__(self, *args, **kwargs):
             return None
     Body = DummyBody()
 
+from app.api.canvas_schemas import (
+    CanvasCardMoveRequest,
+    CanvasCardPatchRequest,
+    CanvasMessageRequest,
+    CanvasRelationCreateRequest,
+    CanvasSnapshotCreateRequest,
+)
 from app.api.schemas import CreateTaskRequest, DecisionRequest, MaterialUploadResponse
+from app.canvas.service import (
+    CanvasCardMoveValidationError,
+    CanvasCardNotFoundError,
+    CanvasMessageValidationError,
+    CanvasRelationValidationError,
+    CanvasService,
+    CanvasSnapshotNotFoundError,
+    CanvasTurnInProgressError,
+)
 from app.services.fakes import FakeLLM, FakeStorage
 from app.services.codex_cli_handler import CodexCLIHandler
 from app.services.gbrain_service import GBrainKnowledge
@@ -120,6 +133,13 @@ def get_task_service(tenant_id: str = Depends(get_tenant_workspace)):
     return _tenant_services[tenant_id]
 
 
+def get_canvas_service(service: TaskService = Depends(get_task_service)) -> CanvasService:
+    """基于当前租户的存储与模型依赖构建 CanvasService。"""
+
+    llm = getattr(getattr(service, "engine", None), "llm", None)
+    return CanvasService(storage=service.storage, llm=llm)
+
+
 def create_app(task_service: TaskService | None = None):
     """构建并配置主 FastAPI 应用程序实例。
 
@@ -188,6 +208,211 @@ def create_app(task_service: TaskService | None = None):
             "items": len(data.get("items", [])),
             "error": data.get("error"),
         }
+
+    @app.get("/api/canvas/workspaces/{workspace_id}")
+    async def get_canvas_workspace(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        workspace = canvas_service.get_workspace(workspace_id)
+        return workspace.to_dict()
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/canvas")
+    async def get_canvas_view(
+        workspace_id: str,
+        snapshot_id: Optional[str] = None,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.get_canvas_view(workspace_id, snapshot_id=snapshot_id)
+        except CanvasSnapshotNotFoundError:
+            raise HTTPException(status_code=404, detail="canvas snapshot not found")
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/messages")
+    async def post_canvas_message(
+        workspace_id: str,
+        request: CanvasMessageRequest,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.start_turn(
+                workspace_id=workspace_id,
+                message=request.message,
+                selected_card_ids=list(request.selected_card_ids),
+                material_ids=list(request.material_ids),
+                mode=request.mode,
+            )
+        except CanvasTurnInProgressError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "workspace_id": workspace_id,
+                    "reason": "turn_in_progress",
+                    "message": "当前工作区仍有一轮处理中，请等待本轮结束后再继续提交。",
+                    "active_turn": exc.active_turn,
+                },
+            )
+        except CanvasMessageValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/events")
+    async def get_canvas_events(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ):
+        async def stream():
+            import asyncio
+            import queue
+
+            channel = canvas_service.event_stream_id(workspace_id)
+            if hasattr(canvas_service.storage, "event_bus") and canvas_service.storage.event_bus:
+                q = canvas_service.storage.event_bus.subscribe(channel)
+                try:
+                    while True:
+                        try:
+                            event = q.get_nowait()
+                            yield f"id: {event.id}\nevent: {event.type}\ndata: {json.dumps(event.to_dict(), ensure_ascii=False)}\n\n"
+                            if event.type in {"canvas.turn.completed", "canvas.turn.failed"}:
+                                break
+                        except queue.Empty:
+                            await asyncio.sleep(0.1)
+                finally:
+                    canvas_service.storage.event_bus.unsubscribe(channel, q)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/confirmations")
+    async def list_canvas_confirmations(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        return canvas_service.list_confirmations(workspace_id)
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/confirmations/{proposal_id}/approve")
+    async def approve_canvas_confirmation(
+        workspace_id: str,
+        proposal_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        result = canvas_service.approve_confirmation(workspace_id, proposal_id)
+        if result.get("status") == "not_found":
+            raise HTTPException(status_code=404, detail="canvas confirmation not found")
+        return result
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/confirmations/{proposal_id}/reject")
+    async def reject_canvas_confirmation(
+        workspace_id: str,
+        proposal_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        result = canvas_service.reject_confirmation(workspace_id, proposal_id)
+        if result.get("status") == "not_found":
+            raise HTTPException(status_code=404, detail="canvas confirmation not found")
+        return result
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/snapshots")
+    async def list_canvas_snapshots(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        return canvas_service.list_snapshots(workspace_id)
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/snapshots")
+    async def create_canvas_snapshot(
+        workspace_id: str,
+        request: CanvasSnapshotCreateRequest,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        return canvas_service.create_snapshot(
+            workspace_id=workspace_id,
+            title=request.title,
+            summary=request.summary,
+        )
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/handoff")
+    async def get_canvas_handoff(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        return canvas_service.get_handoff(workspace_id)
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/handoff/refresh")
+    async def refresh_canvas_handoff(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.refresh_handoff(workspace_id)
+        except CanvasTurnInProgressError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "workspace_id": workspace_id,
+                    "reason": "turn_in_progress",
+                    "message": "当前工作区仍有一轮处理中，请等待本轮结束后再刷新交接物。",
+                    "active_turn": exc.active_turn,
+                },
+            )
+
+    @app.patch("/api/canvas/workspaces/{workspace_id}/cards/{card_id}")
+    async def patch_canvas_card(
+        workspace_id: str,
+        card_id: str,
+        request: CanvasCardPatchRequest,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        payload = request.model_dump(exclude_none=True) if hasattr(request, "model_dump") else request.dict(exclude_none=True)
+        try:
+            return canvas_service.patch_card(workspace_id, card_id, payload)
+        except CanvasCardNotFoundError:
+            raise HTTPException(status_code=404, detail="canvas card not found")
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/relations")
+    async def create_canvas_relation(
+        workspace_id: str,
+        request: CanvasRelationCreateRequest,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.create_relation(
+                workspace_id=workspace_id,
+                kind=request.kind,
+                from_card_id=request.from_card_id,
+                to_card_id=request.to_card_id,
+                note=request.note,
+            )
+        except CanvasRelationValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/cards/{card_id}/move")
+    async def move_canvas_card(
+        workspace_id: str,
+        card_id: str,
+        request: CanvasCardMoveRequest,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.move_card(
+                workspace_id=workspace_id,
+                card_id=card_id,
+                stage=request.stage,
+                reason=request.reason,
+            )
+        except CanvasCardNotFoundError:
+            raise HTTPException(status_code=404, detail="canvas card not found")
+        except CanvasCardMoveValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/todos")
+    async def get_canvas_todos(
+        workspace_id: str,
+        snapshot_id: Optional[str] = None,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.get_todos(workspace_id, snapshot_id=snapshot_id)
+        except CanvasSnapshotNotFoundError:
+            raise HTTPException(status_code=404, detail="canvas snapshot not found")
 
     @app.post("/api/tasks")
     async def create_task(request: CreateTaskRequest, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:

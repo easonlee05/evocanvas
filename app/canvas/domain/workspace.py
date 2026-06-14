@@ -17,6 +17,9 @@ class CanvasWorkspace:
     title: str
     objective: str = ""
     active_snapshot_id: str = ""
+    active_turn_id: str = ""
+    active_turn_status: str = "idle"
+    active_turn_started_at: str = ""
     handoff_status: str = "not_ready"
     metadata: Dict[str, Any] = field(default_factory=dict)
     handoff_metadata: Dict[str, Any] = field(default_factory=dict)
@@ -35,6 +38,9 @@ class CanvasWorkspace:
             title=data.get("title", ""),
             objective=data.get("objective", ""),
             active_snapshot_id=data.get("active_snapshot_id", ""),
+            active_turn_id=data.get("active_turn_id", ""),
+            active_turn_status=data.get("active_turn_status", "idle"),
+            active_turn_started_at=data.get("active_turn_started_at", ""),
             handoff_status=data.get("handoff_status", "not_ready"),
             metadata=dict(data.get("metadata", {})),
             handoff_metadata=dict(data.get("handoff_metadata", {})),

@@ -73,6 +73,7 @@ class CanvasMutationStatus(str, Enum):
     """变更提案的当前状态。"""
 
     PROPOSED = "proposed"
+    PENDING_CONFIRMATION = "pending_confirmation"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     APPLIED = "applied"

@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Tuple
 
 from app.canvas.agent.contracts import CanvasTurnPlan
-from app.canvas.agent.roles import get_role
+from app.canvas.agent.roles import get_intent_routes, get_role
 
 
 class CanvasSupervisor:
@@ -33,30 +33,35 @@ class CanvasSupervisor:
             allowed_mutation_types=self._collect_allowed_mutation_types(roles),
         )
 
-    def _select_intent_and_roles(self, message: str) -> tuple[str, List[str]]:
+    def _select_intent_and_roles(self, message: str) -> Tuple[str, Tuple[str, ...]]:
         normalized_message = message.strip()
+        matched_intents: List[str] = []
+        matched_roles: List[str] = []
+        fallback_route = None
 
-        if self._contains_any(normalized_message, ["待澄清", "澄清", "歧义", "冲突", "缺口"]):
-            return "clarification", ["Clarifier"]
+        for route in get_intent_routes():
+            if not route.keywords:
+                fallback_route = route
+                continue
+            if self._contains_any(normalized_message, list(route.keywords)):
+                matched_intents.append(route.intent)
+                for role_name in route.roles:
+                    if role_name not in matched_roles:
+                        matched_roles.append(role_name)
 
-        if self._contains_any(normalized_message, ["交接物", "handoff", "交接", "结构化交接物"]):
-            return "handoff", ["HandoffBuilder"]
+        if not matched_intents:
+            if fallback_route is None:
+                return "input_compilation", ("InputCompiler",)
+            return fallback_route.intent, fallback_route.roles
+        return "+".join(matched_intents), tuple(matched_roles)
 
-        if self._contains_any(normalized_message, ["约束", "边界", "限制"]):
-            return "constraint", ["ConstraintSteward"]
-
-        if self._contains_any(normalized_message, ["决策", "拍板", "取舍", "方案选择"]):
-            return "decision", ["DecisionSteward"]
-
-        return "input_compilation", ["InputCompiler"]
-
-    def _collect_allowed_mutation_types(self, roles: Iterable[str]) -> List[str]:
+    def _collect_allowed_mutation_types(self, roles: Iterable[str]) -> Tuple[str, ...]:
         allowed_mutation_types: List[str] = []
         for role_name in roles:
             for mutation_type in get_role(role_name).allowed_mutation_types:
                 if mutation_type not in allowed_mutation_types:
                     allowed_mutation_types.append(mutation_type)
-        return allowed_mutation_types
+        return tuple(allowed_mutation_types)
 
     @staticmethod
     def _contains_any(message: str, keywords: List[str]) -> bool:

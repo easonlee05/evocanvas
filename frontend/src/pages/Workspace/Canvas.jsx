@@ -1,9 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './Canvas.css';
-import { FileText, MessageSquare, AlertCircle, FileCode2, CheckSquare, ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
+import { collectCanvasArrows, getArrowKey, getArrowPresentation, getFocusedRelationColors, getRelatedCardIds } from './canvasRelations.js';
+import {
+  createInitialCanvasSections,
+  describeCanvasMove,
+  getCardLocation,
+  isMoveAllowed,
+  moveCanvasCard,
+  SECTION_META,
+  updateCanvasCard,
+} from './canvasEditing.js';
 
-function CustomArrow({ start, end, transform, activeCardId, outIndex = 0, outCount = 1, inIndex = 0, inCount = 1 }) {
+const LANE_DEFINITIONS = [
+  { sectionKey: 'evidence', laneTitle: '1. 探索发现', clusterTitle: '用户反馈' },
+  { sectionKey: 'problems', laneTitle: '2. 需求定义', clusterTitle: '功能设计' },
+  { sectionKey: 'clarify', laneTitle: '3. 问题澄清', clusterTitle: '待澄清问题' },
+  { sectionKey: 'rules', laneTitle: '4. 方案规划', clusterTitle: '决策确认' },
+  { sectionKey: 'planning', laneTitle: '5. 落地执行', clusterTitle: '迭代计划' },
+];
+
+function CustomArrow({ start, end, transform, visualState = 'muted', accentColor, outIndex = 0, outCount = 1, inIndex = 0, inCount = 1 }) {
   const [path, setPath] = useState('');
   
   useEffect(() => {
@@ -18,38 +36,32 @@ function CustomArrow({ start, end, transform, activeCardId, outIndex = 0, outCou
       const cRect = container.getBoundingClientRect();
       
       const scale = transform.scale;
-      
-      // 检测起止点是否处于同一列
+
+      const sRight = (sRect.right - cRect.left) / scale;
+      const sTop = (sRect.top - cRect.top) / scale;
+      const sBottom = (sRect.bottom - cRect.top) / scale;
+      const eLeft = (eRect.left - cRect.left) / scale;
+      const eRight = (eRect.right - cRect.left) / scale;
+      const eTop = (eRect.top - cRect.top) / scale;
+      const eBottom = (eRect.bottom - cRect.top) / scale;
+
       const isSameColumn = Math.abs(sRect.left - eRect.left) < 10;
+
+      let startX = sRight;
+      let endX = isSameColumn ? eRight : eLeft;
+      const startYBase = (sTop + sBottom) / 2;
+      const endYBase = (eTop + eBottom) / 2;
       
-      // 基础起点坐标
-      const startX = (sRect.right - cRect.left) / scale;
-      const startYBase = (sRect.top + sRect.height / 2 - cRect.top) / scale;
-      
-      // 基础终点坐标：如果是同列，终点重定向至右边缘，否则取左边缘
-      let endX = 0;
-      if (isSameColumn) {
-        endX = (eRect.right - cRect.left) / scale;
-      } else {
-        endX = (eRect.left - cRect.left) / scale;
-      }
-      const endYBase = (eRect.top + eRect.height / 2 - cRect.top) / scale;
-      
-      // 流出起点偏置 (垂直方向错开 16px 间距)
       const outOffset = outCount > 1 ? (outIndex - (outCount - 1) / 2) * 16 : 0;
       const startY = startYBase + outOffset;
       
-      // 流入终点偏置 (垂直方向错开 16px 间距)
       const inOffset = inCount > 1 ? (inIndex - (inCount - 1) / 2) * 16 : 0;
       const endY = endYBase + inOffset;
-      
-      // 计算折点 X 轴坐标
+
       let midX = 0;
       if (isSameColumn) {
-        // 同列连接：折向右侧通道绕行，多条线水平错开 12px
         midX = startX + 24 + outIndex * 12;
       } else {
-        // 不同列连接：折点取中点并偏置错开 12px，同时进行无条件强限幅（由于列距拓宽为 56px，在此保留 12px 安全侧距）
         const midXBase = startX + (endX - startX) / 2;
         const midOffset = (outIndex - inIndex) * 12;
         midX = midXBase + midOffset;
@@ -62,13 +74,11 @@ function CustomArrow({ start, end, transform, activeCardId, outIndex = 0, outCou
           midX = midXBase;
         }
       }
-      
-      // 动态计算平滑圆角半径，最大 12px，在极窄间距时自适应变小
+
       const signY = endY > startY ? 1 : -1;
       const r = Math.min(12, Math.abs(midX - startX), Math.abs(endX - midX), Math.abs(endY - startY) / 2);
-      
+
       if (r > 0 && Math.abs(endY - startY) > 2) {
-        // 使用 Q 指令绘制圆角折线
         setPath(
           `M ${startX} ${startY} ` +
           `L ${midX - r} ${startY} ` +
@@ -78,7 +88,6 @@ function CustomArrow({ start, end, transform, activeCardId, outIndex = 0, outCou
           `L ${endX} ${endY}`
         );
       } else {
-        // 几乎在同一水平线时，退化为常规直线
         setPath(`M ${startX} ${startY} L ${endX} ${endY}`);
       }
     };
@@ -90,27 +99,22 @@ function CustomArrow({ start, end, transform, activeCardId, outIndex = 0, outCou
   
   if (!path) return null;
 
-  // 根据当前 activeCardId 计算高亮状态
-  const isRelated = activeCardId === start || activeCardId === end;
-  
-  let opacity = 1.0; // 平时透明度拉满
-  let strokeColor = '#94a3b8'; // 使用高质感中灰
-  let strokeWidth = 1.8;
-  
-  if (activeCardId !== null) {
-    if (isRelated) {
-      opacity = 1.0;
-      strokeColor = '#007aff'; // 苹果系统蓝
-      strokeWidth = 2.8;
-    } else {
-      opacity = 0.18; // 弱化状态保持 0.18，使其依稀可见
-      strokeColor = '#cbd5e1';
-      strokeWidth = 1.5;
-    }
+  let opacity = 0.26;
+  let strokeColor = '#b8c4d4';
+  let strokeWidth = 1.6;
+
+  if (visualState === 'active') {
+    opacity = 1;
+    strokeColor = accentColor || '#1f6fff';
+    strokeWidth = 2.6;
+  } else if (visualState === 'hidden') {
+    opacity = 0.06;
+    strokeColor = '#d7dfeb';
+    strokeWidth = 1.2;
   }
 
   return (
-    <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10, overflow: 'visible' }}>
+    <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1, overflow: 'visible' }}>
       <defs>
         <marker id={`arrowhead-${start}-${end}`} markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
           <polygon points="0 0, 6 2, 0 4" fill={strokeColor} />
@@ -185,23 +189,79 @@ function StructuredContent({ kind = 'list', items = [] }) {
   );
 }
 
-function CanvasCard({ data, activeCardId, setActiveCardId, isActiveSelf, isRelated }) {
+function CanvasCard({
+  data,
+  onSelect,
+  onPreviewStart,
+  onPreviewEnd,
+  onStartEdit,
+  onSaveEdit,
+  editingState,
+  isSelectedSelf,
+  isSelectedRelated,
+  isPreviewSelf,
+  isPreviewRelated,
+  relationAccent,
+  draggable,
+  onDragStart,
+  onDragEnd,
+}) {
   const primaryTag = data.tags?.[0];
   const secondaryTags = data.tags?.slice(1) || [];
   const hasTags = primaryTag || data.statusPill;
+  const isEditingTitle = editingState?.cardId === data.id && editingState?.field === 'title';
+  const isEditingDesc = editingState?.cardId === data.id && editingState?.field === 'desc';
 
-  const cardClassName = `canvas-card${isActiveSelf ? ' active-self' : ''}${isRelated && !isActiveSelf ? ' active-related' : ''}`;
+  const cardClassName = `canvas-card${isSelectedSelf ? ' selected-self' : ''}${isSelectedRelated && !isSelectedSelf ? ' selected-related' : ''}${isPreviewSelf ? ' preview-self' : ''}${isPreviewRelated && !isPreviewSelf && !isSelectedRelated ? ' preview-related' : ''}`;
 
   return (
     <div 
       className={cardClassName} 
       id={data.id}
-      onMouseEnter={() => setActiveCardId(data.id)}
-      onMouseLeave={() => setActiveCardId(null)}
+      draggable={draggable}
+      style={relationAccent ? { '--relation-accent': relationAccent } : undefined}
+      onMouseEnter={() => onPreviewStart(data.id)}
+      onMouseLeave={onPreviewEnd}
+      onDragStart={(event) => onDragStart(event, data.id)}
+      onDragEnd={onDragEnd}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(data.id);
+      }}
     >
       <div className="canvas-card-header-group">
         <div className="canvas-card-header">
-          <span className="canvas-card-title">{data.title}</span>
+          <div
+            className="canvas-card-title-wrap"
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              onStartEdit(data.id, 'title', data.title);
+            }}
+          >
+            {isEditingTitle ? (
+              <input
+                className="canvas-card-title-input"
+                autoFocus
+                value={editingState.draft}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => onStartEdit(data.id, 'title', event.target.value, true)}
+                onBlur={() => onSaveEdit(data.id, 'title', editingState.draft, { commit: true })}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    onSaveEdit(data.id, 'title', data.title, { commit: false });
+                  }
+
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    onSaveEdit(data.id, 'title', editingState.draft, { commit: true });
+                  }
+                }}
+              />
+            ) : (
+              <span className="canvas-card-title">{data.title}</span>
+            )}
+          </div>
           <button className="icon-btn" style={{width: 20, height: 20}}><MoreHorizontal size={14}/></button>
         </div>
 
@@ -220,7 +280,40 @@ function CanvasCard({ data, activeCardId, setActiveCardId, isActiveSelf, isRelat
         )}
       </div>
 
-      {data.desc && <div className="canvas-card-desc">{data.desc}</div>}
+      <div
+        className={`canvas-card-desc-wrap${isEditingDesc ? ' is-editing' : ''}`}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          onStartEdit(data.id, 'desc', data.desc || '');
+        }}
+      >
+        {isEditingDesc ? (
+          <>
+            <textarea
+              className="canvas-card-desc-input"
+              autoFocus
+              value={editingState.draft}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => onStartEdit(data.id, 'desc', event.target.value, true)}
+              onBlur={() => onSaveEdit(data.id, 'desc', editingState.draft, { commit: true })}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  onSaveEdit(data.id, 'desc', data.desc || '', { commit: false });
+                }
+
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault();
+                  onSaveEdit(data.id, 'desc', editingState.draft, { commit: true });
+                }
+              }}
+            />
+            <div className="card-editor-hint">`Cmd/Ctrl + Enter` 保存，`Esc` 取消</div>
+          </>
+        ) : (
+          <div className="canvas-card-desc">{data.desc || '双击补充摘要'}</div>
+        )}
+      </div>
 
       <StructuredContent kind={data.structureKind} items={data.structuredItems} />
 
@@ -341,13 +434,20 @@ function TimelineScrubber({ isChatOpen }) {
 
 export default function Canvas({ isChatOpen = true }) {
   const [showTodos, setShowTodos] = useState(false);
+  const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
-  const [activeCardId, setActiveCardId] = useState(null);
-  const isDragging = React.useRef(false);
-  const dragStart = React.useRef({ x: 0, y: 0 });
+  const [selectedCardId, setSelectedCardId] = useState(null);
+  const [hoveredCardId, setHoveredCardId] = useState(null);
+  const [editingState, setEditingState] = useState(null);
+  const [draggingCardId, setDraggingCardId] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
+  const [pendingMove, setPendingMove] = useState(null);
+  const [moveError, setMoveError] = useState(null);
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
 
   // 绑定原生 wheel 事件以防止 default scroll
-  const containerRef = React.useRef(null);
+  const containerRef = useRef(null);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -372,8 +472,25 @@ export default function Canvas({ isChatOpen = true }) {
     return () => el.removeEventListener('wheel', handleWheel);
   }, []);
 
+  useEffect(() => {
+    if (!moveError) return undefined;
+
+    const timer = window.setTimeout(() => setMoveError(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [moveError]);
+
   const handlePointerDown = (e) => {
-    if (e.target.closest('.canvas-card') || e.target.closest('.todos-trigger') || e.target.closest('.timeline-scrubber')) return;
+    if (
+      editingState ||
+      draggingCardId ||
+      e.target.closest('.canvas-card') ||
+      e.target.closest('.todos-trigger') ||
+      e.target.closest('.timeline-scrubber') ||
+      e.target.closest('input, textarea, button')
+    ) {
+      return;
+    }
+    if (selectedCardId !== null) setSelectedCardId(null);
     isDragging.current = true;
     dragStart.current = { x: e.clientX - transform.x, y: e.clientY - transform.y };
     e.target.setPointerCapture(e.pointerId);
@@ -393,62 +510,231 @@ export default function Canvas({ isChatOpen = true }) {
     e.target.releasePointerCapture(e.pointerId);
   };
 
-  // 统计每个节点的发出和流入关系以计算偏置
-  const outConnections = {};
-  const inConnections = {};
-  const rawArrows = [];
-
-  Object.values(DEMO_CANVAS_SECTIONS).flat().forEach(card => {
-    if (card.next) {
-      const nextArr = Array.isArray(card.next) ? card.next : [card.next];
-      nextArr.forEach(targetId => {
-        rawArrows.push({ start: card.id, end: targetId });
-        
-        if (!outConnections[card.id]) outConnections[card.id] = [];
-        outConnections[card.id].push(targetId);
-        
-        if (!inConnections[targetId]) inConnections[targetId] = [];
-        inConnections[targetId].push(card.id);
-      });
-    }
-  });
-
-  // 映射为带有偏置属性的 arrows 数组
-  const arrows = rawArrows.map(arr => {
-    const outs = outConnections[arr.start] || [];
-    const ins = inConnections[arr.end] || [];
-    return {
-      start: arr.start,
-      end: arr.end,
-      outIndex: outs.indexOf(arr.end),
-      outCount: outs.length,
-      inIndex: ins.indexOf(arr.start),
-      inCount: ins.length
-    };
-  });
+  const arrows = collectCanvasArrows(canvasSections);
+  const focusedCardId = selectedCardId ?? hoveredCardId;
+  const selectedRelatedCardIds = getRelatedCardIds(selectedCardId, arrows);
+  const previewRelatedCardIds = selectedCardId ? new Set() : getRelatedCardIds(hoveredCardId, arrows);
+  const relationColors = getFocusedRelationColors(arrows, focusedCardId);
 
   // 辅助函数判断卡片高亮关系
   const checkCardActiveState = (cardId) => {
-    if (activeCardId === null) return { isActiveSelf: false, isRelated: false };
-    if (activeCardId === cardId) return { isActiveSelf: true, isRelated: true };
-    const isRelated = arrows.some(arr => 
-      (arr.start === activeCardId && arr.end === cardId) || 
-      (arr.end === activeCardId && arr.start === cardId)
-    );
-    return { isActiveSelf: false, isRelated };
+    return {
+      isSelectedSelf: selectedCardId === cardId,
+      isSelectedRelated: selectedCardId !== null && selectedRelatedCardIds.has(cardId),
+      isPreviewSelf: selectedCardId === null && hoveredCardId === cardId,
+      isPreviewRelated: selectedCardId === null && previewRelatedCardIds.has(cardId),
+    };
   };
 
-  const renderCard = (card) => {
-    const { isActiveSelf, isRelated } = checkCardActiveState(card.id);
+  const getCardRelationAccent = (cardId) => {
+    if (!focusedCardId || cardId === focusedCardId) return null;
+    const edge = arrows.find((arrow) =>
+      (arrow.start === focusedCardId && arrow.end === cardId) ||
+      (arrow.end === focusedCardId && arrow.start === cardId),
+    );
+    return edge ? relationColors[getArrowKey(edge)] : null;
+  };
+
+  const startEdit = (cardId, field, draft, preserve = false) => {
+    setEditingState((current) => {
+      if (preserve && current?.cardId === cardId && current?.field === field) {
+        return { ...current, draft };
+      }
+
+      return { cardId, field, draft };
+    });
+  };
+
+  const saveEdit = (cardId, field, value, { commit }) => {
+    if (commit) {
+      const normalized = value.trim();
+      setCanvasSections((current) =>
+        updateCanvasCard(current, cardId, {
+          [field]: normalized || (field === 'title' ? '未命名卡片' : ''),
+        }),
+      );
+    }
+
+    setEditingState(null);
+  };
+
+  const handleCardDragStart = (event, cardId) => {
+    if (editingState?.cardId === cardId) {
+      event.preventDefault();
+      return;
+    }
+
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', cardId);
+    setDraggingCardId(cardId);
+    setSelectedCardId(cardId);
+    setDropTarget(null);
+  };
+
+  const handleCardDragEnd = () => {
+    setDraggingCardId(null);
+    setDropTarget(null);
+  };
+
+  const queueDropTarget = (sectionKey, index) => {
+    if (!draggingCardId) return;
+
+    const fromLocation = getCardLocation(canvasSections, draggingCardId);
+    if (!fromLocation) return;
+
+    const legal = isMoveAllowed({ fromSection: fromLocation.sectionKey, toSection: sectionKey });
+    setDropTarget({
+      cardId: draggingCardId,
+      fromSection: fromLocation.sectionKey,
+      sectionKey,
+      index,
+      legal,
+    });
+  };
+
+  const handleCardDragOver = (event, sectionKey, index) => {
+    if (!draggingCardId) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const insertAfter = event.clientY > rect.top + rect.height / 2;
+    queueDropTarget(sectionKey, index + (insertAfter ? 1 : 0));
+  };
+
+  const handleClusterDragOver = (event, sectionKey) => {
+    if (!draggingCardId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    queueDropTarget(sectionKey, canvasSections[sectionKey].length);
+  };
+
+  const applyDropTarget = () => {
+    if (!dropTarget?.cardId) return;
+
+    if (!dropTarget.legal) {
+      setMoveError('当前卡片不能迁移到这个阶段，请放到高亮的合法区域。');
+      setDropTarget(null);
+      return;
+    }
+
+    const fromLocation = getCardLocation(canvasSections, dropTarget.cardId);
+    if (!fromLocation) return;
+
+    if (fromLocation.sectionKey === dropTarget.sectionKey) {
+      const sameSectionIndex =
+        fromLocation.index < dropTarget.index ? dropTarget.index - 1 : dropTarget.index;
+      setCanvasSections((current) =>
+        moveCanvasCard(current, {
+          cardId: dropTarget.cardId,
+          toSection: dropTarget.sectionKey,
+          toIndex: sameSectionIndex,
+        }),
+      );
+      setDropTarget(null);
+      return;
+    }
+
+    setPendingMove({
+      cardId: dropTarget.cardId,
+      fromSection: fromLocation.sectionKey,
+      toSection: dropTarget.sectionKey,
+      toIndex: dropTarget.index,
+      message: describeCanvasMove({
+        fromSection: fromLocation.sectionKey,
+        toSection: dropTarget.sectionKey,
+      }),
+    });
+    setDropTarget(null);
+  };
+
+  const confirmPendingMove = () => {
+    if (!pendingMove) return;
+
+    setCanvasSections((current) =>
+      moveCanvasCard(current, {
+        cardId: pendingMove.cardId,
+        toSection: pendingMove.toSection,
+        toIndex: pendingMove.toIndex,
+      }),
+    );
+    setPendingMove(null);
+  };
+
+  const renderCard = (card, sectionKey, index) => {
+    const { isSelectedSelf, isSelectedRelated, isPreviewSelf, isPreviewRelated } = checkCardActiveState(card.id);
+    const showsDropBefore =
+      dropTarget?.legal &&
+      dropTarget.sectionKey === sectionKey &&
+      dropTarget.index === index;
+    const showsDropAfter =
+      dropTarget?.legal &&
+      dropTarget.sectionKey === sectionKey &&
+      dropTarget.index === index + 1;
+
     return (
-      <CanvasCard 
-        key={card.id} 
-        data={card} 
-        activeCardId={activeCardId}
-        setActiveCardId={setActiveCardId}
-        isActiveSelf={isActiveSelf}
-        isRelated={isRelated}
-      />
+      <div
+        key={card.id}
+        className={`canvas-card-slot${showsDropBefore ? ' drop-before' : ''}${showsDropAfter ? ' drop-after' : ''}`}
+        onDragOver={(event) => handleCardDragOver(event, sectionKey, index)}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          applyDropTarget();
+        }}
+      >
+        <CanvasCard
+          data={card}
+          onSelect={(cardId) => setSelectedCardId((current) => (current === cardId ? null : cardId))}
+          onPreviewStart={(cardId) => setHoveredCardId(cardId)}
+          onPreviewEnd={() => setHoveredCardId(null)}
+          onStartEdit={startEdit}
+          onSaveEdit={saveEdit}
+          editingState={editingState?.cardId === card.id ? editingState : null}
+          isSelectedSelf={isSelectedSelf}
+          isSelectedRelated={isSelectedRelated}
+          isPreviewSelf={isPreviewSelf}
+          isPreviewRelated={isPreviewRelated}
+          relationAccent={getCardRelationAccent(card.id)}
+          draggable={!editingState && !pendingMove}
+          onDragStart={handleCardDragStart}
+          onDragEnd={handleCardDragEnd}
+        />
+      </div>
+    );
+  };
+
+  const renderLane = ({ sectionKey, laneTitle, clusterTitle }) => {
+    const cards = canvasSections[sectionKey];
+    const fromLocation = draggingCardId ? getCardLocation(canvasSections, draggingCardId) : null;
+    const canDropHere = fromLocation
+      ? isMoveAllowed({ fromSection: fromLocation.sectionKey, toSection: sectionKey })
+      : false;
+    const isDropEndTarget = dropTarget?.legal && dropTarget.sectionKey === sectionKey && dropTarget.index === cards.length;
+
+    return (
+      <div className="canvas-lane" key={sectionKey}>
+        <div className="lane-header">
+          <h3>{laneTitle}</h3>
+        </div>
+        <div className="lane-content">
+          <div className="module-cluster">
+            <div className="cluster-title">{clusterTitle}</div>
+            <div
+              className={`cluster-cards${draggingCardId ? ` drag-scope ${canDropHere ? 'drop-zone-legal' : 'drop-zone-illegal'}` : ''}${isDropEndTarget ? ' drop-end' : ''}`}
+              onDragOver={(event) => handleClusterDragOver(event, sectionKey)}
+              onDrop={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                applyDropTarget();
+              }}
+            >
+              {cards.map((card, index) => renderCard(card, sectionKey, index))}
+            </div>
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -482,92 +768,40 @@ export default function Canvas({ isChatOpen = true }) {
         }}
       >
           
-          <div className="canvas-lane">
-            <div className="lane-header">
-              <h3>1. 探索发现</h3>
-            </div>
-            <div className="lane-content">
-              <div className="module-cluster">
-                <div className="cluster-title">用户反馈</div>
-                <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.evidence.map(renderCard)}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="canvas-lane">
-            <div className="lane-header">
-              <h3>2. 需求定义</h3>
-            </div>
-            <div className="lane-content">
-              <div className="module-cluster">
-                <div className="cluster-title">功能设计</div>
-                <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.problems.map(renderCard)}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="canvas-lane">
-            <div className="lane-header">
-              <h3>3. 问题澄清</h3>
-            </div>
-            <div className="lane-content">
-              <div className="module-cluster">
-                <div className="cluster-title">待澄清问题</div>
-                <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.clarify.map(renderCard)}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="canvas-lane">
-            <div className="lane-header">
-              <h3>4. 方案规划</h3>
-            </div>
-            <div className="lane-content">
-              <div className="module-cluster">
-                <div className="cluster-title">决策确认</div>
-                <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.rules.map(renderCard)}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="canvas-lane">
-            <div className="lane-header">
-              <h3>5. 落地执行</h3>
-            </div>
-            <div className="lane-content">
-              <div className="module-cluster">
-                <div className="cluster-title">迭代计划</div>
-                <div className="cluster-cards">
-                  {DEMO_CANVAS_SECTIONS.planning.map(renderCard)}
-                </div>
-              </div>
-            </div>
-          </div>
+          {LANE_DEFINITIONS.map(renderLane)}
 
           {/* 渲染所有箭头 */}
           {arrows.map((arr, i) => (
-            <CustomArrow 
-              key={i} 
-              start={arr.start} 
-              end={arr.end} 
-              transform={transform} 
-              activeCardId={activeCardId}
-              outIndex={arr.outIndex}
-              outCount={arr.outCount}
-              inIndex={arr.inIndex}
-              inCount={arr.inCount}
+            <CustomArrow
+              key={i}
+              start={arr.start}
+              end={arr.end}
+              transform={transform}
+              visualState={getArrowPresentation(arr, focusedCardId).visualState}
+              accentColor={relationColors[getArrowKey(arr)]}
+              outIndex={arr.startOffsetIndex}
+              outCount={arr.startOffsetTotal}
+              inIndex={arr.endOffsetIndex}
+              inCount={arr.endOffsetTotal}
             />
           ))}
 
         </div>
+
+      {pendingMove && (
+        <div className="canvas-move-confirm">
+          <div className="canvas-move-confirm-copy">
+            <span className="canvas-move-confirm-title">确认迁移</span>
+            <span className="canvas-move-confirm-text">{pendingMove.message}</span>
+          </div>
+          <div className="canvas-move-confirm-actions">
+            <button className="move-confirm-secondary" onClick={() => setPendingMove(null)}>取消</button>
+            <button className="move-confirm-primary" onClick={confirmPendingMove}>确认</button>
+          </div>
+        </div>
+      )}
+
+      {moveError && <div className="canvas-move-toast">{moveError}</div>}
 
       {/* 底部时间轴 */}
       <TimelineScrubber isChatOpen={isChatOpen} />

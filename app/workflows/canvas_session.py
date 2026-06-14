@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from app.core.task import TaskDefinition, WorkflowSpec, WorkflowStep
-from app.workflows.policies import build_default_tool_policy
+from app.workflows.policies import build_canvas_tool_policy
 
 
 def build_canvas_turn_definition() -> TaskDefinition:
@@ -23,7 +23,7 @@ def build_canvas_turn_definition() -> TaskDefinition:
         steps=[
             WorkflowStep(
                 id="load_canvas_context",
-                type="context_load",
+                type="context",
                 title="加载当前画布上下文",
                 role="SYSTEM",
                 input_keys=["workspace_id", "turn_input"],
@@ -31,7 +31,7 @@ def build_canvas_turn_definition() -> TaskDefinition:
             ),
             WorkflowStep(
                 id="run_canvas_supervisor",
-                type="canvas_supervisor",
+                type="agent",
                 title="运行画布回合同步器",
                 role="CanvasSupervisor",
                 input_keys=["canvas_context", "turn_input"],
@@ -39,7 +39,7 @@ def build_canvas_turn_definition() -> TaskDefinition:
             ),
             WorkflowStep(
                 id="merge_canvas_proposal",
-                type="proposal_merge",
+                type="agent",
                 title="合并结构化提议",
                 role="SYSTEM",
                 input_keys=["mutation_proposal"],
@@ -47,7 +47,7 @@ def build_canvas_turn_definition() -> TaskDefinition:
             ),
             WorkflowStep(
                 id="emit_canvas_events",
-                type="event_emit",
+                type="context",
                 title="发出画布回合事件",
                 role="SYSTEM",
                 input_keys=["canvas_patch", "handoff_draft"],
@@ -61,15 +61,16 @@ def build_canvas_turn_definition() -> TaskDefinition:
         input_schema={
             "type": "object",
             "properties": {
+                "username": {"type": "string"},
                 "workspace_id": {"type": "string"},
                 "turn_input": {"type": "string"},
                 "turn_id": {"type": "string"},
             },
-            "required": ["workspace_id", "turn_input"],
+            "required": ["username", "workspace_id", "turn_input"],
             "additionalProperties": True,
         },
         workflow=workflow,
-        tool_policy=build_default_tool_policy(task_type),
+        tool_policy=build_canvas_tool_policy(task_type),
         agents={
             "CanvasSupervisor": {
                 "role": "CanvasSupervisor",

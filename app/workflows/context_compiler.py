@@ -11,7 +11,15 @@ from typing import Any, Dict, List
 
 from app.core.errors import DomainError
 from app.core.task import Task, WorkflowStep
-from app.workflows.acceptance_review import render_review_result_artifact
+
+try:
+    from app.workflows.acceptance_review import render_review_result_artifact
+except ModuleNotFoundError:
+    def render_review_result_artifact(task: Task) -> str:
+        raise DomainError(
+            "workflow.legacy_renderer_missing",
+            "review_result renderer is unavailable in the current EvoCanvas-focused runtime.",
+        )
 
 
 class ContextCompilerService:

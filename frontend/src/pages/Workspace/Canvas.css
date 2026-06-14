@@ -107,6 +107,35 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
+  min-height: 80px;
+  position: relative;
+  border-radius: 18px;
+  transition: background-color var(--t-fast), box-shadow var(--t-fast), border-color var(--t-fast), opacity var(--t-fast);
+}
+
+.cluster-cards.drag-scope {
+  padding: 8px;
+  margin: -8px;
+  border: 1px dashed transparent;
+}
+
+.cluster-cards.drop-zone-legal {
+  background: rgba(31, 111, 255, 0.04);
+  border-color: rgba(31, 111, 255, 0.22);
+}
+
+.cluster-cards.drop-zone-illegal {
+  background: rgba(148, 163, 184, 0.05);
+  border-color: rgba(148, 163, 184, 0.16);
+  opacity: 0.72;
+}
+
+.cluster-cards.drop-end::after {
+  content: '';
+  height: 2px;
+  border-radius: 999px;
+  background: #1f6fff;
+  box-shadow: 0 0 0 4px rgba(31, 111, 255, 0.08);
 }
 
 .cluster-empty {
@@ -117,6 +146,31 @@
   background: rgba(0,0,0,0.02);
   border-radius: var(--r-md);
   border: 1px dashed var(--border);
+}
+
+.canvas-card-slot {
+  position: relative;
+}
+
+.canvas-card-slot.drop-before::before,
+.canvas-card-slot.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: #1f6fff;
+  box-shadow: 0 0 0 4px rgba(31, 111, 255, 0.08);
+  z-index: 3;
+}
+
+.canvas-card-slot.drop-before::before {
+  top: -10px;
+}
+
+.canvas-card-slot.drop-after::after {
+  bottom: -10px;
 }
 
 /* ── 卡片样式 ── */
@@ -155,6 +209,27 @@
   box-shadow: 0 4px 14px rgba(0, 122, 255, 0.04) !important;
 }
 
+.canvas-card.selected-self {
+  border-color: #1f6fff !important;
+  box-shadow: 0 0 0 2px rgba(31, 111, 255, 0.18), 0 12px 30px rgba(31, 111, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+}
+
+.canvas-card.selected-related {
+  border-color: var(--relation-accent, rgba(31, 111, 255, 0.42)) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--relation-accent, #1f6fff) 22%, white), 0 8px 24px color-mix(in srgb, var(--relation-accent, #1f6fff) 10%, transparent) !important;
+}
+
+.canvas-card.preview-self {
+  border-color: rgba(31, 111, 255, 0.58) !important;
+  box-shadow: 0 0 0 1px rgba(31, 111, 255, 0.16), 0 10px 26px rgba(31, 111, 255, 0.08) !important;
+}
+
+.canvas-card.preview-related {
+  border-color: var(--relation-accent, rgba(31, 111, 255, 0.22)) !important;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--relation-accent, #1f6fff) 8%, transparent) !important;
+}
+
 .canvas-card-header-group {
   display: flex;
   flex-direction: column;
@@ -183,10 +258,57 @@
   flex: 1;
 }
 
+.canvas-card-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.canvas-card-title-input,
+.canvas-card-desc-input {
+  width: 100%;
+  border: 1px solid rgba(31, 111, 255, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  box-shadow: 0 0 0 3px rgba(31, 111, 255, 0.08);
+  outline: none;
+}
+
+.canvas-card-title-input {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .canvas-card-desc {
   font-size: var(--text-xs);
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.canvas-card-desc-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.canvas-card-desc-wrap.is-editing {
+  gap: 8px;
+}
+
+.canvas-card-desc-input {
+  min-height: 84px;
+  resize: vertical;
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+.card-editor-hint {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  padding-left: 4px;
 }
 
 .structured-block {
@@ -536,6 +658,87 @@
   font-size: 10px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+.canvas-move-confirm {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 420px;
+  max-width: 560px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+}
+
+.canvas-move-confirm-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.canvas-move-confirm-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.canvas-move-confirm-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.canvas-move-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.move-confirm-primary,
+.move-confirm-secondary {
+  height: 34px;
+  border-radius: 999px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.move-confirm-primary {
+  border: 1px solid #1f6fff;
+  background: #1f6fff;
+  color: white;
+}
+
+.move-confirm-secondary {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
+}
+
+.canvas-move-toast {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 28;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.86);
+  color: white;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
 }
 
 /* ── 时间轴 Timeline Scrubber ── */

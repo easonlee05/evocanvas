@@ -39,3 +39,16 @@ def build_default_tool_policy(task_type: str) -> ToolPolicy:
         ],
     )
 
+
+def build_canvas_tool_policy(task_type: str) -> ToolPolicy:
+    """为 EvoCanvas 画布回合构建只读优先的工具策略。"""
+
+    policy = build_default_tool_policy(task_type)
+    policy.rules.append(
+        ToolPolicyRule(
+            role="CanvasSupervisor",
+            step_id="run_canvas_supervisor",
+            allowed_tools=["material.read", "knowledge.retrieve", "artifact.read"],
+        )
+    )
+    return policy

@@ -328,24 +328,6 @@ class DefaultStepExecutorRegistryFactory:
         Returns:
             StepExecutionRegistry: 包含了所有预配置执行器的步骤注册表。
         """
-        # 动态导入各特定工作流专用的步骤执行器以避免循环依赖
-        from app.workflows.acceptance_review import (
-            DiffImpactAnalyzerExecutor,
-            IngestAcceptanceContextExecutor,
-            RequirementCoverageExecutor,
-            ReviewGateExecutor,
-            ReviewResultCompilerExecutor,
-        )
-        from app.workflows.spec_to_agent import (
-            AcceptanceProtocolGeneratorExecutor,
-            AgentPackageGeneratorExecutor,
-            ContextNormalizerExecutor,
-            HumanDecisionGateExecutor,
-            MachineSpecCompilerExecutor,
-            OpenQuestionIdentifierExecutor,
-        )
-
-
         executors: list[StepExecutor] = [
             # 基础通用执行器
             ContextStepExecutor(
@@ -356,22 +338,10 @@ class DefaultStepExecutorRegistryFactory:
             ArtifactStepExecutor(tool_service=self.tool_service, context_compiler=self.context_compiler, storage=self.storage),
             DiffStepExecutor(),
             CheckpointStepExecutor(),
-            
-            # spec_to_agent 剧本节点执行器
-            ContextNormalizerExecutor(),
-            OpenQuestionIdentifierExecutor(llm=self.llm, tool_service=self.tool_service),
-            HumanDecisionGateExecutor(),
-            MachineSpecCompilerExecutor(llm=self.llm, tool_service=self.tool_service),
-            AgentPackageGeneratorExecutor(llm=self.llm, tool_service=self.tool_service),
-            AcceptanceProtocolGeneratorExecutor(llm=self.llm, tool_service=self.tool_service),
-            
-            # acceptance_review 剧本节点执行器
-            IngestAcceptanceContextExecutor(),
-            RequirementCoverageExecutor(llm=self.llm, tool_service=self.tool_service),
-            DiffImpactAnalyzerExecutor(llm=self.llm, tool_service=self.tool_service),
-            ReviewResultCompilerExecutor(llm=self.llm),
-            ReviewGateExecutor(),
         ]
+
+        executors.extend(self._load_spec_to_agent_executors())
+        executors.extend(self._load_acceptance_review_executors())
         
         # 追加代理模式执行器以衔接遗留引擎的复杂事件分支
         executors.append(
@@ -396,6 +366,48 @@ class DefaultStepExecutorRegistryFactory:
             )
         )
         return StepExecutionRegistry(executors)
+
+    def _load_spec_to_agent_executors(self) -> list[StepExecutor]:
+        try:
+            from app.workflows.spec_to_agent import (
+                AcceptanceProtocolGeneratorExecutor,
+                AgentPackageGeneratorExecutor,
+                ContextNormalizerExecutor,
+                HumanDecisionGateExecutor,
+                MachineSpecCompilerExecutor,
+                OpenQuestionIdentifierExecutor,
+            )
+        except ModuleNotFoundError:
+            return []
+
+        return [
+            ContextNormalizerExecutor(),
+            OpenQuestionIdentifierExecutor(llm=self.llm, tool_service=self.tool_service),
+            HumanDecisionGateExecutor(),
+            MachineSpecCompilerExecutor(llm=self.llm, tool_service=self.tool_service),
+            AgentPackageGeneratorExecutor(llm=self.llm, tool_service=self.tool_service),
+            AcceptanceProtocolGeneratorExecutor(llm=self.llm, tool_service=self.tool_service),
+        ]
+
+    def _load_acceptance_review_executors(self) -> list[StepExecutor]:
+        try:
+            from app.workflows.acceptance_review import (
+                DiffImpactAnalyzerExecutor,
+                IngestAcceptanceContextExecutor,
+                RequirementCoverageExecutor,
+                ReviewGateExecutor,
+                ReviewResultCompilerExecutor,
+            )
+        except ModuleNotFoundError:
+            return []
+
+        return [
+            IngestAcceptanceContextExecutor(),
+            RequirementCoverageExecutor(llm=self.llm, tool_service=self.tool_service),
+            DiffImpactAnalyzerExecutor(llm=self.llm, tool_service=self.tool_service),
+            ReviewResultCompilerExecutor(llm=self.llm),
+            ReviewGateExecutor(),
+        ]
 
     @staticmethod
     def _missing_delegate(step_type: str):

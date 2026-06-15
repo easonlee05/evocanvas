@@ -751,25 +751,16 @@ class CanvasService:
                         selected_card_ids=selected_card_ids,
                     )
                 )
-                if "Clarifier" not in role_set:
-                    mutations.append(
-                        self._card_mutation(
-                            mutation_type="add_card",
-                            kind=CanvasCardKind.CLARIFICATION,
-                            title=self._truncate_title(message, "待澄清缺口"),
-                            summary=f"需要继续澄清的关键信息：{contextual_summary}",
-                            evidence_refs=evidence_refs,
-                            material_ids=material_ids,
-                            source_ref_ids=source_ref_ids,
-                            selected_card_ids=selected_card_ids,
-                        )
-                    )
             elif role_name == "Clarifier":
+                raw_title = self._truncate_title(message, "待澄清")
+                title = raw_title.replace("先把", "").replace("把", "").replace("列出来", "").replace("的待澄清问题", "").replace("待澄清问题", "").strip()
+                if not title.startswith("待澄清：") and not title.startswith("澄清："):
+                    title = f"澄清：{title}"
                 mutations.append(
                     self._card_mutation(
                         mutation_type="add_card",
                         kind=CanvasCardKind.CLARIFICATION,
-                        title=self._truncate_title(message, "待澄清"),
+                        title=title,
                         summary=contextual_summary,
                         evidence_refs=evidence_refs,
                         material_ids=material_ids,
@@ -778,12 +769,16 @@ class CanvasService:
                     )
                 )
             elif role_name == "ConstraintSteward":
+                raw_title = self._truncate_title(message, "约束草稿")
+                title = raw_title.replace("先把", "").replace("把", "").replace("约束", "").replace("补齐", "").strip()
+                if not title.startswith("约束："):
+                    title = f"约束：{title}"
                 mutations.append(
                     self._card_mutation(
                         mutation_type="promote_to_constraint_draft",
                         kind=CanvasCardKind.CONSTRAINT,
-                        title=self._truncate_title(message, "约束草稿"),
-                        summary=contextual_summary,
+                        title=title,
+                        summary=f"拟定规则：{contextual_summary}",
                         status="draft",
                         evidence_refs=evidence_refs,
                         material_ids=material_ids,
@@ -792,13 +787,31 @@ class CanvasService:
                     )
                 )
             elif role_name == "DecisionSteward":
+                raw_title = self._truncate_title(message, "待决策")
+                title = raw_title.replace("把", "").replace("整理成需要拍板的", "").replace("待决策", "").replace("决策", "").strip()
+                if not title.startswith("决策："):
+                    title = f"决策：{title}"
                 mutations.append(
                     self._card_mutation(
                         mutation_type="create_decision_request",
                         kind=CanvasCardKind.DECISION,
-                        title=self._truncate_title(message, "待决策"),
-                        summary=contextual_summary,
+                        title=title,
+                        summary=f"【决策点：为什么需要拍板此项？】\n{contextual_summary}",
                         status="pending",
+                        evidence_refs=evidence_refs,
+                        material_ids=material_ids,
+                        source_ref_ids=source_ref_ids,
+                        selected_card_ids=selected_card_ids,
+                    )
+                )
+            elif role_name == "OptionBuilder":
+                mutations.append(
+                    self._card_mutation(
+                        mutation_type="add_card",
+                        kind=CanvasCardKind.OPTION,
+                        title=f"方案：{self._truncate_title(message, '方案候选')}",
+                        summary=contextual_summary,
+                        status="draft",
                         evidence_refs=evidence_refs,
                         material_ids=material_ids,
                         source_ref_ids=source_ref_ids,
@@ -1139,10 +1152,18 @@ class CanvasService:
 
         cards = list(card_index.values())
         if latest_card_id is not None:
+            latest_card = card_index.get(latest_card_id)
             for selected_card_id in proposal.metadata.get("selected_card_ids", []):
+                selected_card = card_index.get(selected_card_id)
+                rel_kind = CanvasRelationKind.DERIVED_FROM
+                if selected_card and latest_card:
+                    selected_kind_str = selected_card.kind.value if hasattr(selected_card.kind, "value") else str(selected_card.kind)
+                    latest_kind_str = latest_card.kind.value if hasattr(latest_card.kind, "value") else str(latest_card.kind)
+                    if selected_kind_str in ("option", "decision") and latest_kind_str in ("problem", "clarification"):
+                        rel_kind = CanvasRelationKind.REOPENS
                 relation = CanvasRelation(
                     relation_id=f"rel_{uuid4().hex[:10]}",
-                    kind=CanvasRelationKind.DERIVED_FROM,
+                    kind=rel_kind,
                     from_card_id=selected_card_id,
                     to_card_id=latest_card_id,
                     metadata={"source_proposal_id": proposal.proposal_id},
@@ -1215,11 +1236,19 @@ class CanvasService:
     def _build_todo_projection(self, workspace_id: str, cards: List[CanvasCard]) -> TodoProjection:
         items: list[TodoItem] = []
         for card in cards:
+            is_todo = False
             if card.status in {"open", "draft", "pending"} and card.kind in {
                 CanvasCardKind.CLARIFICATION,
                 CanvasCardKind.CONSTRAINT,
                 CanvasCardKind.DECISION,
             }:
+                is_todo = True
+            elif card.kind == CanvasCardKind.OPTION and card.status in {"blocked", "pending"}:
+                is_todo = True
+            elif card.status == "blocked":
+                is_todo = True
+                
+            if is_todo:
                 items.append(
                     TodoItem(
                         todo_id=f"todo_{card.card_id}",
@@ -1430,6 +1459,7 @@ class CanvasService:
             CanvasCardKind.HANDOFF: {"draft", "confirmed"},
             CanvasCardKind.EVIDENCE: {"open", "draft", "confirmed"},
             CanvasCardKind.PROBLEM: {"open", "draft", "confirmed"},
+            CanvasCardKind.OPTION: {"open", "draft", "confirmed"},
         }
         allowed = visible_statuses.get(kind, {"open", "draft", "pending"})
         return [card.title for card in cards if card.kind == kind and card.status in allowed]
@@ -1443,12 +1473,20 @@ class CanvasService:
         )
 
     def _build_refresh_handoff_summary(self, cards: List[CanvasCard]) -> str:
+        problems = [card.title for card in cards if card.kind == CanvasCardKind.PROBLEM]
         clarifications = self._handoff_items(cards, CanvasCardKind.CLARIFICATION)
         constraints = self._handoff_items(cards, CanvasCardKind.CONSTRAINT)
         decisions = self._handoff_items(cards, CanvasCardKind.DECISION)
+        options = [card.title for card in cards if card.kind == CanvasCardKind.OPTION]
+        
+        problem_str = f"主问题：{problems[0]}" if problems else "暂无主问题"
+        option_str = f"方案候选：{', '.join(options)}" if options else "暂无方案候选"
+        
         return (
-            "基于当前画布收束的结构化交接物草稿："
-            f"待澄清 {len(clarifications)} 项，约束 {len(constraints)} 项，待决策 {len(decisions)} 项。"
+            "基于当前画布收束的结构化交接物草稿：\n" +
+            f"【{problem_str}】\n" +
+            f"待澄清 {len(clarifications)} 项，约束 {len(constraints)} 项，待决策 {len(decisions)} 项。\n" +
+            f"【{option_str}】"
         )
 
     @staticmethod

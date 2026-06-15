@@ -77,6 +77,7 @@ class CanvasSupervisor:
 - "Clarifier": 发现歧义、缺失信息与冲突，提出待澄清卡 (clarification)。
 - "ConstraintSteward": 沉淀稳定业务规则、术语、数据口径等约束卡 (constraint)。
 - "DecisionSteward": 识别必须由 PM 拍板的待决策卡 (decision)。
+- "OptionBuilder": 接收方案建议并生成方案候选卡 (option)。
 - "HandoffBuilder": 编写与收束结构化交接物草稿卡 (handoff)。
 
 用户当前的输入消息为: "{message}"
@@ -95,7 +96,8 @@ class CanvasSupervisor:
 - "input_compilation": 包含新材料、聊天纪要输入编译。
 - "clarification": 处理待澄清事项、暴露矛盾或不确定性。
 - "constraint": 约束、规则或边界边界沉淀。
-- "decision": 需要决策、方案取舍拍板的事项。
+- "decision": 需要决策、方案取舍拍板的事项.
+- "option": 讨论、对比和拟定技术或业务备选方案。
 - "handoff": 整理或生成结构化交接物。
 
 若用户的输入意图不明确，请根据选中的卡片类型或新材料做出推荐；若包含混合意图（如先澄清再交接），意图之间用 "+" 连接，角色使用英文逗号分隔。
@@ -129,7 +131,7 @@ class CanvasSupervisor:
             roles = tuple(data["roles"])
 
             # 校验并提取合法的角色名称
-            valid_roles = {"InputCompiler", "Clarifier", "ConstraintSteward", "DecisionSteward", "HandoffBuilder"}
+            valid_roles = {"InputCompiler", "Clarifier", "ConstraintSteward", "DecisionSteward", "HandoffBuilder", "OptionBuilder"}
             filtered_roles = tuple(r for r in roles if r in valid_roles)
             if not filtered_roles:
                 return None
@@ -190,6 +192,9 @@ class CanvasSupervisor:
                     elif kind == "decision":
                         matched_intents.append("decision")
                         matched_roles.append("DecisionSteward")
+                    elif kind == "option":
+                        matched_intents.append("option")
+                        matched_roles.append("OptionBuilder")
                     elif kind == "handoff":
                         matched_intents.append("handoff")
                         matched_roles.append("HandoffBuilder")

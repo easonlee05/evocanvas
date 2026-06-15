@@ -16,6 +16,10 @@ class CanvasRelationKind(str, Enum):
     BLOCKS = "blocks"
     CONFLICTS_WITH = "conflicts_with"
     PRODUCES = "produces"
+    CONSTRAINS = "constrains"
+    REQUIRES_DECISION = "requires_decision"
+    COMPARES = "compares"
+    REOPENS = "reopens"
 
 
 @dataclass

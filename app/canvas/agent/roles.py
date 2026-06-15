@@ -56,6 +56,11 @@ _ROLE_REGISTRY: dict[str, CanvasAgentRole] = {
         responsibility="识别需要人拍板的事项并沉淀待决策项。",
         allowed_mutation_types=("add_card", "create_decision_request", "update_card_summary"),
     ),
+    "OptionBuilder": CanvasAgentRole(
+        name="OptionBuilder",
+        responsibility="接收方案建议并生成方案候选卡 (option)。",
+        allowed_mutation_types=("add_card", "update_card_summary"),
+    ),
     "HandoffBuilder": CanvasAgentRole(
         name="HandoffBuilder",
         responsibility="收束当前结构化交接物，同时保留未解决缺口。",
@@ -88,6 +93,11 @@ _INTENT_ROUTES: Tuple[CanvasIntentRoute, ...] = (
         intent="decision",
         keywords=("决策", "拍板", "取舍", "方案选择"),
         roles=("DecisionSteward",),
+    ),
+    CanvasIntentRoute(
+        intent="option",
+        keywords=("选项", "候选", "技术方案", "业务方案", "备选方案", "方案候选"),
+        roles=("OptionBuilder",),
     ),
 )
 

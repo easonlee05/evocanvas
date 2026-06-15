@@ -404,8 +404,14 @@ export default function Workspace() {
         <button 
           className="chat-toggle-btn"
           onClick={() => setIsChatOpen(true)}
+          style={{
+            color: 'var(--text-secondary)',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
         >
-          <Bot size={14} color="var(--clr-blue)" /> Canvas AI
+          <Bot size={14} color="currentColor" /> Canvas AI
         </button>
       )}
 

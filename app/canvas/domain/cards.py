@@ -19,6 +19,7 @@ class CanvasCardKind(str, Enum):
     CONSTRAINT = "constraint"
     DECISION = "decision"
     HANDOFF = "handoff"
+    OPTION = "option"
 
 
 @dataclass

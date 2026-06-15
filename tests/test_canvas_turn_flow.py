@@ -64,7 +64,7 @@ class CanvasTurnFlowTests(unittest.TestCase):
 
         canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
         card_kinds = [card["kind"] for card in canvas["cards"]]
-        self.assertEqual(card_kinds, ["evidence", "problem", "clarification"])
+        self.assertEqual(card_kinds, ["evidence", "problem"])
         self.assertTrue(all(card["evidence_refs"] == ["meeting_001"] for card in canvas["cards"]))
 
     def test_source_refs_are_merged_into_compilation_evidence(self) -> None:
@@ -496,6 +496,43 @@ class CanvasTurnFlowTests(unittest.TestCase):
                 break
         self.assertIn("canvas.turn.started", event_types)
         self.assertIn("canvas.turn.failed", event_types)
+
+    def test_option_card_creation_and_problem_reopen_flow(self) -> None:
+        response = self.client.post(
+            "/api/canvas/workspaces/demo/messages",
+            json={
+                "message": "把一期技术方案的选项和候选列出来",
+                "selected_card_ids": [],
+                "material_ids": [],
+                "mode": "default",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["intent"], "option")
+        
+        canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
+        option_cards = [card for card in canvas["cards"] if card["kind"] == "option"]
+        self.assertEqual(len(option_cards), 1)
+        option_card_id = option_cards[0]["card_id"]
+        
+        reopen_response = self.client.post(
+            "/api/canvas/workspaces/demo/messages",
+            json={
+                "message": "在这个方案下，我们需要额外澄清误杀成本口径问题",
+                "selected_card_ids": [option_card_id],
+                "material_ids": [],
+                "mode": "default",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(reopen_response.status_code, 200)
+        
+        canvas_after = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
+        relations = canvas_after["relations"]
+        reopen_relations = [rel for rel in relations if rel["kind"] == "reopens"]
+        self.assertEqual(len(reopen_relations), 1)
+        self.assertEqual(reopen_relations[0]["from_card_id"], option_card_id)
 
 
 if __name__ == "__main__":

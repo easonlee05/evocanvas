@@ -70,6 +70,23 @@ class CanvasRepository:
             return None
         return CanvasWorkspace.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
+    def list_workspaces(self) -> list[CanvasWorkspace]:
+        """列出所有已持久化工作区，并按最近更新时间倒序返回。"""
+
+        workspaces_dir = self.storage.canvas_root() / "workspaces"
+        if not workspaces_dir.exists():
+            return []
+
+        items: list[CanvasWorkspace] = []
+        for path in sorted(workspaces_dir.glob("*/workspace.json")):
+            items.append(CanvasWorkspace.from_dict(json.loads(path.read_text(encoding="utf-8"))))
+
+        return sorted(
+            items,
+            key=lambda item: (item.updated_at or item.created_at or "", item.workspace_id),
+            reverse=True,
+        )
+
     def claim_active_turn(self, workspace_id: str, turn_id: str, started_at: str) -> Optional[CanvasWorkspace]:
         """尝试为工作区占用一个新的 active turn。
 

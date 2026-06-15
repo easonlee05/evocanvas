@@ -21,6 +21,8 @@ class CanvasWorkspace:
     active_turn_status: str = "idle"
     active_turn_started_at: str = ""
     handoff_status: str = "not_ready"
+    created_at: str = ""
+    updated_at: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
     handoff_metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -42,6 +44,8 @@ class CanvasWorkspace:
             active_turn_status=data.get("active_turn_status", "idle"),
             active_turn_started_at=data.get("active_turn_started_at", ""),
             handoff_status=data.get("handoff_status", "not_ready"),
+            created_at=data.get("created_at", ""),
+            updated_at=data.get("updated_at", data.get("created_at", "")),
             metadata=dict(data.get("metadata", {})),
             handoff_metadata=dict(data.get("handoff_metadata", {})),
         )

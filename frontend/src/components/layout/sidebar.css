@@ -61,9 +61,9 @@
 }
 
 .dock-item.active {
-  background: #0f172a;
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  background: #cbd5e1;
+  color: #0f172a;
+  box-shadow: none;
 }
 
 .user-avatar {

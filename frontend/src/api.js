@@ -135,5 +135,27 @@ export async function apiDelete(path, fallback) {
   }
 }
 
+/**
+ * 发起 PATCH 请求
+ * @param {string} path - API 相对路径
+ * @param {Object} body - 修改后的请求体对象
+ * @param {*} fallback - 失败时的退回默认值
+ * @returns {Promise<*>} 解析后的 JSON 响应，若失败则返回 fallback
+ */
+export async function apiPatch(path, body, fallback) {
+  try {
+    const res = await fetchWithTimeout(apiUrl(path), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`);
+    return await res.json();
+  } catch (error) {
+    console.warn(error);
+    return fallback;
+  }
+}
+
 export { API_BASE };
 

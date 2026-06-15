@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { MessageSquarePlus, LayoutDashboard, Clock, Settings, User } from 'lucide-react';
+import { MessageSquarePlus, LayoutDashboard, Clock, BookOpen, Settings, User } from 'lucide-react';
 import './sidebar.css';
 
 export function Sidebar() {
@@ -20,9 +20,13 @@ export function Sidebar() {
           <LayoutDashboard size={20} strokeWidth={2} />
         </NavLink>
         
-        <button className="dock-item" title="Recent History">
+        <NavLink to="/recent" className={({ isActive }) => `dock-item${isActive ? ' active' : ''}`} title="Recent History">
           <Clock size={20} strokeWidth={2} />
-        </button>
+        </NavLink>
+
+        <NavLink to="/knowledge" className={({ isActive }) => `dock-item${isActive ? ' active' : ''}`} title="Knowledge Base">
+          <BookOpen size={20} strokeWidth={2} />
+        </NavLink>
       </div>
 
       {/* Bottom Icons */}

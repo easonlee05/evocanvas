@@ -25,6 +25,40 @@ class CanvasApiTests(unittest.TestCase):
         self.assertIn("title", payload)
         self.assertIn("handoff_status", payload)
 
+    def test_list_recent_canvas_workspaces(self) -> None:
+        first = self.client.post(
+            "/api/canvas/workspaces/ws_alpha/messages",
+            json={
+                "message": "先整理会员体系背景",
+                "selected_card_ids": [],
+                "material_ids": [],
+                "mode": "default",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(first.status_code, 200)
+
+        second = self.client.post(
+            "/api/canvas/workspaces/ws_beta/messages",
+            json={
+                "message": "补充履约约束和待决策",
+                "selected_card_ids": [],
+                "material_ids": [],
+                "mode": "default",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(second.status_code, 200)
+
+        response = self.client.get("/api/canvas/workspaces", headers=self.headers)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["items"][0]["workspace_id"], "ws_beta")
+        self.assertIn("title", payload["items"][0])
+        self.assertIn("updated_at", payload["items"][0])
+        self.assertIn("summary_preview", payload["items"][0])
+
     def test_get_canvas_view_returns_canvas_payload(self) -> None:
         response = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers)
 

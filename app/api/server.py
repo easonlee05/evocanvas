@@ -37,7 +37,13 @@ from app.api.canvas_schemas import (
     CanvasRelationCreateRequest,
     CanvasSnapshotCreateRequest,
 )
-from app.api.schemas import CreateTaskRequest, DecisionRequest, MaterialUploadResponse
+from app.api.schemas import (
+    CreateTaskRequest,
+    DecisionRequest,
+    KnowledgeCandidateCreateRequest,
+    MaterialUploadResponse,
+    SourceRefCreateRequest,
+)
 from app.canvas.service import (
     CanvasCardMoveValidationError,
     CanvasCardNotFoundError,
@@ -61,6 +67,8 @@ from app.core.events import EventBus
 # 全局事件总线，用于实时推送工作流中的 Event 消息
 global_event_bus = EventBus()
 global_materials_cache = {}
+global_knowledge_candidates_cache = {}
+global_source_refs_cache = {}
 
 
 # 智能 Agent 角色的前端展示元数据，包括名称、状态标签、头像缩写与配色设计
@@ -221,6 +229,20 @@ def create_app(task_service: TaskService | None = None):
         workspace = canvas_service.get_workspace(workspace_id)
         return workspace.to_dict()
 
+    @app.patch("/api/canvas/workspaces/{workspace_id}")
+    async def patch_canvas_workspace(
+        workspace_id: str,
+        payload: Dict[str, Any],
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        return canvas_service.patch_workspace(workspace_id, payload)
+
+    @app.get("/api/canvas/workspaces")
+    async def list_canvas_workspaces(
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        return canvas_service.list_recent_workspaces()
+
     @app.get("/api/canvas/workspaces/{workspace_id}/canvas")
     async def get_canvas_view(
         workspace_id: str,
@@ -244,6 +266,7 @@ def create_app(task_service: TaskService | None = None):
                 message=request.message,
                 selected_card_ids=list(request.selected_card_ids),
                 material_ids=list(request.material_ids),
+                source_ref_ids=list(request.source_ref_ids),
                 mode=request.mode,
                 model=request.model,
             )
@@ -911,7 +934,7 @@ def create_app(task_service: TaskService | None = None):
 
     @app.post("/api/materials", response_model=MaterialUploadResponse)
     async def upload_material(file: UploadFile = File(...), service: TaskService = Depends(get_task_service)) -> MaterialUploadResponse:
-        """上传参考材料文件，返回脱敏后的参考标识以防泄露本地磁盘绝对路径。
+        """上传当前工作区资料，写入材料层而不是直接写入知识库。
 
         Args:
             file (UploadFile): 上传的多媒体/文本文件。
@@ -925,9 +948,31 @@ def create_app(task_service: TaskService | None = None):
         material_id = f"material_{uuid4().hex[:12]}"
         global_materials_cache[material_id] = {
             "filename": file.filename,
-            "content": text_content
+            "content": text_content,
+            "layer": "material",
+            "display_name": file.filename,
         }
-        return MaterialUploadResponse(material_id=material_id, status="uploaded", summary=f"{file.filename} uploaded; full local path is not exposed.")
+        return MaterialUploadResponse(
+            material_id=material_id,
+            status="uploaded",
+            summary=f"{file.filename} 已进入当前工作区资料层，后续会参与输入编译，不会自动进入知识库。",
+            display_name=file.filename,
+        )
+
+    @app.get("/api/materials/{material_id}")
+    async def get_material(material_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+        """读取指定材料层对象的脱敏元数据。"""
+
+        del service
+        item = global_materials_cache.get(material_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="material not found")
+        return {
+            "material_id": material_id,
+            "layer": item.get("layer", "material"),
+            "display_name": item.get("display_name") or item.get("filename") or "未命名资料",
+            "summary": f"{item.get('display_name') or item.get('filename') or '资料'} 已绑定到当前工作区。",
+        }
 
     @app.get("/api/knowledge")
     async def list_knowledge(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
@@ -943,6 +988,171 @@ def create_app(task_service: TaskService | None = None):
             "tags": payload.get("tags", []),
             "updated": "刚刚",
             "author": payload.get("author", "User"),
+        }
+        return item
+
+    @app.get("/api/knowledge/candidates")
+    async def list_knowledge_candidates(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+        """列出等待审核的知识候选条目。"""
+
+        del service
+        return {"items": list(global_knowledge_candidates_cache.values())}
+
+    @app.post("/api/knowledge/candidates")
+    async def create_knowledge_candidate(
+        payload: KnowledgeCandidateCreateRequest,
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """写入知识候选区，等待后续审核后再升级为正式知识。"""
+
+        del service
+        item = {
+            "id": f"kbc_{uuid4().hex[:8]}",
+            "type": payload.type or "doc",
+            "title": payload.title,
+            "desc": payload.desc or "来自工作区产出或资料抽取的候选知识，等待审核。",
+            "tags": list(payload.tags or []),
+            "author": payload.author or "Canvas AI",
+            "status": "candidate",
+            "updated": "刚刚",
+            "source_artifact_id": payload.source_artifact_id,
+            "source_workspace_id": payload.source_workspace_id,
+        }
+        global_knowledge_candidates_cache[item["id"]] = item
+        return item
+
+    @app.post("/api/knowledge/{knowledge_id}/approve")
+    async def approve_knowledge(
+        knowledge_id: str,
+        payload: Optional[Dict[str, Any]] = Body(None),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """将候选知识审核通过并升级为正式知识条目。"""
+
+        del service
+        candidate = global_knowledge_candidates_cache.get(knowledge_id)
+        if not candidate:
+            raise HTTPException(status_code=404, detail="knowledge candidate not found")
+        approved = {
+            "id": f"kb_{uuid4().hex[:8]}",
+            "type": payload.get("type", candidate.get("type", "doc")) if payload else candidate.get("type", "doc"),
+            "title": (payload or {}).get("title", candidate.get("title", "未命名知识")),
+            "desc": (payload or {}).get("desc", candidate.get("desc", "")),
+            "tags": (payload or {}).get("tags", candidate.get("tags", [])),
+            "updated": "刚刚",
+            "author": candidate.get("author", "Canvas AI"),
+            "status": "approved",
+            "source_candidate_id": knowledge_id,
+        }
+        global_knowledge_candidates_cache.pop(knowledge_id, None)
+        return approved
+
+    @app.get("/api/source-connectors")
+    async def list_source_connectors(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+        """返回可用于创建结构化数据引用的连接器清单。"""
+
+        del service
+        return {
+            "items": [
+                {
+                    "id": "saved_query",
+                    "label": "保存查询",
+                    "description": "引用已保存 SQL 或查询模版，生成受控快照后参与输入编译。",
+                },
+                {
+                    "id": "dashboard_metric",
+                    "label": "指标看板",
+                    "description": "引用 BI 看板指标与筛选条件，生成可追溯的数据证据卡。",
+                },
+                {
+                    "id": "table_slice",
+                    "label": "数据切片",
+                    "description": "对表或视图做有限条件切片，只返回样本和聚合摘要。",
+                },
+            ]
+        }
+
+    @app.get("/api/source-refs")
+    async def list_source_refs(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+        """列出当前已创建的外部数据引用。"""
+
+        del service
+        return {"items": list(global_source_refs_cache.values())}
+
+    @app.post("/api/source-refs")
+    async def create_source_ref(
+        payload: SourceRefCreateRequest,
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """创建一个外部结构化数据引用，并生成首个只读快照摘要。"""
+
+        del service
+        source_ref_id = f"src_{uuid4().hex[:10]}"
+        snapshot_id = f"snapshot_{uuid4().hex[:10]}"
+        summary = _build_source_ref_summary(
+            connector_type=payload.connector_type,
+            display_name=payload.display_name,
+            query_text=payload.query_text,
+            metric_name=payload.metric_name,
+            filters=payload.filters,
+        )
+        item = {
+            "source_ref_id": source_ref_id,
+            "layer": "source_ref",
+            "connector_type": payload.connector_type,
+            "display_name": payload.display_name,
+            "workspace_id": payload.workspace_id,
+            "query_text": payload.query_text,
+            "metric_name": payload.metric_name,
+            "filters": dict(payload.filters or {}),
+            "snapshot": {
+                "snapshot_id": snapshot_id,
+                "captured_at": "刚刚",
+                "summary": summary,
+                "sample_rows": [],
+                "aggregates": [],
+            },
+        }
+        global_source_refs_cache[source_ref_id] = item
+        return item
+
+    @app.get("/api/source-refs/{source_ref_id}")
+    async def get_source_ref(source_ref_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+        """读取指定数据引用及其最新快照摘要。"""
+
+        del service
+        item = global_source_refs_cache.get(source_ref_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="source ref not found")
+        return item
+
+    @app.post("/api/source-refs/{source_ref_id}/snapshot")
+    async def refresh_source_ref_snapshot(
+        source_ref_id: str,
+        payload: Optional[Dict[str, Any]] = Body(None),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """显式刷新一个数据引用的只读快照。"""
+
+        del service
+        item = global_source_refs_cache.get(source_ref_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="source ref not found")
+        snapshot_id = f"snapshot_{uuid4().hex[:10]}"
+        filters = (payload or {}).get("filters", item.get("filters", {}))
+        item["filters"] = dict(filters or {})
+        item["snapshot"] = {
+            "snapshot_id": snapshot_id,
+            "captured_at": "刚刚",
+            "summary": _build_source_ref_summary(
+                connector_type=item.get("connector_type", "saved_query"),
+                display_name=item.get("display_name", "未命名数据引用"),
+                query_text=item.get("query_text"),
+                metric_name=item.get("metric_name"),
+                filters=item.get("filters", {}),
+            ),
+            "sample_rows": [],
+            "aggregates": [],
         }
         return item
 
@@ -1356,10 +1566,31 @@ def _knowledge_items() -> List[Dict[str, Any]]:
         List[Dict[str, Any]]: Mock 知识库条目列表。
     """
     return [
-        {"id": "kb_001", "type": "doc", "title": "PM-Agent 后端架构契约", "desc": "TaskDefinition、WorkflowEngine、ToolService 与结构化事件协议。", "tags": ["架构", "后端"], "updated": "刚刚", "author": "Codex"},
-        {"id": "kb_002", "type": "rule", "title": "Agent 必须通过 ToolPolicy 调用能力", "desc": "禁止 Agent 直接读写文件、任意 shell、任意网络和绕过 TaskContext。", "tags": ["规则", "安全"], "updated": "刚刚", "author": "Reviewer"},
-        {"id": "kb_003", "type": "template", "title": "PRD Markdown 输出模板", "desc": "结构化 PRD 初稿模板，后续由 Writer 产物生成补全。", "tags": ["模板", "PRD"], "updated": "刚刚", "author": "PM Agent"},
+        {"id": "kb_001", "type": "doc", "title": "EvoCanvas 协作与编译协议", "desc": "TaskDefinition、WorkflowEngine、ToolService 与结构化事件协议。", "tags": ["架构", "后端"], "updated": "刚刚", "author": "Codex"},
+        {"id": "kb_002", "type": "rule", "title": "Agent 必须通过 ToolPolicy 调用能力", "desc": "禁止 Agent 绕过受控工具边界，避免把未经授权的数据静默写成结论。", "tags": ["规则", "安全"], "updated": "刚刚", "author": "Reviewer"},
+        {"id": "kb_003", "type": "template", "title": "结构化交接物标准模板", "desc": "用于沉淀问题、待澄清、约束与待决策的结构化交接模版。", "tags": ["模板", "交接物"], "updated": "刚刚", "author": "Canvas AI"},
     ]
+
+
+def _build_source_ref_summary(
+    connector_type: str,
+    display_name: str,
+    query_text: Optional[str],
+    metric_name: Optional[str],
+    filters: Dict[str, Any],
+) -> str:
+    """为外部数据引用生成可审计、可被 AI 消费的快照摘要。"""
+
+    parts = [f"数据引用 {display_name} 已生成只读快照。"]
+    if connector_type == "dashboard_metric" and metric_name:
+        parts.append(f"当前关注指标为 {metric_name}。")
+    elif query_text:
+        parts.append(f"查询说明：{query_text[:160]}。")
+    if filters:
+        filter_text = "、".join(f"{key}={value}" for key, value in filters.items())
+        parts.append(f"过滤条件：{filter_text}。")
+    parts.append("该引用会作为结构化证据参与输入编译，而不会自动写入知识库。")
+    return "".join(parts)
 
 
 def _rule_items() -> List[Dict[str, Any]]:

@@ -13,7 +13,7 @@ import {
   Square, CheckCircle2, ChevronRight, ChevronDown, ChevronUp, X,
   BookOpen, AlertCircle, Clock, Loader2, Terminal, Bot,
   Bold, Italic, Underline, List, Code, RotateCcw, PanelRight,
-  CheckSquare, FileText, ArrowUp,
+  CheckSquare, FileText, ArrowUp, Database, Link2,
 } from 'lucide-react';
 import './workspace.css';
 import Canvas from './Canvas';
@@ -70,6 +70,11 @@ export default function Workspace() {
   const [confirmations, setConfirmations] = useState([]);
   const [uploadedMaterialIds, setUploadedMaterialIds] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [knowledgeItems, setKnowledgeItems] = useState([]);
+  const [sourceConnectors, setSourceConnectors] = useState([]);
+  const [attachedSourceRefs, setAttachedSourceRefs] = useState([]);
+  const [showKnowledgeMenu, setShowKnowledgeMenu] = useState(false);
+  const [showSourceMenu, setShowSourceMenu] = useState(false);
 
   const streamRef = useRef(null);
   const savedRef = useRef(true);
@@ -78,6 +83,15 @@ export default function Workspace() {
   const writerMsgIdRef = useRef(null);
 
   useEffect(() => { savedRef.current = saved; }, [saved]);
+
+  useEffect(() => {
+    apiGet('/api/knowledge', { items: [] }).then(res => {
+      setKnowledgeItems(res?.items || []);
+    });
+    apiGet('/api/source-connectors', { items: [] }).then(res => {
+      setSourceConnectors(res?.items || []);
+    });
+  }, []);
 
   // 加载画布主视图数据
   function loadCanvasData(id) {
@@ -113,6 +127,7 @@ export default function Workspace() {
     setConfirmations([]);
     setUploadedMaterialIds([]);
     setUploadedFiles([]);
+    setAttachedSourceRefs([]);
 
     if (!taskId || taskId === 'new') { setTaskTitle('新建任务'); setIsLive(true); return; }
 
@@ -212,6 +227,28 @@ export default function Workspace() {
     setIsLive(false);
   }
 
+  async function handleAttachSource(connector) {
+    const displayName = window.prompt('输入这次要引用的数据名称或场景', connector.label);
+    if (!displayName) return;
+    const queryText = window.prompt('输入查询说明、指标口径或引用目的', `用于分析 ${displayName}`);
+    const created = await apiPost('/api/source-refs', {
+      connector_type: connector.id,
+      display_name: displayName,
+      query_text: queryText || '',
+      workspace_id: taskId && taskId !== 'demo' ? taskId : null,
+    }, null);
+    if (created?.source_ref_id) {
+      setAttachedSourceRefs(prev => [...prev, created]);
+      setShowSourceMenu(false);
+    }
+  }
+
+  function insertKnowledgeReference(item) {
+    const snippet = `参考知识：${item.title} - ${item.desc}`;
+    setInput(prev => prev ? `${prev}\n${snippet}` : snippet);
+    setShowKnowledgeMenu(false);
+  }
+
   function handleSend() {
     const text = input.trim();
     if (!text) return;
@@ -224,12 +261,14 @@ export default function Workspace() {
         message: text,
         selected_card_ids: selectedIds,
         material_ids: uploadedMaterialIds,
+        source_ref_ids: attachedSourceRefs.map(item => item.source_ref_id),
         mode: 'default',
         model: model
       }, null);
       
       setUploadedMaterialIds([]);
       setUploadedFiles([]);
+      setAttachedSourceRefs([]);
     }
   }
 
@@ -339,6 +378,22 @@ export default function Workspace() {
             </div>
           )}
 
+          {attachedSourceRefs.length > 0 && (
+            <div className="input-attachments-preview" style={{ padding: '0 12px 8px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {attachedSourceRefs.map((item) => (
+                <span key={item.source_ref_id} className="attachment-preview-chip" style={{ background: 'rgba(55, 65, 81, 0.1)', fontSize: 11, padding: '2px 8px', borderRadius: 12, display: 'inline-flex', alignItems: 'center' }}>
+                  <Database size={10} style={{ marginRight: 4 }} />
+                  {item.display_name}
+                  <button style={{ background: 'none', border: 'none', marginLeft: 4, cursor: 'pointer', padding: 0 }} onClick={() => {
+                    setAttachedSourceRefs(prev => prev.filter(entry => entry.source_ref_id !== item.source_ref_id));
+                  }}>
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           {confirmations.length > 0 ? (
             <div className="arbitration-card" style={{ maxHeight: 250, overflowY: 'auto' }}>
               <div className="arb-title">⚠️ 待确认的画布修改提案</div>
@@ -382,7 +437,7 @@ export default function Workspace() {
                 rows={1}
               />
               <div className="ws-input-bottom-bar">
-                <div className="bottom-bar-left">
+                <div className="bottom-bar-left" style={{ position: 'relative' }}>
                   <button className="tool-btn" onClick={() => fileInputRef.current?.click()} data-tooltip="上传参考材料">
                     <Paperclip size={13} />
                   </button>
@@ -399,6 +454,53 @@ export default function Workspace() {
                       e.target.value = '';
                     }}
                   />
+                  <button
+                    className="tool-btn"
+                    onClick={() => {
+                      setShowKnowledgeMenu(prev => !prev);
+                      setShowSourceMenu(false);
+                    }}
+                    data-tooltip="引用知识库条目"
+                  >
+                    <BookOpen size={13} />
+                  </button>
+                  <button
+                    className="tool-btn"
+                    onClick={() => {
+                      setShowSourceMenu(prev => !prev);
+                      setShowKnowledgeMenu(false);
+                    }}
+                    data-tooltip="连接数据源引用"
+                  >
+                    <Database size={13} />
+                  </button>
+
+                  {showKnowledgeMenu && (
+                    <div className="model-dropdown-menu" style={{ left: 0, right: 'auto', minWidth: 260 }}>
+                      {knowledgeItems.length === 0 && <div className="model-dropdown-item">暂无可引用知识</div>}
+                      {knowledgeItems.slice(0, 6).map(item => (
+                        <div key={item.id} className="model-dropdown-item" onClick={() => insertKnowledgeReference(item)}>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>{item.title}</div>
+                          <div style={{ fontSize: 11, opacity: 0.72 }}>{item.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {showSourceMenu && (
+                    <div className="model-dropdown-menu" style={{ left: 32, right: 'auto', minWidth: 280 }}>
+                      {sourceConnectors.length === 0 && <div className="model-dropdown-item">暂无可用数据连接器</div>}
+                      {sourceConnectors.map(item => (
+                        <div key={item.id} className="model-dropdown-item" onClick={() => handleAttachSource(item)}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 12 }}>
+                            <Link2 size={12} />
+                            {item.label}
+                          </div>
+                          <div style={{ fontSize: 11, opacity: 0.72 }}>{item.description}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="bottom-bar-right">

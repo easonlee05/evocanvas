@@ -21,6 +21,7 @@ class CanvasMessageRequest(BaseModel):
     message: constr(strip_whitespace=True, min_length=1, max_length=8000)
     selected_card_ids: List[str] = Field(default_factory=list)
     material_ids: List[str] = Field(default_factory=list)
+    source_ref_ids: List[str] = Field(default_factory=list)
     mode: Optional[str] = None
     model: Optional[str] = None
 

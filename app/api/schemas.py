@@ -1,7 +1,7 @@
-"""Evoloop 3.0 Web API 数据传输对象 (DTOs) 模块。
+"""EvoCanvas Web API 数据传输对象 (DTOs)。
 
-本模块定义了 API 接口中请求与响应的 Pydantic 数据校验模型，
-包括任务创建请求、用户决策请求以及材料上传响应等。
+本模块定义 API 接口中使用的基础请求与响应模型，
+覆盖任务创建、用户裁决、资料分流与外部数据引用等场景。
 """
 from __future__ import annotations
 
@@ -16,10 +16,7 @@ except Exception:  # pragma: no cover - 允许在无 pydantic 的极简环境下
 
 
 class CreateTaskRequest(BaseModel):
-    """任务创建请求的数据模型。
-
-    用于定义在 Evoloop 3.0 系统中创建各种类型任务（如 manual、prd、spec_to_agent、acceptance_review）时接收的参数。
-    """
+    """任务创建请求的数据模型。"""
     # 任务类型，例如 'prd', 'manual', 'spec_to_agent'
     type: Optional[str] = None
     # 提交该任务的用户名
@@ -77,14 +74,37 @@ class DecisionRequest(BaseModel):
 
 
 class MaterialUploadResponse(BaseModel):
-    """材料上传成功的响应模型。
-
-    告知前端已上传材料的内部唯一 ID、处理状态以及系统提取的摘要信息。
-    """
+    """材料上传成功的响应模型。"""
     # 唯一材料标识
     material_id: str
     # 上传状态，如 'uploaded'
     status: str
     # 材料的简要文本摘要
     summary: str
+    # 当前对象所在的信息层，固定为 material
+    layer: str = "material"
+    # 上传后的展示名称
+    display_name: str = ""
 
+
+class KnowledgeCandidateCreateRequest(BaseModel):
+    """知识候选写入请求。"""
+
+    type: Optional[str] = None
+    title: str
+    desc: Optional[str] = None
+    tags: List[str] = []
+    author: Optional[str] = None
+    source_artifact_id: Optional[str] = None
+    source_workspace_id: Optional[str] = None
+
+
+class SourceRefCreateRequest(BaseModel):
+    """外部结构化数据引用创建请求。"""
+
+    connector_type: str
+    display_name: str
+    query_text: Optional[str] = None
+    metric_name: Optional[str] = None
+    filters: Dict[str, Any] = {}
+    workspace_id: Optional[str] = None

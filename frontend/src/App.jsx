@@ -9,6 +9,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MainLayout } from './components/layout/MainLayout';
 import LandingPage from './pages/LandingPage/LandingPage';
 import Workspace from './pages/Workspace/index';
+import RecentProjects from './pages/RecentProjects/RecentProjects';
+import KnowledgeBase from './pages/KnowledgeBase/index'; // 导入知识库
 
 /**
  * 页面嵌套包裹辅助组件。
@@ -33,6 +35,8 @@ function App() {
       <Routes>
         <Route path="/" element={<W title="EvoCanvas"><LandingPage /></W>} />
         <Route path="/workspace/:id" element={<MainLayout noHeader><Workspace /></MainLayout>} />
+        <Route path="/recent" element={<W title="Recent Projects"><RecentProjects /></W>} />
+        <Route path="/knowledge" element={<W title="Knowledge Base"><KnowledgeBase /></W>} />
       </Routes>
     </BrowserRouter>
   );

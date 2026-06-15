@@ -11,6 +11,32 @@ from app.services.fakes import FakeStorage
 
 
 class CanvasRepositoryTests(unittest.TestCase):
+    def test_list_workspaces_returns_recent_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage = FakeStorage(Path(tmpdir))
+            repository = CanvasRepository(storage)
+            workspace_a = CanvasWorkspace(
+                workspace_id="ws_old",
+                title="较早项目",
+                created_at="2026-06-10T10:00:00Z",
+                updated_at="2026-06-10T12:00:00Z",
+            )
+            workspace_b = CanvasWorkspace(
+                workspace_id="ws_new",
+                title="最近项目",
+                created_at="2026-06-11T10:00:00Z",
+                updated_at="2026-06-12T09:30:00Z",
+            )
+
+            repository.save_workspace(workspace_a)
+            repository.save_workspace(workspace_b)
+
+            items = repository.list_workspaces()
+
+            self.assertEqual([item.workspace_id for item in items], ["ws_new", "ws_old"])
+            self.assertEqual(items[0].title, "最近项目")
+            self.assertEqual(items[0].updated_at, "2026-06-12T09:30:00Z")
+
     def test_save_workspace_persists_under_canvas_workspace_namespace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = FakeStorage(Path(tmpdir))

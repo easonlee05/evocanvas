@@ -51,12 +51,20 @@ class CanvasSupervisor:
         # 从全局内存缓存中水合材料具体内容，供大模型分析
         materials_content_list = []
         try:
-            from app.api.server import global_materials_cache
+            from app.api.server import global_materials_cache, global_source_refs_cache
             for mid in workspace_context.get("material_ids", []):
                 if mid in global_materials_cache:
                     mat = global_materials_cache[mid]
                     materials_content_list.append(
                         f"--- 模拟材料文件: {mat['filename']} (ID: {mid}) ---\n{mat['content']}\n"
+                    )
+            for source_ref_id in workspace_context.get("source_ref_ids", []):
+                if source_ref_id in global_source_refs_cache:
+                    source_ref = global_source_refs_cache[source_ref_id]
+                    snapshot = source_ref.get("snapshot", {})
+                    materials_content_list.append(
+                        f"--- 结构化数据引用: {source_ref.get('display_name', source_ref_id)} (ID: {source_ref_id}) ---\n"
+                        f"{snapshot.get('summary', '暂无快照摘要')}\n"
                     )
         except Exception:
             pass
@@ -155,10 +163,11 @@ class CanvasSupervisor:
         # 2. 如果文本中未能匹配到任何非默认意图，尝试利用 workspace_context 推荐
         if not matched_intents:
             material_ids = workspace_context.get("material_ids", [])
+            source_ref_ids = workspace_context.get("source_ref_ids", [])
             selected_cards = workspace_context.get("selected_cards", [])
             
-            # 如果有新材料输入
-            if material_ids:
+            # 如果有新材料输入或新的结构化数据引用
+            if material_ids or source_ref_ids:
                 return "input_compilation", ("InputCompiler",)
             
             # 如果有选中卡片，且能提取出卡片 kind

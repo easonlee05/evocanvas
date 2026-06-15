@@ -66,16 +66,54 @@ class CanvasService:
     def get_workspace(self, workspace_id: str) -> CanvasWorkspace:
         workspace = self.repository.load_workspace(workspace_id)
         if workspace is not None:
+            if not workspace.created_at or not workspace.updated_at:
+                self._touch_workspace(workspace, initialize_missing_only=True)
             return workspace
 
+        now = utc_now_iso()
         workspace = CanvasWorkspace(
             workspace_id=workspace_id,
             title=f"EvoCanvas Workspace {workspace_id}",
             objective="从多源输入中收敛待澄清、约束、待决策与结构化交接物。",
             handoff_status="draft",
+            created_at=now,
+            updated_at=now,
         )
         self.repository.save_workspace(workspace)
         return workspace
+
+    def list_recent_workspaces(self, limit: int = 24) -> Dict[str, Any]:
+        """列出最近编辑过的 EvoCanvas 工作区，供最近项目视图恢复入口使用。"""
+
+        items = []
+        for workspace in self.repository.list_workspaces()[:limit]:
+            handoff = self.repository.load_handoff(workspace.workspace_id)
+            summary = ""
+            if handoff is not None:
+                summary = (handoff.summary or "").strip()
+            if not summary:
+                summary = (workspace.objective or "").strip()
+            if not summary:
+                summary = "继续补充这张产品工作画布。"
+            items.append(
+                {
+                    "workspace_id": workspace.workspace_id,
+                    "title": workspace.title or "未命名项目",
+                    "created_at": workspace.created_at,
+                    "updated_at": workspace.updated_at or workspace.created_at,
+                    "handoff_status": workspace.handoff_status or "not_ready",
+                    "summary_preview": summary[:140],
+                    "cover_mode": "placeholder",
+                    "cards": [
+                        {
+                            "kind": card.kind,
+                            "stage": card.stage,
+                        }
+                        for card in self.repository.load_cards(workspace.workspace_id)
+                    ],
+                }
+            )
+        return {"items": items}
 
     def get_canvas_view(self, workspace_id: str, snapshot_id: Optional[str] = None) -> Dict[str, Any]:
         workspace, cards, relations, snapshot = self._load_canvas_state(workspace_id, snapshot_id=snapshot_id)
@@ -102,6 +140,7 @@ class CanvasService:
         message: str,
         selected_card_ids: List[str],
         material_ids: List[str],
+        source_ref_ids: List[str],
         mode: Optional[str] = None,
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -150,6 +189,7 @@ class CanvasService:
                     "selected_card_ids": list(selected_card_ids),
                     "selected_cards": selected_cards_info,
                     "material_ids": list(material_ids),
+                    "source_ref_ids": list(source_ref_ids),
                     "model": resolved_model,
                 },
                 message=message,
@@ -162,6 +202,7 @@ class CanvasService:
                 existing_cards=existing_cards,
                 selected_card_ids=selected_card_ids,
                 material_ids=material_ids,
+                source_ref_ids=source_ref_ids,
                 model=resolved_model,
             )
             self.repository.append_proposal_history(workspace_id, proposal)
@@ -271,7 +312,7 @@ class CanvasService:
                 "confirmed_by": "user",
                 "confirmation_proposal_id": approved.proposal_id,
             }
-            self.repository.save_workspace(workspace)
+            self._touch_workspace(workspace)
         self.repository.save_confirmation_queue(workspace_id, remaining)
         self._publish_event(
             workspace_id,
@@ -389,7 +430,7 @@ class CanvasService:
         )
         self.repository.save_snapshot(workspace_id, snapshot)
         workspace.active_snapshot_id = snapshot.snapshot_id
-        self.repository.save_workspace(workspace)
+        self._touch_workspace(workspace)
         self._publish_event(
             workspace_id,
             "canvas.snapshot.created",
@@ -461,7 +502,7 @@ class CanvasService:
             "source_snapshot_id": snapshot.snapshot_id,
         }
         workspace.active_snapshot_id = snapshot.snapshot_id
-        self.repository.save_workspace(workspace)
+        self._touch_workspace(workspace)
         self._publish_event(
             workspace_id,
             "canvas.handoff.refreshed",
@@ -516,7 +557,7 @@ class CanvasService:
 
         self.repository.save_cards(workspace_id, cards)
         todo_projection = self._build_todo_projection(workspace_id, cards)
-        self.repository.save_workspace(workspace)
+        self._touch_workspace(workspace)
         self._publish_event(
             workspace_id,
             "canvas.card.updated",
@@ -531,6 +572,20 @@ class CanvasService:
             "workspace_id": workspace_id,
             "card": updated_card.to_dict(),
             "todo_projection": todo_projection.to_dict(),
+        }
+
+    def patch_workspace(self, workspace_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+        """原地修订工作区本身的基础属性，例如 title。"""
+        workspace = self.get_workspace(workspace_id)
+        if "title" in patch and patch["title"] is not None:
+            workspace.title = str(patch["title"]).strip()
+        
+        workspace.updated_at = utc_now_iso()
+        self.repository.save_workspace(workspace)
+        return {
+            "workspace_id": workspace.workspace_id,
+            "title": workspace.title,
+            "updated_at": workspace.updated_at,
         }
 
     def create_relation(
@@ -564,6 +619,7 @@ class CanvasService:
         )
         relations.append(relation)
         self.repository.save_relations(workspace_id, relations)
+        self._touch_workspace(self.get_workspace(workspace_id))
         self._publish_event(
             workspace_id,
             "canvas.relation.created",
@@ -603,7 +659,7 @@ class CanvasService:
 
         self.repository.save_cards(workspace_id, cards)
         todo_projection = self._build_todo_projection(workspace_id, cards)
-        self.repository.save_workspace(workspace)
+        self._touch_workspace(workspace)
         self._publish_event(
             workspace_id,
             "canvas.card.moved",
@@ -642,6 +698,7 @@ class CanvasService:
         existing_cards: List[CanvasCard],
         selected_card_ids: List[str],
         material_ids: List[str],
+        source_ref_ids: List[str],
         model: Optional[str] = None,
     ) -> CanvasMutationProposal:
         # 1. 检查是否为真实大模型运行环境 (非 FakeLLM，且 API 秘钥有效)
@@ -655,7 +712,7 @@ class CanvasService:
         if not is_fake:
             # 真实大模型调用，获取语义匹配的提案建议
             proposal = self._build_mutation_proposal_with_llm(
-                workspace, turn_id, message, plan, existing_cards, selected_card_ids, material_ids, model=model
+                workspace, turn_id, message, plan, existing_cards, selected_card_ids, material_ids, source_ref_ids, model=model
             )
             if proposal is not None:
                 return proposal
@@ -663,6 +720,7 @@ class CanvasService:
         # 2. 本地回退规则分支
         mutations: list[CanvasMutation] = []
         selected_cards = [card for card in existing_cards if card.card_id in set(selected_card_ids)]
+        evidence_refs = list(material_ids) + list(source_ref_ids)
         contextual_summary = self._build_contextual_summary(message, selected_cards)
 
         for role_name in plan.roles:
@@ -673,7 +731,7 @@ class CanvasService:
                         kind=CanvasCardKind.CLARIFICATION,
                         title=self._truncate_title(message, "待澄清"),
                         summary=contextual_summary,
-                        evidence_refs=material_ids,
+                        evidence_refs=evidence_refs,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -685,7 +743,7 @@ class CanvasService:
                         title=self._truncate_title(message, "约束草稿"),
                         summary=contextual_summary,
                         status="draft",
-                        evidence_refs=material_ids,
+                        evidence_refs=evidence_refs,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -697,7 +755,7 @@ class CanvasService:
                         title=self._truncate_title(message, "待决策"),
                         summary=contextual_summary,
                         status="pending",
-                        evidence_refs=material_ids,
+                        evidence_refs=evidence_refs,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -709,7 +767,7 @@ class CanvasService:
                     summary=self._build_handoff_summary(message, existing_cards),
                     stage="handoff",
                     status="draft",
-                    evidence_refs=list(material_ids),
+                    evidence_refs=evidence_refs,
                     metadata={
                         "created_by": "canvas_agent",
                         "source_turn_id": turn_id,
@@ -727,6 +785,7 @@ class CanvasService:
                             "mutation_type": "refresh_handoff_card",
                             "selected_card_ids": list(selected_card_ids),
                             "material_ids": list(material_ids),
+                            "source_ref_ids": list(source_ref_ids),
                         },
                     )
                 )
@@ -746,6 +805,7 @@ class CanvasService:
                                 "metadata": {
                                     "source_turn_id": turn_id,
                                     "material_ids": list(material_ids),
+                                    "source_ref_ids": list(source_ref_ids),
                                     "selected_card_ids": list(selected_card_ids),
                                 },
                             }
@@ -760,7 +820,7 @@ class CanvasService:
                         kind=CanvasCardKind.EVIDENCE,
                         title=self._truncate_title(message, "输入摘要"),
                         summary=contextual_summary,
-                        evidence_refs=material_ids,
+                        evidence_refs=evidence_refs,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -770,7 +830,7 @@ class CanvasService:
                         kind=CanvasCardKind.PROBLEM,
                         title=self._truncate_title(message, "问题定义草稿"),
                         summary=f"从输入中抽取的待定义问题：{contextual_summary}",
-                        evidence_refs=material_ids,
+                        evidence_refs=evidence_refs,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -780,7 +840,7 @@ class CanvasService:
                         kind=CanvasCardKind.CLARIFICATION,
                         title=self._truncate_title(message, "待澄清缺口"),
                         summary=f"需要继续澄清的关键信息：{contextual_summary}",
-                        evidence_refs=material_ids,
+                        evidence_refs=evidence_refs,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -793,6 +853,7 @@ class CanvasService:
             metadata={
                 "selected_card_ids": list(selected_card_ids),
                 "material_ids": list(material_ids),
+                "source_ref_ids": list(source_ref_ids),
             },
         )
 
@@ -805,6 +866,7 @@ class CanvasService:
         existing_cards: List[CanvasCard],
         selected_card_ids: List[str],
         material_ids: List[str],
+        source_ref_ids: List[str],
         model: Optional[str] = None,
     ) -> CanvasMutationProposal | None:
         import json
@@ -814,18 +876,27 @@ class CanvasService:
 
         mutations: list[CanvasMutation] = []
         selected_cards = [card for card in existing_cards if card.card_id in set(selected_card_ids)]
+        evidence_refs = list(material_ids) + list(source_ref_ids)
 
         selected_cards_json = json.dumps([c.to_dict() for c in selected_cards], ensure_ascii=False)
         
         # 从全局内存缓存中水合材料具体内容，供协作角色直接读取文件文本
         materials_content_list = []
         try:
-            from app.api.server import global_materials_cache
+            from app.api.server import global_materials_cache, global_source_refs_cache
             for mid in material_ids:
                 if mid in global_materials_cache:
                     mat = global_materials_cache[mid]
                     materials_content_list.append(
                         f"--- 材料文件名: {mat['filename']} (ID: {mid}) ---\n{mat['content']}\n"
+                    )
+            for source_ref_id in source_ref_ids:
+                if source_ref_id in global_source_refs_cache:
+                    source_ref = global_source_refs_cache[source_ref_id]
+                    snapshot = source_ref.get("snapshot", {})
+                    materials_content_list.append(
+                        f"--- 数据引用: {source_ref.get('display_name', source_ref_id)} (ID: {source_ref_id}) ---\n"
+                        f"{snapshot.get('summary', '该数据引用暂无快照摘要。')}\n"
                     )
         except Exception:
             pass
@@ -906,7 +977,7 @@ class CanvasService:
                         summary=summary,
                         stage="handoff",
                         status="draft",
-                        evidence_refs=list(material_ids),
+                        evidence_refs=evidence_refs,
                         metadata={
                             "created_by": "canvas_agent",
                             "source_turn_id": turn_id,
@@ -924,6 +995,7 @@ class CanvasService:
                                 "mutation_type": "refresh_handoff_card",
                                 "selected_card_ids": list(selected_card_ids),
                                 "material_ids": list(material_ids),
+                                "source_ref_ids": list(source_ref_ids),
                             },
                         )
                     )
@@ -943,6 +1015,7 @@ class CanvasService:
                                     "metadata": {
                                         "source_turn_id": turn_id,
                                         "material_ids": list(material_ids),
+                                        "source_ref_ids": list(source_ref_ids),
                                         "selected_card_ids": list(selected_card_ids),
                                     },
                                 }
@@ -963,7 +1036,7 @@ class CanvasService:
                             title=title,
                             summary=summary,
                             status=card_status,
-                            evidence_refs=material_ids,
+                            evidence_refs=evidence_refs,
                             selected_card_ids=selected_card_ids,
                         )
                     )
@@ -981,6 +1054,7 @@ class CanvasService:
             metadata={
                 "selected_card_ids": list(selected_card_ids),
                 "material_ids": list(material_ids),
+                "source_ref_ids": list(source_ref_ids),
             },
         )
 
@@ -1080,7 +1154,7 @@ class CanvasService:
             )
             self.repository.save_snapshot(workspace.workspace_id, snapshot)
             workspace.active_snapshot_id = snapshot.snapshot_id
-        self.repository.save_workspace(workspace)
+        self._touch_workspace(workspace)
 
     def _card_mutation(
         self,
@@ -1187,6 +1261,24 @@ class CanvasService:
             "affected_relation_ids": affected_relation_ids,
             "affected_snapshot_ids": affected_snapshot_ids,
         }
+
+    def _touch_workspace(
+        self,
+        workspace: CanvasWorkspace,
+        initialize_missing_only: bool = False,
+    ) -> CanvasWorkspace:
+        """刷新工作区时间戳，确保最近项目列表可以稳定反映最近编辑状态。"""
+
+        now = utc_now_iso()
+        if not workspace.created_at:
+            workspace.created_at = now
+        if initialize_missing_only:
+            if not workspace.updated_at:
+                workspace.updated_at = workspace.created_at or now
+        else:
+            workspace.updated_at = now
+        self.repository.save_workspace(workspace)
+        return workspace
 
     def _begin_turn(self, workspace_id: str, turn_id: str) -> CanvasWorkspace:
         workspace = self.get_workspace(workspace_id)

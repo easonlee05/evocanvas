@@ -112,6 +112,23 @@ class CanvasSupervisorTests(unittest.TestCase):
         self.assertEqual(plan.intent, "input_compilation")
         self.assertEqual(plan.roles, ("InputCompiler",))
 
+    def test_context_recommends_input_compilation_for_source_refs(self) -> None:
+        plan = self.supervisor.recognize_and_plan(
+            workspace_context={"workspace_id": "ws_demo", "source_ref_ids": ["src_1"]},
+            message="对这个新引用的数据看一下",
+        )
+        self.assertEqual(plan.intent, "input_compilation")
+        self.assertEqual(plan.roles, ("InputCompiler",))
+
+    def test_materials_force_input_compilation_even_when_message_mentions_clarification(self) -> None:
+        plan = self.supervisor.recognize_and_plan(
+            workspace_context={"workspace_id": "ws_demo", "material_ids": ["mat_1"]},
+            message="先把这批资料里的待澄清问题列出来",
+        )
+        self.assertTrue(plan.intent.startswith("input_compilation"))
+        self.assertIn("InputCompiler", plan.roles)
+        self.assertIn("Clarifier", plan.roles)
+
     def test_context_recommends_role_based_on_selected_cards(self) -> None:
         plan = self.supervisor.recognize_and_plan(
             workspace_context={

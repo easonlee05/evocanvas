@@ -13,7 +13,7 @@ import {
   Square, CheckCircle2, ChevronRight, ChevronDown, ChevronUp, X,
   BookOpen, AlertCircle, Clock, Loader2, Terminal, Bot,
   Bold, Italic, Underline, List, Code, RotateCcw, PanelRight,
-  CheckSquare, FileText, ArrowUp, Database, Link2,
+  CheckSquare, FileText, ArrowUp, Database, Link2, Plus, Layers,
 } from 'lucide-react';
 import './workspace.css';
 import Canvas from './Canvas';
@@ -39,6 +39,88 @@ function TiptapEditor({ content, onChange, onBlur }) {
   return <EditorContent editor={editor} style={{ height: '100%' }} />;
 }
 
+// 文件卡片组件 (极简展示)
+const FileCard = ({ file, onRemove }) => {
+  const extMatch = file.name.match(/\.([^.]+)$/);
+  const ext = extMatch ? extMatch[1].toLowerCase() : 'file';
+  
+  const formatSize = (bytes) => {
+    if (!bytes) return '未知大小';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  let iconBg = '#94a3b8';
+  let iconText = 'FILE';
+  let typeLabel = '文件';
+  
+  if (['doc', 'docx'].includes(ext)) {
+    iconBg = '#2563eb';
+    iconText = 'W';
+    typeLabel = '文档';
+  } else if (['xls', 'xlsx'].includes(ext)) {
+    iconBg = '#16a34a';
+    iconText = 'X';
+    typeLabel = '表格';
+  } else if (['ppt', 'pptx'].includes(ext)) {
+    iconBg = '#ea580c';
+    iconText = 'P';
+    typeLabel = '演示文稿';
+  } else if (ext === 'pdf') {
+    iconBg = '#dc2626';
+    iconText = 'PDF';
+    typeLabel = 'PDF文档';
+  } else if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) {
+    iconBg = '#0d9488';
+    iconText = 'IMG';
+    typeLabel = '图片';
+  } else if (['txt', 'md', 'json', 'csv'].includes(ext)) {
+    iconBg = '#4b5563';
+    iconText = ext.toUpperCase();
+    typeLabel = '文本';
+  } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+    iconBg = '#7c3aed';
+    iconText = 'ZIP';
+    typeLabel = '压缩包';
+  }
+
+  return (
+    <div className={`simple-file-card ${file.status}`}>
+      <div className="file-card-icon" style={{ backgroundColor: iconBg }}>
+        {file.status === 'uploading' ? (
+          <Loader2 size={14} className="spin" style={{ color: '#ffffff' }} />
+        ) : file.status === 'error' ? (
+          <AlertCircle size={14} style={{ color: '#ffffff' }} />
+        ) : (
+          <span className="file-card-ext-label">{iconText}</span>
+        )}
+      </div>
+      <div className="file-card-info">
+        <div className="file-card-name" title={file.name}>
+          {file.name}
+        </div>
+        <div className="file-card-meta">
+          {typeLabel} · {formatSize(file.size || file.bytes)}
+        </div>
+      </div>
+      <button className="file-card-remove-btn" onClick={onRemove} title="删除">
+        <X size={12} strokeWidth={2.5} />
+      </button>
+    </div>
+  );
+};
+
+// 协作模型选项列表
+const MODELS = [
+  { id: 'gpt-5.4', name: 'GPT-5.4' },
+  { id: 'gpt-5.5', name: 'GPT-5.5' },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+  { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
+  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+];
+
 // ── 主组件 ──
 export default function Workspace() {
   const { id: taskId } = useParams();
@@ -51,7 +133,9 @@ export default function Workspace() {
   const [taskTitle, setTaskTitle] = useState('Canvas AI');
   const [isLive, setIsLive] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(true);
-  const [model, setModel] = useState('Gemini 3.5 Flash');
+  const [model, setModel] = useState(() => {
+    return localStorage.getItem('evocanvas_selected_model') || 'gpt-5.4';
+  });
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [arbitration, setArbitration] = useState(null);
   const [userMessages, setUserMessages] = useState([]);
@@ -68,8 +152,7 @@ export default function Workspace() {
   const [relations, setRelations] = useState([]);
   const [todos, setTodos] = useState([]);
   const [confirmations, setConfirmations] = useState([]);
-  const [uploadedMaterialIds, setUploadedMaterialIds] = useState([]);
-  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [uploadedMaterials, setUploadedMaterials] = useState([]);
   const [knowledgeItems, setKnowledgeItems] = useState([]);
   const [sourceConnectors, setSourceConnectors] = useState([]);
   const [attachedSourceRefs, setAttachedSourceRefs] = useState([]);
@@ -125,8 +208,16 @@ export default function Workspace() {
     setRelations([]);
     setTodos([]);
     setConfirmations([]);
-    setUploadedMaterialIds([]);
-    setUploadedFiles([]);
+    const savedMaterials = taskId ? localStorage.getItem(`evocanvas_materials_${taskId}`) : null;
+    if (savedMaterials) {
+      try {
+        setUploadedMaterials(JSON.parse(savedMaterials));
+      } catch (e) {
+        setUploadedMaterials([]);
+      }
+    } else {
+      setUploadedMaterials([]);
+    }
     setAttachedSourceRefs([]);
 
     if (!taskId || taskId === 'new') { setTaskTitle('新建任务'); setIsLive(true); return; }
@@ -154,6 +245,13 @@ export default function Workspace() {
     });
     return () => { closed = true; if (streamRef.current) streamRef.current.close(); };
   }, [taskId]);
+
+  // 实时同步材料状态到 LocalStorage
+  useEffect(() => {
+    if (taskId && taskId !== 'demo' && taskId !== 'new') {
+      localStorage.setItem(`evocanvas_materials_${taskId}`, JSON.stringify(uploadedMaterials));
+    }
+  }, [uploadedMaterials, taskId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -257,17 +355,20 @@ export default function Workspace() {
 
     if (taskId && taskId !== 'demo') {
       const selectedIds = selectedCardId ? [selectedCardId] : [];
+      const materialIds = uploadedMaterials
+        .filter(m => m.status === 'success' && m.material_id)
+        .map(m => m.material_id);
+
       apiPost(`/api/canvas/workspaces/${taskId}/messages`, {
         message: text,
         selected_card_ids: selectedIds,
-        material_ids: uploadedMaterialIds,
+        material_ids: materialIds,
         source_ref_ids: attachedSourceRefs.map(item => item.source_ref_id),
         mode: 'default',
         model: model
       }, null);
       
-      setUploadedMaterialIds([]);
-      setUploadedFiles([]);
+      setUploadedMaterials([]);
       setAttachedSourceRefs([]);
     }
   }
@@ -295,6 +396,7 @@ export default function Workspace() {
         selectedCardId={selectedCardId}
         setSelectedCardId={setSelectedCardId}
         onRefresh={() => loadCanvasData(taskId)}
+        uploadedMaterials={uploadedMaterials}
       />
 
       {/* 展开按钮 */}
@@ -361,39 +463,6 @@ export default function Workspace() {
 
         {/* 输入区 / 确认提案队列卡 */}
         <div className="ws-input-wrap">
-          {uploadedFiles.length > 0 && (
-            <div className="input-attachments-preview" style={{ padding: '8px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {uploadedFiles.map((name, i) => (
-                <span key={i} className="attachment-preview-chip" style={{ background: 'var(--clr-bg-alt)', fontSize: 11, padding: '2px 8px', borderRadius: 12, display: 'inline-flex', alignItems: 'center' }}>
-                  <Paperclip size={10} style={{ marginRight: 4 }} />
-                  {name}
-                  <button style={{ background: 'none', border: 'none', marginLeft: 4, cursor: 'pointer', padding: 0 }} onClick={() => {
-                    setUploadedFiles(prev => prev.filter((_, idx) => idx !== i));
-                    setUploadedMaterialIds(prev => prev.filter((_, idx) => idx !== i));
-                  }}>
-                    <X size={10} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {attachedSourceRefs.length > 0 && (
-            <div className="input-attachments-preview" style={{ padding: '0 12px 8px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {attachedSourceRefs.map((item) => (
-                <span key={item.source_ref_id} className="attachment-preview-chip" style={{ background: 'rgba(55, 65, 81, 0.1)', fontSize: 11, padding: '2px 8px', borderRadius: 12, display: 'inline-flex', alignItems: 'center' }}>
-                  <Database size={10} style={{ marginRight: 4 }} />
-                  {item.display_name}
-                  <button style={{ background: 'none', border: 'none', marginLeft: 4, cursor: 'pointer', padding: 0 }} onClick={() => {
-                    setAttachedSourceRefs(prev => prev.filter(entry => entry.source_ref_id !== item.source_ref_id));
-                  }}>
-                    <X size={10} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
           {confirmations.length > 0 ? (
             <div className="arbitration-card" style={{ maxHeight: 250, overflowY: 'auto' }}>
               <div className="arb-title">⚠️ 待确认的画布修改提案</div>
@@ -429,26 +498,79 @@ export default function Workspace() {
               </div>
             </div>
           ) : (
-            <div className="ws-input-box">
-              <textarea className="ws-input"
-                placeholder={isLive ? 'AI 正在思考...' : '输入您的想法，与助手探讨...'}
-                value={input} onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                rows={1}
-              />
+            <div className="ws-input-box" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              {uploadedMaterials.length > 0 && (
+                <div className="simple-attachments-list">
+                  {uploadedMaterials.map((m) => (
+                    <FileCard 
+                      key={m.id} 
+                      file={m} 
+                      onRemove={() => setUploadedMaterials(prev => prev.filter(item => item.id !== m.id))} 
+                    />
+                  ))}
+                </div>
+              )}
+
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+                {attachedSourceRefs.length > 0 && (
+                  <div className="input-attachments-preview" style={{ padding: '0 12px 8px', display: 'flex', flexWrap: 'wrap', gap: 6, width: '100%', boxSizing: 'border-box' }}>
+                    {attachedSourceRefs.map((item) => (
+                      <span key={item.source_ref_id} className="attachment-preview-chip" style={{ background: 'rgba(55, 65, 81, 0.1)', fontSize: 11, padding: '2px 8px', borderRadius: 12, display: 'inline-flex', alignItems: 'center' }}>
+                        <Database size={10} style={{ marginRight: 4 }} />
+                        {item.display_name}
+                        <button style={{ background: 'none', border: 'none', marginLeft: 4, cursor: 'pointer', padding: 0 }} onClick={() => {
+                          setAttachedSourceRefs(prev => prev.filter(entry => entry.source_ref_id !== item.source_ref_id));
+                        }}>
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <textarea className="ws-input"
+                  placeholder={isLive ? 'AI 正在思考...' : '输入您的想法，与助手探讨... (如未生效请强刷新 Cmd+Shift+R)'}
+                  value={input} onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  rows={1}
+                />
+              </div>
               <div className="ws-input-bottom-bar">
                 <div className="bottom-bar-left" style={{ position: 'relative' }}>
-                  <button className="tool-btn" onClick={() => fileInputRef.current?.click()} data-tooltip="上传参考材料">
+                  <button className="tool-btn" onClick={() => fileInputRef.current?.click()} data-tooltip="添加当前资料">
                     <Paperclip size={13} />
                   </button>
                   <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }}
                     onChange={async e => {
                       const files = Array.from(e.target.files);
                       for (const f of files) {
-                        const res = await apiUpload('/api/materials', f, null);
-                        if (res && res.material_id) {
-                          setUploadedMaterialIds(prev => [...prev, res.material_id]);
-                          setUploadedFiles(prev => [...prev, f.name]);
+                        const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                        setUploadedMaterials(prev => [...prev, {
+                          id: tempId,
+                          name: f.name,
+                          status: 'uploading'
+                        }]);
+
+                        try {
+                          const res = await apiUpload('/api/materials', f, null);
+                          if (res && res.material_id) {
+                            setUploadedMaterials(prev => prev.map(m => 
+                              m.id === tempId 
+                                ? { ...m, status: 'success', material_id: res.material_id } 
+                                : m
+                            ));
+                          } else {
+                            setUploadedMaterials(prev => prev.map(m => 
+                              m.id === tempId 
+                                ? { ...m, status: 'error' } 
+                                : m
+                            ));
+                          }
+                        } catch (err) {
+                          setUploadedMaterials(prev => prev.map(m => 
+                            m.id === tempId 
+                              ? { ...m, status: 'error' } 
+                              : m
+                          ));
                         }
                       }
                       e.target.value = '';
@@ -506,14 +628,24 @@ export default function Workspace() {
                 <div className="bottom-bar-right">
                   <div className="model-selector-wrap">
                     <button className="model-selector-btn" onClick={() => setShowModelMenu(!showModelMenu)} title="选择模型">
-                      <span>{model === 'Gemini 3.5 Flash' ? '3.5 Flash' : (model === 'DeepSeek V4 Flash' ? 'DS Flash' : '3.1 Pro')}</span>
+                      <span>{(MODELS.find(m => m.id === model)?.name || model).replace('Claude ', '').replace('DeepSeek ', 'DS ')}</span>
                       <ChevronDown size={10} style={{ marginLeft: 2 }} />
                     </button>
                     {showModelMenu && (
                       <div className="model-dropdown-menu">
-                        <div className="model-dropdown-item" onClick={() => { setModel('Gemini 3.5 Flash'); setShowModelMenu(false); }}>Gemini 3.5 Flash</div>
-                        <div className="model-dropdown-item" onClick={() => { setModel('Gemini 3.1 Pro'); setShowModelMenu(false); }}>Gemini 3.1 Pro</div>
-                        <div className="model-dropdown-item" onClick={() => { setModel('DeepSeek V4 Flash'); setShowModelMenu(false); }}>DeepSeek V4 Flash</div>
+                        {MODELS.map(m => (
+                          <div 
+                            key={m.id}
+                            className={`model-dropdown-item${m.id === model ? ' selected' : ''}`}
+                            onClick={() => { 
+                              setModel(m.id); 
+                              localStorage.setItem('evocanvas_selected_model', m.id);
+                              setShowModelMenu(false); 
+                            }}
+                          >
+                            {m.name}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

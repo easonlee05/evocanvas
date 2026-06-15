@@ -59,6 +59,89 @@ class CanvasApiTests(unittest.TestCase):
         self.assertIn("updated_at", payload["items"][0])
         self.assertIn("summary_preview", payload["items"][0])
 
+    def test_material_upload_stays_in_material_layer(self) -> None:
+        response = self.client.post(
+            "/api/materials",
+            files={"file": ("voice_of_customer.txt", "用户反馈首要问题是误杀过高")},
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["layer"], "material")
+        self.assertEqual(payload["display_name"], "voice_of_customer.txt")
+        self.assertIn("不会自动进入知识库", payload["summary"])
+
+        material = self.client.get(f"/api/materials/{payload['material_id']}", headers=self.headers)
+        self.assertEqual(material.status_code, 200)
+        self.assertEqual(material.json()["layer"], "material")
+
+    def test_knowledge_candidate_can_be_created_and_approved(self) -> None:
+        created = self.client.post(
+            "/api/knowledge/candidates",
+            json={
+                "type": "rule",
+                "title": "误杀阈值必须可回滚",
+                "desc": "来自一期风险收敛过程中的稳定约束候选。",
+                "tags": ["规则", "风控"],
+                "source_workspace_id": "demo",
+            },
+            headers=self.headers,
+        )
+
+        self.assertEqual(created.status_code, 200)
+        candidate = created.json()
+        self.assertEqual(candidate["status"], "candidate")
+        self.assertEqual(candidate["type"], "rule")
+
+        listed = self.client.get("/api/knowledge/candidates", headers=self.headers)
+        self.assertEqual(listed.status_code, 200)
+        self.assertTrue(any(item["id"] == candidate["id"] for item in listed.json()["items"]))
+
+        approved = self.client.post(
+            f"/api/knowledge/{candidate['id']}/approve",
+            json={"title": "误杀阈值必须可回滚", "desc": "已审核通过的稳定规则。"},
+            headers=self.headers,
+        )
+        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(approved.json()["status"], "approved")
+        self.assertEqual(approved.json()["source_candidate_id"], candidate["id"])
+
+    def test_source_ref_can_be_created_and_refreshed(self) -> None:
+        connectors = self.client.get("/api/source-connectors", headers=self.headers)
+        self.assertEqual(connectors.status_code, 200)
+        self.assertTrue(any(item["id"] == "saved_query" for item in connectors.json()["items"]))
+
+        created = self.client.post(
+            "/api/source-refs",
+            json={
+                "connector_type": "saved_query",
+                "display_name": "近7日申诉数据",
+                "query_text": "查看近7日误杀申诉量和通过率",
+                "filters": {"window": "7d", "channel": "app"},
+                "workspace_id": "demo",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(created.status_code, 200)
+        source_ref = created.json()
+        self.assertEqual(source_ref["layer"], "source_ref")
+        self.assertEqual(source_ref["display_name"], "近7日申诉数据")
+        self.assertIn("结构化证据参与输入编译", source_ref["snapshot"]["summary"])
+
+        fetched = self.client.get(f"/api/source-refs/{source_ref['source_ref_id']}", headers=self.headers)
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.json()["source_ref_id"], source_ref["source_ref_id"])
+
+        refreshed = self.client.post(
+            f"/api/source-refs/{source_ref['source_ref_id']}/snapshot",
+            json={"filters": {"window": "30d", "channel": "app"}},
+            headers=self.headers,
+        )
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertEqual(refreshed.json()["filters"]["window"], "30d")
+        self.assertIn("window=30d", refreshed.json()["snapshot"]["summary"])
+
     def test_get_canvas_view_returns_canvas_payload(self) -> None:
         response = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers)
 

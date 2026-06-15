@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './Canvas.css';
-import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp, Paperclip, Terminal, Circle, CheckCircle2 } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 import { apiPost, apiUrl } from '../../api';
 import { collectCanvasArrows, getArrowKey, getArrowPresentation, getFocusedRelationColors, getRelatedCardIds } from './canvasRelations.js';
@@ -443,8 +443,19 @@ export default function Canvas({
   selectedCardId,
   setSelectedCardId,
   onRefresh,
+  uploadedMaterials = [],
 }) {
   const [showTodos, setShowTodos] = useState(false);
+  const [localTodos, setLocalTodos] = useState([
+    { id: 1, text: '启动前后端联调环境并确认健康状态', checked: false },
+    { id: 2, text: '构造一个真实问题场景，准备材料与数据引用输入', checked: false },
+    { id: 3, text: '按用户路径逐步执行输入编译、澄清、约束/待决策、交接物刷新', checked: false },
+    { id: 4, text: '记录链路中的实际问题、修复阻塞项并复测', checked: false }
+  ]);
+
+  const toggleTodo = (id) => {
+    setLocalTodos(prev => prev.map(t => t.id === id ? { ...t, checked: !t.checked } : t));
+  };
   const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [hoveredCardId, setHoveredCardId] = useState(null);
@@ -922,40 +933,87 @@ export default function Canvas({
       {/* 底部时间轴 */}
       <TimelineScrubber isChatOpen={isChatOpen} />
 
-      {/* 活跃待办浮层 */}
+      {/* 活跃待办浮层 (二合一面板) */}
       {showTodos && (
         <div style={{
-          position: 'absolute', top: 60, right: isChatOpen ? 452 : 180, width: 280,
+          position: 'absolute', top: 68, right: isChatOpen ? 452 : 160, width: 280,
           background: '#fff', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
-          border: '1px solid var(--border)', zIndex: 100, padding: 16
+          border: '1px solid var(--border)', zIndex: 100, padding: 16,
+          maxHeight: 450, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16
         }}>
-          <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 12}}>
-            <span style={{fontSize: 12, fontWeight: 700}}>活跃待办事项 (3)</span>
-            <MoreHorizontal size={14} color="var(--text-tertiary)"/>
+          {/* 待办板块 */}
+          <div>
+            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 12}}>
+              <span style={{fontSize: 13, fontWeight: 600, color: '#94a3b8'}}>待办</span>
+            </div>
+            <div style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+              {localTodos.map(todo => (
+                <div 
+                  key={todo.id} 
+                  onClick={() => toggleTodo(todo.id)}
+                  style={{
+                    display: 'flex', 
+                    gap: 10, 
+                    fontSize: 13, 
+                    alignItems: 'flex-start', 
+                    cursor: 'pointer',
+                    userSelect: 'none'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', marginTop: 2, color: todo.checked ? '#94a3b8' : '#64748b' }}>
+                    {todo.checked ? (
+                      <CheckCircle2 size={16} color="#94a3b8" />
+                    ) : (
+                      <Circle size={16} color="#cbd5e1" />
+                    )}
+                  </span>
+                  <span style={{
+                    color: todo.checked ? '#94a3b8' : '#334155',
+                    textDecoration: todo.checked ? 'line-through' : 'none',
+                    lineHeight: '1.4',
+                    flex: 1,
+                    textAlign: 'left'
+                  }}>
+                    {todo.text}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{display: 'flex', flexDirection: 'column', gap: 12}}>
-            <label style={{display: 'flex', gap: 8, fontSize: 13, alignItems: 'flex-start'}}>
-              <input type="checkbox" defaultChecked />
-              <div>
-                <div style={{fontWeight: 600}}>评估产品原型反馈</div>
-                <div style={{fontSize: 11, color: 'var(--text-tertiary)'}}>优先级 · 高</div>
-              </div>
-            </label>
-            <label style={{display: 'flex', gap: 8, fontSize: 13, alignItems: 'flex-start'}}>
-              <input type="checkbox" />
-              <div>
-                <div style={{fontWeight: 600}}>与研发对齐进度</div>
-                <div style={{fontSize: 11, color: 'var(--text-tertiary)'}}>截止日期 · 今天</div>
-              </div>
-            </label>
-            <label style={{display: 'flex', gap: 8, fontSize: 13, alignItems: 'flex-start'}}>
-              <input type="checkbox" />
-              <div>
-                <div style={{fontWeight: 600}}>确认 UI 高保真设计</div>
-                <div style={{fontSize: 11, color: 'var(--text-tertiary)'}}>优先级 · 高</div>
-              </div>
-            </label>
+
+          {/* 分隔线 */}
+          <div style={{ borderTop: '1px solid #f1f5f9' }} />
+
+          {/* 来源板块 */}
+          <div>
+            <div style={{marginBottom: 12}}>
+              <span style={{fontSize: 13, fontWeight: 600, color: '#94a3b8'}}>来源</span>
+            </div>
+            <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
+              {uploadedMaterials.length === 0 ? (
+                <div style={{fontSize: 13, color: '#94a3b8', fontStyle: 'italic', textAlign: 'left'}}>
+                  暂无来源
+                </div>
+              ) : (
+                uploadedMaterials.map(m => {
+                  return (
+                    <div key={m.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      fontSize: 13, color: '#334155'
+                    }}>
+                      <Paperclip size={16} color="#64748b" />
+                      <span style={{
+                        fontSize: 13, fontWeight: 500, color: '#334155',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
+                        textAlign: 'left'
+                      }} title={m.name}>{m.name}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
+
         </div>
       )}
     </div>

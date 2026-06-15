@@ -140,11 +140,12 @@ class CanvasService:
         message: str,
         selected_card_ids: List[str],
         material_ids: List[str],
-        source_ref_ids: List[str],
+        source_ref_ids: Optional[List[str]] = None,
         mode: Optional[str] = None,
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
         del mode
+        source_ref_ids = list(source_ref_ids or [])
 
         turn_id = f"turn_{uuid4().hex[:12]}"
         workspace = self._begin_turn(workspace_id, turn_id)
@@ -722,9 +723,48 @@ class CanvasService:
         selected_cards = [card for card in existing_cards if card.card_id in set(selected_card_ids)]
         evidence_refs = list(material_ids) + list(source_ref_ids)
         contextual_summary = self._build_contextual_summary(message, selected_cards)
+        role_set = set(plan.roles)
 
         for role_name in plan.roles:
-            if role_name == "Clarifier":
+            if role_name == "InputCompiler":
+                mutations.append(
+                    self._card_mutation(
+                        mutation_type="add_card",
+                        kind=CanvasCardKind.EVIDENCE,
+                        title=self._truncate_title(message, "输入摘要"),
+                        summary=contextual_summary,
+                        evidence_refs=evidence_refs,
+                        material_ids=material_ids,
+                        source_ref_ids=source_ref_ids,
+                        selected_card_ids=selected_card_ids,
+                    )
+                )
+                mutations.append(
+                    self._card_mutation(
+                        mutation_type="add_card",
+                        kind=CanvasCardKind.PROBLEM,
+                        title=self._truncate_title(message, "问题定义草稿"),
+                        summary=f"从输入中抽取的待定义问题：{contextual_summary}",
+                        evidence_refs=evidence_refs,
+                        material_ids=material_ids,
+                        source_ref_ids=source_ref_ids,
+                        selected_card_ids=selected_card_ids,
+                    )
+                )
+                if "Clarifier" not in role_set:
+                    mutations.append(
+                        self._card_mutation(
+                            mutation_type="add_card",
+                            kind=CanvasCardKind.CLARIFICATION,
+                            title=self._truncate_title(message, "待澄清缺口"),
+                            summary=f"需要继续澄清的关键信息：{contextual_summary}",
+                            evidence_refs=evidence_refs,
+                            material_ids=material_ids,
+                            source_ref_ids=source_ref_ids,
+                            selected_card_ids=selected_card_ids,
+                        )
+                    )
+            elif role_name == "Clarifier":
                 mutations.append(
                     self._card_mutation(
                         mutation_type="add_card",
@@ -732,6 +772,8 @@ class CanvasService:
                         title=self._truncate_title(message, "待澄清"),
                         summary=contextual_summary,
                         evidence_refs=evidence_refs,
+                        material_ids=material_ids,
+                        source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -744,6 +786,8 @@ class CanvasService:
                         summary=contextual_summary,
                         status="draft",
                         evidence_refs=evidence_refs,
+                        material_ids=material_ids,
+                        source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -756,6 +800,8 @@ class CanvasService:
                         summary=contextual_summary,
                         status="pending",
                         evidence_refs=evidence_refs,
+                        material_ids=material_ids,
+                        source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
                     )
                 )
@@ -811,37 +857,6 @@ class CanvasService:
                             }
                         },
                         metadata={"mutation_type": "refresh_handoff_draft"},
-                    )
-                )
-            else:
-                mutations.append(
-                    self._card_mutation(
-                        mutation_type="add_card",
-                        kind=CanvasCardKind.EVIDENCE,
-                        title=self._truncate_title(message, "输入摘要"),
-                        summary=contextual_summary,
-                        evidence_refs=evidence_refs,
-                        selected_card_ids=selected_card_ids,
-                    )
-                )
-                mutations.append(
-                    self._card_mutation(
-                        mutation_type="add_card",
-                        kind=CanvasCardKind.PROBLEM,
-                        title=self._truncate_title(message, "问题定义草稿"),
-                        summary=f"从输入中抽取的待定义问题：{contextual_summary}",
-                        evidence_refs=evidence_refs,
-                        selected_card_ids=selected_card_ids,
-                    )
-                )
-                mutations.append(
-                    self._card_mutation(
-                        mutation_type="add_card",
-                        kind=CanvasCardKind.CLARIFICATION,
-                        title=self._truncate_title(message, "待澄清缺口"),
-                        summary=f"需要继续澄清的关键信息：{contextual_summary}",
-                        evidence_refs=evidence_refs,
-                        selected_card_ids=selected_card_ids,
                     )
                 )
 
@@ -1037,6 +1052,8 @@ class CanvasService:
                             summary=summary,
                             status=card_status,
                             evidence_refs=evidence_refs,
+                            material_ids=material_ids,
+                            source_ref_ids=source_ref_ids,
                             selected_card_ids=selected_card_ids,
                         )
                     )
@@ -1164,6 +1181,8 @@ class CanvasService:
         summary: str,
         status: str = "open",
         evidence_refs: Optional[List[str]] = None,
+        material_ids: Optional[List[str]] = None,
+        source_ref_ids: Optional[List[str]] = None,
         selected_card_ids: Optional[List[str]] = None,
     ) -> CanvasMutation:
         card = CanvasCard(
@@ -1188,7 +1207,8 @@ class CanvasService:
             metadata={
                 "mutation_type": mutation_type,
                 "selected_card_ids": list(selected_card_ids or []),
-                "material_ids": list(evidence_refs or []),
+                "material_ids": list(material_ids or []),
+                "source_ref_ids": list(source_ref_ids or []),
             },
         )
 
@@ -1403,7 +1423,16 @@ class CanvasService:
 
     @staticmethod
     def _handoff_items(cards: List[CanvasCard], kind: CanvasCardKind) -> List[str]:
-        return [card.title for card in cards if card.kind == kind and card.status in {"open", "draft", "pending"}]
+        visible_statuses = {
+            CanvasCardKind.CLARIFICATION: {"open", "draft", "pending"},
+            CanvasCardKind.CONSTRAINT: {"draft", "effective", "confirmed"},
+            CanvasCardKind.DECISION: {"pending", "confirmed"},
+            CanvasCardKind.HANDOFF: {"draft", "confirmed"},
+            CanvasCardKind.EVIDENCE: {"open", "draft", "confirmed"},
+            CanvasCardKind.PROBLEM: {"open", "draft", "confirmed"},
+        }
+        allowed = visible_statuses.get(kind, {"open", "draft", "pending"})
+        return [card.title for card in cards if card.kind == kind and card.status in allowed]
 
     def _build_handoff_summary(self, message: str, cards: List[CanvasCard]) -> str:
         clarifications = self._handoff_items(cards, CanvasCardKind.CLARIFICATION)

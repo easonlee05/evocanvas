@@ -67,6 +67,71 @@ class CanvasTurnFlowTests(unittest.TestCase):
         self.assertEqual(card_kinds, ["evidence", "problem", "clarification"])
         self.assertTrue(all(card["evidence_refs"] == ["meeting_001"] for card in canvas["cards"]))
 
+    def test_source_refs_are_merged_into_compilation_evidence(self) -> None:
+        created = self.client.post(
+            "/api/source-refs",
+            json={
+                "connector_type": "saved_query",
+                "display_name": "误杀申诉趋势",
+                "query_text": "查看近7日误杀申诉趋势",
+                "workspace_id": "demo",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(created.status_code, 200)
+        source_ref_id = created.json()["source_ref_id"]
+
+        response = self.client.post(
+            "/api/canvas/workspaces/demo/messages",
+            json={
+                "message": "结合这份数据快照先整理输入",
+                "selected_card_ids": [],
+                "material_ids": ["meeting_002"],
+                "source_ref_ids": [source_ref_id],
+                "mode": "default",
+            },
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["intent"], "input_compilation")
+
+        canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
+        self.assertTrue(all(card["evidence_refs"] == ["meeting_002", source_ref_id] for card in canvas["cards"]))
+
+    def test_source_refs_do_not_pollute_material_metadata_on_decision_confirmation(self) -> None:
+        created = self.client.post(
+            "/api/source-refs",
+            json={
+                "connector_type": "saved_query",
+                "display_name": "误杀申诉趋势",
+                "query_text": "查看近7日误杀申诉趋势",
+                "workspace_id": "demo",
+            },
+            headers=self.headers,
+        )
+        source_ref_id = created.json()["source_ref_id"]
+
+        response = self.client.post(
+            "/api/canvas/workspaces/demo/messages",
+            json={
+                "message": "把一期账号、设备还是行为会话聚合整理成待拍板决策",
+                "selected_card_ids": [],
+                "material_ids": ["meeting_003"],
+                "source_ref_ids": [source_ref_id],
+                "mode": "default",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["action"], "pending_confirmation")
+
+        confirmations = self.client.get("/api/canvas/workspaces/demo/confirmations", headers=self.headers).json()
+        proposal = confirmations["items"][0]
+        mutation = proposal["mutations"][0]
+        self.assertEqual(mutation["metadata"]["material_ids"], ["meeting_003"])
+        self.assertEqual(mutation["metadata"]["source_ref_ids"], [source_ref_id])
+
     def test_selected_cards_and_materials_are_reflected_in_new_card_and_relation(self) -> None:
         first = self.client.post(
             "/api/canvas/workspaces/demo/messages",
@@ -96,12 +161,13 @@ class CanvasTurnFlowTests(unittest.TestCase):
         self.assertEqual(second.status_code, 200)
 
         canvas_after = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
-        self.assertEqual(len(canvas_after["cards"]), 2)
-        newest_card = canvas_after["cards"][-1]
-        self.assertEqual(newest_card["kind"], "constraint")
+        constraint_cards = [card for card in canvas_after["cards"] if card["kind"] == "constraint"]
+        self.assertEqual(len(constraint_cards), 1)
+        newest_card = constraint_cards[0]
         self.assertEqual(newest_card["evidence_refs"], ["material_001"])
         self.assertEqual(newest_card["metadata"]["selected_card_ids"], [selected_card_id])
         self.assertIn("误杀成本", newest_card["summary"])
+        self.assertGreaterEqual(len(canvas_after["cards"]), 2)
         self.assertEqual(len(canvas_after["relations"]), 1)
         self.assertEqual(canvas_after["relations"][0]["from_card_id"], selected_card_id)
         self.assertEqual(canvas_after["relations"][0]["to_card_id"], newest_card["card_id"])
@@ -148,12 +214,39 @@ class CanvasTurnFlowTests(unittest.TestCase):
 
         self.assertIn("结构化交接物草稿", handoff["content"])
         self.assertEqual(len([card for card in self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()["cards"] if card["kind"] == "handoff"]), 1)
-        self.assertEqual(len(handoff["handoff"]["open_questions"]), 1)
-        self.assertIn("待澄清", handoff["handoff"]["open_questions"][0])
+        self.assertGreaterEqual(len(handoff["handoff"]["open_questions"]), 1)
+        self.assertTrue(any("待澄清" in item or "范围" in item for item in handoff["handoff"]["open_questions"]))
         self.assertEqual(len(handoff["handoff"]["constraints"]), 1)
         self.assertIn("约束", handoff["handoff"]["constraints"][0])
         self.assertEqual(len(snapshots["items"]), 1)
         self.assertEqual(snapshots["items"][0]["handoff"]["summary"], handoff["content"])
+
+    def test_refresh_handoff_keeps_confirmed_decision_visible(self) -> None:
+        decision_turn = self.client.post(
+            "/api/canvas/workspaces/demo/messages",
+            json={
+                "message": "把一期按账号、设备还是行为会话聚合整理成待拍板决策",
+                "selected_card_ids": [],
+                "material_ids": ["meeting_004"],
+                "mode": "default",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(decision_turn.status_code, 200)
+        self.assertEqual(decision_turn.json()["action"], "pending_confirmation")
+
+        confirmations = self.client.get("/api/canvas/workspaces/demo/confirmations", headers=self.headers).json()
+        proposal_id = confirmations["items"][0]["proposal_id"]
+        approve = self.client.post(
+            f"/api/canvas/workspaces/demo/confirmations/{proposal_id}/approve",
+            json={},
+            headers=self.headers,
+        )
+        self.assertEqual(approve.status_code, 200)
+
+        refreshed = self.client.post("/api/canvas/workspaces/demo/handoff/refresh", headers=self.headers)
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertEqual(len(refreshed.json()["handoff"]["decisions"]), 1)
 
     def test_canvas_view_can_load_snapshot_state(self) -> None:
         self.client.post(

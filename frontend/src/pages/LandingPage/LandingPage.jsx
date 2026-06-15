@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { ArrowUp, Zap, Search, Database, Paperclip, MoreHorizontal, ArrowRight, Loader, ChevronDown, Check } from 'lucide-react';
+import { ArrowUp, Zap, Search, Database, Paperclip, MoreHorizontal, ArrowRight, Loader, Loader2, ChevronDown, Check, Plus, AlertCircle, X, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiPost, apiUpload } from '../../api';
 import './landing-page.css';
@@ -44,6 +44,80 @@ const MODELS = [
 ];
 
 /**
+ * 文件卡片组件 (极简展示)
+ */
+const FileCard = ({ file, onRemove }) => {
+  const extMatch = file.name.match(/\.([^.]+)$/);
+  const ext = extMatch ? extMatch[1].toLowerCase() : 'file';
+  
+  const formatSize = (bytes) => {
+    if (!bytes) return '未知大小';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  let iconBg = '#94a3b8';
+  let iconText = 'FILE';
+  let typeLabel = '文件';
+  
+  if (['doc', 'docx'].includes(ext)) {
+    iconBg = '#2563eb';
+    iconText = 'W';
+    typeLabel = '文档';
+  } else if (['xls', 'xlsx'].includes(ext)) {
+    iconBg = '#16a34a';
+    iconText = 'X';
+    typeLabel = '表格';
+  } else if (['ppt', 'pptx'].includes(ext)) {
+    iconBg = '#ea580c';
+    iconText = 'P';
+    typeLabel = '演示文稿';
+  } else if (ext === 'pdf') {
+    iconBg = '#dc2626';
+    iconText = 'PDF';
+    typeLabel = 'PDF文档';
+  } else if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) {
+    iconBg = '#0d9488';
+    iconText = 'IMG';
+    typeLabel = '图片';
+  } else if (['txt', 'md', 'json', 'csv'].includes(ext)) {
+    iconBg = '#4b5563';
+    iconText = ext.toUpperCase();
+    typeLabel = '文本';
+  } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+    iconBg = '#7c3aed';
+    iconText = 'ZIP';
+    typeLabel = '压缩包';
+  }
+
+  return (
+    <div className={`simple-file-card ${file.status}`}>
+      <div className="file-card-icon" style={{ backgroundColor: iconBg }}>
+        {file.status === 'uploading' ? (
+          <Loader2 size={14} className="spin" style={{ color: '#ffffff' }} />
+        ) : file.status === 'error' ? (
+          <AlertCircle size={14} style={{ color: '#ffffff' }} />
+        ) : (
+          <span className="file-card-ext-label">{iconText}</span>
+        )}
+      </div>
+      <div className="file-card-info">
+        <div className="file-card-name" title={file.name}>
+          {file.name}
+        </div>
+        <div className="file-card-meta">
+          {typeLabel} · {formatSize(file.size || file.bytes)}
+        </div>
+      </div>
+      <button className="file-card-remove-btn" onClick={onRemove} title="删除">
+        <X size={12} strokeWidth={2.5} />
+      </button>
+    </div>
+  );
+};
+
+/**
  * LandingPage 首页欢迎组件
  * @component
  */
@@ -51,8 +125,11 @@ export default function LandingPage() {
   const [value, setValue] = useState('');
   const [status, setStatus] = useState('idle'); // 状态机状态: idle (空闲) | thinking (处理中/创建任务中) | done (完成)
   const [error, setError] = useState('');
-  const [model, setModel] = useState('gpt-5.4'); // 选中的模型 ID
+  const [model, setModel] = useState(() => {
+    return localStorage.getItem('evocanvas_selected_model') || 'gpt-5.4';
+  });
   const [isModelOpen, setIsModelOpen] = useState(false); // 模型下拉框的展示状态
+  const [uploadedMaterials, setUploadedMaterials] = useState([]);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const navigate = useNavigate();
@@ -75,7 +152,35 @@ export default function LandingPage() {
     const picked = Array.from(e.target.files);
     e.target.value = ''; // 清空以允许重复上传同名文件
     for (const file of picked) {
-      await apiUpload('/api/materials', file, null);
+      const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      setUploadedMaterials(prev => [...prev, {
+        id: tempId,
+        name: file.name,
+        status: 'uploading'
+      }]);
+
+      try {
+        const res = await apiUpload('/api/materials', file, null);
+        if (res && res.material_id) {
+          setUploadedMaterials(prev => prev.map(m =>
+            m.id === tempId
+              ? { ...m, status: 'success', material_id: res.material_id }
+              : m
+          ));
+        } else {
+          setUploadedMaterials(prev => prev.map(m =>
+            m.id === tempId
+              ? { ...m, status: 'error' }
+              : m
+          ));
+        }
+      } catch (err) {
+        setUploadedMaterials(prev => prev.map(m =>
+          m.id === tempId
+            ? { ...m, status: 'error' }
+            : m
+        ));
+      }
     }
   };
 
@@ -90,17 +195,25 @@ export default function LandingPage() {
     setError('');
     setStatus('thinking');
     
+    const materialIds = uploadedMaterials
+      .filter(m => m.status === 'success' && m.material_id)
+      .map(m => m.material_id);
+
     // 生成随机工作区 ID 并在后端初始化新工作区回合
     const workspaceId = 'ws_' + Math.random().toString(36).substring(2, 11);
     const result = await apiPost(`/api/canvas/workspaces/${workspaceId}/messages`, {
       message: msg,
       selected_card_ids: [],
-      material_ids: [],
+      material_ids: materialIds,
       model: model
     }, null);
 
     if (result && result.workspace_id) {
-      // 创建成功后，重定向至工作台页面
+      // 创建成功后，将本地上传好的文件存入 localStorage 接力给工作台
+      if (uploadedMaterials.length > 0) {
+        localStorage.setItem(`evocanvas_materials_${result.workspace_id}`, JSON.stringify(uploadedMaterials));
+      }
+      // 重定向至工作台页面
       navigate(`/workspace/${result.workspace_id}`);
       return;
     }
@@ -130,30 +243,44 @@ export default function LandingPage() {
 
         {/* 核心输入区 */}
         <div className={`input-wrap${status === 'thinking' ? ' thinking' : ''}`}>
-          <div className="input-box">
-            {status === 'thinking' && (
-              <Loader size={15} className="input-prefix-icon spinning" />
+          <div className="input-box" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+            {uploadedMaterials.length > 0 && (
+              <div className="simple-attachments-list">
+                {uploadedMaterials.map((m) => (
+                  <FileCard 
+                    key={m.id} 
+                    file={m} 
+                    onRemove={() => setUploadedMaterials(prev => prev.filter(item => item.id !== m.id))} 
+                  />
+                ))}
+              </div>
             )}
-            <textarea
-              ref={textareaRef}
-              className="input-textarea"
-              placeholder="输入会议纪要、聊天片段、想法或背景，我来帮你收敛成待澄清问题、约束和待决策项"
-              value={value}
-              onChange={e => setValue(e.target.value)}
-              onKeyDown={handleKey}
-              rows={1}
-              disabled={status === 'thinking'}
-            />
-            <button
-              className={`send-btn${value && status === 'idle' ? ' active' : ''}`}
-              onClick={() => handleSend()}
-              disabled={status === 'thinking'}
-            >
-              {status === 'thinking'
-                ? <span className="thinking-dots"><span /><span /><span /></span>
-                : <ArrowUp size={15} />
-              }
-            </button>
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', width: '100%' }}>
+              {status === 'thinking' && (
+                <Loader size={15} className="input-prefix-icon spinning" />
+              )}
+              <textarea
+                ref={textareaRef}
+                className="input-textarea"
+                placeholder="输入会议纪要、聊天片段、想法或背景，我来帮你收敛成待澄清问题、约束和待决策项"
+                value={value}
+                onChange={e => setValue(e.target.value)}
+                onKeyDown={handleKey}
+                rows={1}
+                disabled={status === 'thinking'}
+              />
+              <button
+                className={`send-btn${value && status === 'idle' ? ' active' : ''}`}
+                onClick={() => handleSend()}
+                disabled={status === 'thinking'}
+              >
+                {status === 'thinking'
+                  ? <span className="thinking-dots"><span /><span /><span /></span>
+                  : <ArrowUp size={15} />
+                }
+              </button>
+            </div>
           </div>
           {status === 'thinking' && (
             <div className="thinking-status">
@@ -200,7 +327,11 @@ export default function LandingPage() {
                         <div 
                           key={m.id} 
                           className={`model-item ${m.id === model ? 'selected' : ''}`}
-                          onClick={() => { setModel(m.id); setIsModelOpen(false); }}
+                          onClick={() => { 
+                            setModel(m.id); 
+                            localStorage.setItem('evocanvas_selected_model', m.id);
+                            setIsModelOpen(false); 
+                          }}
                         >
                           <span className="model-name">{m.name}</span>
                           {m.id === model && <Check size={14} className="model-check" />}

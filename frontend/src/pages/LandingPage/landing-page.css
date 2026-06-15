@@ -328,3 +328,134 @@
 .model-check {
   color: var(--text-primary);
 }
+
+/* ── Simple File Attachment Card Style ── */
+.simple-attachments-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 6px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.simple-attachments-list::-webkit-scrollbar {
+  height: 4px;
+}
+.simple-attachments-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.simple-attachments-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+.simple-attachments-list::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.simple-file-card {
+  display: flex;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  gap: 8px;
+  width: 200px;
+  max-width: 100%;
+  flex-shrink: 0;
+  position: relative;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.simple-file-card:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.simple-file-card.error {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.file-card-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-card-ext-label {
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 8px;
+  letter-spacing: -0.5px;
+}
+
+.file-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.file-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.file-card-meta {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.file-card-remove-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: #94a3b8;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.file-card-remove-btn:hover {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.simple-file-card.error .file-card-remove-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+

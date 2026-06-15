@@ -148,6 +148,8 @@ class CanvasSupervisor:
         matched_intents: List[str] = []
         matched_roles: List[str] = []
         fallback_route = None
+        material_ids = workspace_context.get("material_ids", [])
+        source_ref_ids = workspace_context.get("source_ref_ids", [])
 
         # 1. 尝试使用文本匹配查找关键字意图
         for route in get_intent_routes():
@@ -160,10 +162,15 @@ class CanvasSupervisor:
                     if role_name not in matched_roles:
                         matched_roles.append(role_name)
 
+        # 2. 只要本轮带入了新资料或新数据引用，就必须先经过输入编译。
+        if material_ids or source_ref_ids:
+            if "input_compilation" not in matched_intents:
+                matched_intents.insert(0, "input_compilation")
+            if "InputCompiler" not in matched_roles:
+                matched_roles.insert(0, "InputCompiler")
+
         # 2. 如果文本中未能匹配到任何非默认意图，尝试利用 workspace_context 推荐
         if not matched_intents:
-            material_ids = workspace_context.get("material_ids", [])
-            source_ref_ids = workspace_context.get("source_ref_ids", [])
             selected_cards = workspace_context.get("selected_cards", [])
             
             # 如果有新材料输入或新的结构化数据引用

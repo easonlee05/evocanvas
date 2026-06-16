@@ -231,6 +231,7 @@ function CanvasCard({
   relationAccent,
   isDimmed,
   onPointerDown,
+  onDeleteCard,
 }) {
   const primaryTag = data.tags?.[0];
   const secondaryTags = data.tags?.slice(1) || [];
@@ -255,6 +256,16 @@ function CanvasCard({
       style={relationAccent ? { '--relation-accent': relationAccent } : undefined}
       onPointerDown={onPointerDown}
     >
+      <button 
+        className="card-delete-hover-btn" 
+        title="删除此卡片"
+        onClick={(event) => {
+          event.stopPropagation();
+          onDeleteCard(data.id);
+        }}
+      >
+        <X size={12} />
+      </button>
       <div className="canvas-card-header-group">
         <div className="canvas-card-header">
           <div
@@ -676,6 +687,7 @@ export default function Canvas({
 }) {
   const [viewMode, setViewMode] = useState('convergence'); // convergence | problem | option | decision | handoff
   const [activeTool, setActiveTool] = useState('select'); // select | card | connector | text
+  const [creatorState, setCreatorState] = useState(null); // { x, y, canvasX, canvasY, stage }
   const [isBacklogOpen, setIsBacklogOpen] = useState(true);
   const [cardOffsets, setCardOffsets] = useState({});
   const [isPinned, setIsPinned] = useState(true);
@@ -777,19 +789,55 @@ export default function Canvas({
         options: [],
         ...createInitialCanvasSections(DEMO_CANVAS_SECTIONS)
       });
-    } else if (cards && cards.length > 0) {
-      setCanvasSections(mapBackendCardsToSections(cards, relations));
+      return;
+    }
+
+    if (cards && cards.length > 0) {
+      setCanvasSections(current => {
+        const storedState = readStoredCanvasViewState(canvasViewStorageKey) || {};
+        const deletedCardIds = new Set(storedState.deletedCardIds || []);
+        
+        const filteredBackendCards = cards.filter(c => !deletedCardIds.has(c.id));
+        const backendSections = mapBackendCardsToSections(filteredBackendCards, relations);
+
+        const allCurrentCards = Object.values(current).flat();
+        if (allCurrentCards.length === 0) {
+          return backendSections;
+        }
+
+        const localCardIds = new Set(allCurrentCards.map(c => c.id));
+        const newBackendCards = filteredBackendCards.filter(c => !localCardIds.has(c.id));
+
+        if (newBackendCards.length === 0) {
+          return current;
+        }
+
+        const nextSections = { ...current };
+        const newSections = mapBackendCardsToSections(newBackendCards, relations);
+
+        Object.entries(newSections).forEach(([key, newCards]) => {
+          nextSections[key] = [...(nextSections[key] || []), ...newCards];
+        });
+
+        return nextSections;
+      });
     } else {
-      setCanvasSections({
-        evidence: [],
-        problems: [],
-        clarify: [],
-        rules: [],
-        options: [],
-        planning: [],
+      setCanvasSections(current => {
+        const allCurrentCards = Object.values(current).flat();
+        if (allCurrentCards.length === 0) {
+          return {
+            evidence: [],
+            problems: [],
+            clarify: [],
+            rules: [],
+            options: [],
+            planning: [],
+          };
+        }
+        return current;
       });
     }
-  }, [cards, relations, workspaceId]);
+  }, [cards, relations, workspaceId, canvasViewStorageKey]);
 
   useEffect(() => {
     hasRestoredViewStateRef.current = false;
@@ -844,6 +892,14 @@ export default function Canvas({
       setTransform(storedState.transform);
     }
 
+    if (
+      storedState.canvasSections &&
+      typeof storedState.canvasSections === 'object' &&
+      !Array.isArray(storedState.canvasSections)
+    ) {
+      setCanvasSections(storedState.canvasSections);
+    }
+
     hasRestoredViewStateRef.current = true;
     setHasHydratedCanvasView(true);
   }, [canvasViewStorageKey]);
@@ -859,9 +915,10 @@ export default function Canvas({
       isPinned,
       timelinePos,
       transform,
+      canvasSections,
     };
     localStorage.setItem(canvasViewStorageKey, JSON.stringify(nextState));
-  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, transform]);
+  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, transform, canvasSections]);
 
   const handleAutoLayout = () => {
     setCardOffsets({});
@@ -907,6 +964,29 @@ export default function Canvas({
   const handlePointerDown = (event) => {
     if (event.button !== 0) return;
     if (draggingCardId) return;
+
+    if (activeTool === 'card') {
+      event.stopPropagation();
+      const rect = containerRef.current.getBoundingClientRect();
+      const clientX = event.clientX;
+      const clientY = event.clientY;
+      const canvasX = (clientX - rect.left - transform.x) / transform.scale;
+      const canvasY = (clientY - rect.top - transform.y) / transform.scale;
+      
+      let stage = 'discovery';
+      if (canvasX > 400 && canvasX < 850) stage = 'define';
+      else if (canvasX >= 850) stage = 'handoff';
+
+      setCreatorState({
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+        canvasX,
+        canvasY,
+        stage
+      });
+      return;
+    }
+
     if (activeTool !== 'select') return;
     
     let target = event.target;
@@ -1035,6 +1115,109 @@ export default function Canvas({
     }
   };
 
+  const handleCreateCardSubmit = async (formData) => {
+    if (!formData.title) return;
+    const { title, desc, kind } = formData;
+    const { canvasX, canvasY } = creatorState;
+    setCreatorState(null);
+    setActiveTool('select');
+
+    let backendKind = 'evidence';
+    if (kind === 'problems') backendKind = 'problem';
+    else if (kind === 'clarify') backendKind = 'clarification';
+    else if (kind === 'rules') backendKind = 'constraint';
+    else if (kind === 'options') backendKind = 'decision';
+    else if (kind === 'planning') backendKind = 'handoff';
+
+    const tempId = `temp-${Date.now()}`;
+    const newLocalCard = {
+      id: tempId,
+      kind: backendKind,
+      title,
+      desc,
+      tags: [],
+      status: 'open',
+      structuredItems: [],
+      next: []
+    };
+
+    setCanvasSections(prev => ({
+      ...prev,
+      [kind]: [...(prev[kind] || []), newLocalCard]
+    }));
+
+    setCardOffsets(prev => ({
+      ...prev,
+      [tempId]: { x: canvasX - 160, y: canvasY - 80 }
+    }));
+
+    if (workspaceId && workspaceId !== 'demo') {
+      try {
+        const res = await apiPost(`/api/canvas/workspaces/${workspaceId}/cards`, {
+          kind: backendKind,
+          title,
+          summary: desc,
+          stage: mapSectionToBackendStage(kind)
+        });
+        if (res && res.card_id) {
+          setCardOffsets(prev => {
+            const next = { ...prev };
+            next[res.card_id] = next[tempId];
+            delete next[tempId];
+            return next;
+          });
+          setCanvasSections(prev => {
+            const next = { ...prev };
+            next[kind] = next[kind].map(c => c.id === tempId ? { ...c, id: res.card_id } : c);
+            return next;
+          });
+        }
+        if (onRefresh) onRefresh();
+      } catch (err) {
+        console.warn("保存新增卡片到后端失败，将在本地保留", err);
+      }
+    }
+  };
+
+  const handleDeleteCard = async (cardId) => {
+    if (!window.confirm("确定要删除这张卡片吗？相关的关联关系也会一并被断开。")) return;
+
+    setCanvasSections(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(key => {
+        next[key] = next[key].filter(c => c.id !== cardId).map(c => {
+          if (c.next) {
+            return {
+              ...c,
+              next: (Array.isArray(c.next) ? c.next : [c.next]).filter(id => id !== cardId)
+            };
+          }
+          return c;
+        });
+      });
+      return next;
+    });
+
+    const currentState = readStoredCanvasViewState(canvasViewStorageKey) || {};
+    const deletedCardIds = currentState.deletedCardIds || [];
+    if (!deletedCardIds.includes(cardId)) {
+      deletedCardIds.push(cardId);
+      localStorage.setItem(canvasViewStorageKey, JSON.stringify({
+        ...currentState,
+        deletedCardIds,
+      }));
+    }
+
+    if (workspaceId && workspaceId !== 'demo') {
+      try {
+        await apiDelete(`/api/canvas/workspaces/${workspaceId}/cards/${cardId}`);
+        if (onRefresh) onRefresh();
+      } catch (err) {
+        console.warn("在后端删除卡片失败，已在本地做删除处理", err);
+      }
+    }
+  };
+
   const checkCardActiveState = (cardId) => {
     const activeId = selectedCardId || hoveredCardId;
     if (!activeId) {
@@ -1102,6 +1285,7 @@ export default function Canvas({
           relationAccent={getCardRelationAccent(card.id)}
           isDimmed={isDimmed}
           onPointerDown={(event) => beginFreeDrag('card', card.id, event)}
+          onDeleteCard={handleDeleteCard}
         />
       </div>
     );
@@ -1129,6 +1313,16 @@ export default function Canvas({
           {activeTool === 'connector' && '连接线工具激活：拖动卡片边缘锚点以建立关联'}
           {activeTool === 'text' && '文本工具激活：点击画布空白处添加注释文本'}
         </div>
+      )}
+
+      {creatorState && (
+        <CardCreatorBubble 
+          x={creatorState.x} 
+          y={creatorState.y} 
+          stage={creatorState.stage}
+          onClose={() => setCreatorState(null)} 
+          onSubmit={handleCreateCardSubmit} 
+        />
       )}
 
       {/* 底部悬浮工具栏 */}
@@ -1554,6 +1748,46 @@ export default function Canvas({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CardCreatorBubble({ x, y, stage, onClose, onSubmit }) {
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [kind, setKind] = useState(() => {
+    if (stage === 'define') return 'problems';
+    if (stage === 'handoff') return 'planning';
+    return 'evidence';
+  });
+
+  return (
+    <div className="floating-card-creator" style={{ left: x + 10, top: y + 10 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>添加新画布卡片</div>
+      <input 
+        placeholder="卡片标题" 
+        value={title} 
+        onChange={e => setTitle(e.target.value)} 
+        autoFocus
+      />
+      <textarea 
+        placeholder="一句话摘要说明..." 
+        value={desc} 
+        onChange={e => setDesc(e.target.value)} 
+        rows={3}
+      />
+      <select value={kind} onChange={e => setKind(e.target.value)}>
+        <option value="evidence">发现 ➔ 证据卡</option>
+        <option value="problems">定义 ➔ 问题定义卡</option>
+        <option value="clarify">定义 ➔ 待澄清卡</option>
+        <option value="rules">定义 ➔ 约束卡</option>
+        <option value="options">定义 ➔ 待决策卡</option>
+        <option value="planning">交付 ➔ 结构化交接物</option>
+      </select>
+      <div className="btn-row">
+        <button className="cancel" onClick={onClose}>取消</button>
+        <button className="save" onClick={() => onSubmit({ title, desc, kind })}>创建</button>
+      </div>
     </div>
   );
 }

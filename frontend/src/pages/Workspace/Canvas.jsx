@@ -232,6 +232,8 @@ function CanvasCard({
   isDimmed,
   onPointerDown,
   onDeleteCard,
+  activeCardMenuId,
+  setActiveCardMenuId,
 }) {
   const primaryTag = data.tags?.[0];
   const secondaryTags = data.tags?.slice(1) || [];
@@ -256,16 +258,6 @@ function CanvasCard({
       style={relationAccent ? { '--relation-accent': relationAccent } : undefined}
       onPointerDown={onPointerDown}
     >
-      <button 
-        className="card-delete-hover-btn" 
-        title="删除此卡片"
-        onClick={(event) => {
-          event.stopPropagation();
-          onDeleteCard(data.id);
-        }}
-      >
-        <X size={12} />
-      </button>
       <div className="canvas-card-header-group">
         <div className="canvas-card-header">
           <div
@@ -300,7 +292,33 @@ function CanvasCard({
               <span className="canvas-card-title">{data.title}</span>
             )}
           </div>
-          <button className="icon-btn" style={{ width: 20, height: 20 }}><MoreHorizontal size={14} /></button>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <button 
+              className="icon-btn" 
+              style={{ width: 20, height: 20 }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setActiveCardMenuId(activeCardMenuId === data.id ? null : data.id);
+              }}
+              title="更多操作"
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {activeCardMenuId === data.id && (
+              <div className="card-more-menu" onClick={(event) => event.stopPropagation()}>
+                <button 
+                  className="card-more-menu-item danger" 
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteCard(data.id);
+                    setActiveCardMenuId(null);
+                  }}
+                >
+                  删除卡片
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {hasTags && (
@@ -391,121 +409,436 @@ function CanvasCard({
 
 function TimelineScrubber({ 
   isChatOpen, 
-  isBacklogOpen, 
-  isPinned = true, 
-  onPinToggle, 
-  style, 
-  onPointerDown,
+  isPinned = true,
+  onPinToggle,
+  onDragStart,
+  isCollapsedOverride,
+  style,
 }) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
+  const collapsed = isCollapsedOverride !== undefined ? isCollapsedOverride : isCollapsed;
 
-  const unpinnedStyle = !isPinned ? {
+  const containerStyle = isPinned ? {
     position: 'absolute',
-    transform: 'none',
-    transition: 'none',
-    bottom: 'auto',
-    maxWidth: 'none',
-    margin: 0
-  } : {};
-
-  const mergedStyle = { ...unpinnedStyle, ...style };
-
-  if (isCollapsed) {
-    return (
-      <div 
-        className={`timeline-scrubber collapsed${isChatOpen ? ' chat-open' : ''}${isBacklogOpen ? ' backlog-open' : ''}`} 
-        onClick={() => setIsCollapsed(false)} 
-        style={{
-          padding: '8px var(--sp-6)',
-          cursor: 'pointer',
-          width: 'auto',
-          maxWidth: '200px',
-          height: 'auto',
-          gap: 0,
-          borderRadius: 'var(--r-xl)',
-          ...mergedStyle
-        }}
-      >
-        <div className="timeline-header" style={{ margin: 0, justifyContent: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>显示项目时间轴</span>
-          <ChevronUp size={14} className="text-tertiary" />
-        </div>
-      </div>
-    );
-  }
+    left: '12px',
+    bottom: '12px',
+    width: collapsed ? '140px' : '720px',
+    height: collapsed ? '34px' : '160px',
+    background: 'rgba(255, 255, 255, 0.95)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    border: '1px solid var(--border)',
+    borderRadius: collapsed ? '17px' : '12px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+    padding: collapsed ? '6px 12px' : '14px 20px var(--sp-4) 20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: collapsed ? 0 : 10,
+    zIndex: 95,
+    overflow: 'hidden',
+    cursor: collapsed ? 'pointer' : 'default',
+    transition: 'width 0.35s cubic-bezier(0.4, 0, 0.2, 1), height 0.35s cubic-bezier(0.4, 0, 0.2, 1), border-radius 0.35s, padding 0.35s, gap 0.35s',
+    ...style
+  } : {
+    width: '100%',
+    height: '160px',
+    background: 'rgba(255, 255, 255, 0.95)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    border: '1px solid var(--border)',
+    borderRadius: '12px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
+    padding: '14px 20px var(--sp-4) 20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    overflow: 'hidden',
+  };
 
   return (
     <div 
-      className={`timeline-scrubber${isChatOpen ? ' chat-open' : ''}${isBacklogOpen ? ' backlog-open' : ''}`}
-      style={mergedStyle}
-      onPointerDown={onPointerDown}
+      className={`timeline-scrubber-fixed ${isPinned ? 'pinned' : 'unpinned'} ${collapsed ? 'collapsed' : ''}`}
+      style={containerStyle}
+      onClick={(isPinned && collapsed) ? () => setIsCollapsed(false) : undefined}
+      onPointerDown={isPinned ? (e) => e.stopPropagation() : undefined}
     >
-      <div className="timeline-header" style={!isPinned ? { cursor: 'move' } : {}}>
-        <span>时间轴：项目里程碑</span>
-        <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button 
-            className="icon-btn" 
-            onClick={(e) => { e.stopPropagation(); onPinToggle(); }} 
-            title={isPinned ? "取消固定，使其随画布移动" : "固定到屏幕底部"}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: 0,
-              display: 'flex',
-              alignItems: 'center',
-              color: isPinned ? 'var(--text-primary)' : 'var(--text-secondary)',
-              transition: 'color 0.2s'
+      {(isPinned && collapsed) ? (
+        <div 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            gap: 6, 
+            width: '100%', 
+            height: '100%',
+            color: 'var(--text-secondary)',
+            fontWeight: 600,
+            fontSize: '11px',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <span>显示项目时间轴</span>
+          <ChevronUp size={12} style={{ color: 'var(--text-tertiary)' }} />
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', width: '100%' }}>
+          <div 
+            className="timeline-header" 
+            style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              width: '100%',
+              cursor: !isPinned ? 'move' : 'default'
             }}
+            onPointerDown={!isPinned ? onDragStart : undefined}
           >
-            <Pin size={13} style={!isPinned ? { transform: 'rotate(-45deg)' } : {}} fill={isPinned ? 'var(--text-primary)' : 'none'} />
-          </button>
-          <button className="icon-btn" title="更多选项" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
-            <MoreHorizontal size={14} />
-          </button>
-          <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setIsCollapsed(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
-            <ChevronDown size={14} className="text-tertiary" />
-          </button>
-        </div>
-      </div>
-
-      <div className="timeline-body">
-        <div className="timeline-ticks">
-          <div className="tick-item" style={{ left: '12.5%' }}>
-            <span className="tick-label">Q2 - 4月</span>
-            <div className="tick-line"></div>
-          </div>
-          <div className="tick-item" style={{ left: '25%' }}>
-            <span className="tick-label">5月</span>
-            <div className="tick-line"></div>
-          </div>
-          <div className="tick-item" style={{ left: '70%' }}>
-            <span className="tick-label">6月</span>
-            <div className="tick-line"></div>
-          </div>
-          <div className="tick-item" style={{ left: '92%' }}>
-            <span className="tick-label">Q3 - 7月</span>
-            <div className="tick-line"></div>
-          </div>
-        </div>
-
-        <div className="timeline-segmented-track">
-          <div className="track-segment segment-gray" style={{ width: '25%' }}>
-            <span>阶段</span>
-          </div>
-          <div className="track-segment segment-blue" style={{ width: '45%' }}>
-            <span>内测发布</span>
-          </div>
-          <div className="track-segment segment-gray" style={{ width: '30%' }}>
-            <span>MVP 上线</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>时间轴：项目里程碑</span>
+            <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* 大头针 Pin 切换 */}
+              <button 
+                className="icon-btn" 
+                onClick={(e) => { e.stopPropagation(); onPinToggle(); }} 
+                title={isPinned ? "取消固定，移入画布漂移" : "固定在左下角"}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: isPinned ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  transition: 'color 0.2s'
+                }}
+              >
+                <Pin size={13} style={!isPinned ? { transform: 'rotate(-45deg)' } : {}} fill={isPinned ? 'var(--text-primary)' : 'none'} />
+              </button>
+              {isPinned && (
+                <button 
+                  className="icon-btn" 
+                  onClick={(e) => { e.stopPropagation(); setIsCollapsed(true); }} 
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}
+                  title="收起时间轴"
+                >
+                  <ChevronDown size={14} className="text-tertiary" />
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="timeline-current-pointer" style={{ left: '51%' }}>
-            <div className="pointer-line"></div>
-            <span className="pointer-label">当前日期：5月18日</span>
+          <div className="timeline-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div className="timeline-ticks">
+              <div className="tick-item" style={{ left: '12.5%' }}>
+                <span className="tick-label">Q2 - 4月</span>
+                <div className="tick-line"></div>
+              </div>
+              <div className="tick-item" style={{ left: '25%' }}>
+                <span className="tick-label">5月</span>
+                <div className="tick-line"></div>
+              </div>
+              <div className="tick-item" style={{ left: '70%' }}>
+                <span className="tick-label">6月</span>
+                <div className="tick-line"></div>
+              </div>
+              <div className="tick-item" style={{ left: '92%' }}>
+                <span className="tick-label">Q3 - 7月</span>
+                <div className="tick-line"></div>
+              </div>
+            </div>
+
+            <div className="timeline-segmented-track" style={{ marginTop: 8 }}>
+              <div className="track-segment segment-gray" style={{ width: '25%' }}>
+                <span>阶段</span>
+              </div>
+              <div className="track-segment segment-blue" style={{ width: '45%' }}>
+                <span>内测发布</span>
+              </div>
+              <div className="track-segment segment-gray" style={{ width: '30%' }}>
+                <span>MVP 上线</span>
+              </div>
+
+              <div className="timeline-current-pointer" style={{ left: '51%' }}>
+                <div className="pointer-line"></div>
+                <span className="pointer-label">当前日期：5月18日</span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+    </div>
+  );
+}
+
+function ActiveBacklogPanel({
+  isChatOpen,
+  isPinned = true,
+  onPinToggle,
+  onDragStart,
+  canvasSections = {},
+  selectedCardId,
+  setSelectedCardId,
+  uploadedMaterials = [],
+  style,
+}) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // 活跃项计数
+  const activeCount = (Object.values(canvasSections).flat().filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status)).length +
+    Object.values(canvasSections).flat().filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status)).length +
+    Object.values(canvasSections).flat().filter(c => c.status === 'blocked').length);
+
+  const containerStyle = isPinned ? {
+    position: 'absolute',
+    top: '24px',
+    right: isChatOpen ? '452px' : '156px',
+    width: isCollapsed ? 'auto' : '280px',
+    height: isCollapsed ? '36px' : 'auto',
+    maxHeight: isCollapsed ? '36px' : 'calc(100vh - 64px)',
+    background: '#ffffff',
+    border: '1px solid var(--border)',
+    borderRadius: isCollapsed ? '999px' : '12px',
+    zIndex: 90,
+    padding: isCollapsed ? '8px 16px' : '16px',
+    boxShadow: isCollapsed ? '0 4px 12px rgba(0,0,0,0.06)' : '0 10px 30px rgba(0,0,0,0.1)',
+    display: 'flex',
+    flexDirection: isCollapsed ? 'row' : 'column',
+    alignItems: isCollapsed ? 'center' : 'stretch',
+    gap: isCollapsed ? 6 : 16,
+    overflowY: isCollapsed ? 'hidden' : 'auto',
+    boxSizing: 'border-box',
+    cursor: isCollapsed ? 'pointer' : 'default',
+    transition: 'width 0.3s ease, height 0.3s ease, max-height 0.3s ease, border-radius 0.3s, padding 0.3s, gap 0.3s',
+    ...style
+  } : {
+    width: '280px',
+    height: 'auto',
+    maxHeight: '450px',
+    background: '#ffffff',
+    border: '1px solid var(--border)',
+    borderRadius: '12px',
+    zIndex: 10,
+    padding: '16px',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+    overflowY: 'auto',
+    boxSizing: 'border-box',
+  };
+
+  return (
+    <div 
+      className={`active-backlog-sidepanel ${isPinned ? 'pinned' : 'unpinned'} ${isCollapsed ? 'collapsed' : ''}`}
+      style={containerStyle}
+      onClick={(isPinned && isCollapsed) ? () => setIsCollapsed(false) : undefined}
+      onPointerDown={isPinned ? (e) => e.stopPropagation() : undefined}
+    >
+      {(isPinned && isCollapsed) ? (
+        <div 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            gap: 6, 
+            width: '100%', 
+            height: '100%',
+            color: 'var(--text-secondary)',
+            fontWeight: 600,
+            fontSize: '12px',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <ListTodo size={14} color="var(--text-secondary)" style={{ flexShrink: 0 }} />
+          <span>活跃缺口 ({activeCount})</span>
+        </div>
+      ) : (
+        <>
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              borderBottom: '1px solid #f1f5f9', 
+              paddingBottom: 10,
+              cursor: !isPinned ? 'move' : 'default'
+            }}
+            onPointerDown={!isPinned ? onDragStart : undefined}
+          >
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+              <ListTodo size={16} color="var(--text-secondary)" /> 活跃缺口看板
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="canvas-badge" style={{ 
+                fontSize: 10, 
+                padding: '2px 6px',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
+                borderRadius: '4px',
+                fontWeight: '600'
+              }}>
+                {activeCount} 活跃
+              </span>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onPinToggle(); }}
+                title={isPinned ? "取消固定，移入画布漂移" : "固定在右上角"}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: isPinned ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  transition: 'color 0.2s'
+                }}
+              >
+                <Pin size={13} style={!isPinned ? { transform: 'rotate(-45deg)' } : {}} fill={isPinned ? 'var(--text-primary)' : 'none'} />
+              </button>
+              {isPinned && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsCollapsed(true); }}
+                  title="收起看板"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: 'var(--text-tertiary)'
+                  }}
+                >
+                  <ChevronDown size={14} className="text-tertiary" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 1. 待澄清问题 */}
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+              待澄清问题 (Clarification)
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {Object.values(canvasSections).flat()
+                .filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status))
+                .map(item => (
+                  <div 
+                    key={item.id}
+                    onClick={() => setSelectedCardId(item.id)}
+                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
+                    style={{
+                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
+                      cursor: 'pointer', 
+                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
+                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
+                      transition: 'all 0.2s', textAlign: 'left',
+                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    <HelpCircle size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 500 }}>{item.title}</span>
+                  </div>
+                ))}
+              {Object.values(canvasSections).flat().filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status)).length === 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无活跃待澄清</div>
+              )}
+            </div>
+          </div>
+
+          {/* 2. 待决策拍板 */}
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+              待决策事项 (Decision)
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {Object.values(canvasSections).flat()
+                .filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status))
+                .map(item => (
+                  <div 
+                    key={item.id}
+                    onClick={() => setSelectedCardId(item.id)}
+                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
+                    style={{
+                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
+                      cursor: 'pointer', 
+                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
+                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
+                      transition: 'all 0.2s', textAlign: 'left',
+                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    <Scale size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 500 }}>{item.title}</span>
+                  </div>
+                ))}
+              {Object.values(canvasSections).flat().filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status)).length === 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无活跃决策</div>
+              )}
+            </div>
+          </div>
+
+          {/* 3. 阻塞项 */}
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+              阻塞项 (Blocked)
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {Object.values(canvasSections).flat()
+                .filter(c => c.status === 'blocked')
+                .map(item => (
+                  <div 
+                    key={item.id}
+                    onClick={() => setSelectedCardId(item.id)}
+                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
+                    style={{
+                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
+                      cursor: 'pointer', 
+                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
+                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
+                      transition: 'all 0.2s', textAlign: 'left',
+                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    <AlertTriangle size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 500 }}>{item.title}</span>
+                  </div>
+                ))}
+              {Object.values(canvasSections).flat().filter(c => c.status === 'blocked').length === 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无阻塞项</div>
+              )}
+            </div>
+          </div>
+
+          {/* 4. 来源物料 */}
+          <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 16, textAlign: 'left' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+              当前关联物料
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {uploadedMaterials.length === 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>
+                  暂无物料输入
+                </div>
+              ) : (
+                uploadedMaterials.map(m => (
+                  <div key={m.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: 6,
+                    fontSize: 12, color: 'var(--text-secondary)'
+                  }}>
+                    <Paperclip size={14} color="#64748b" style={{ flexShrink: 0 }} />
+                    <span style={{
+                      fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
+                      textAlign: 'left'
+                    }} title={m.name}>{m.name}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -653,7 +986,7 @@ function buildCompactSectionLayout(canvasSections) {
   return positions;
 }
 
-function getCanvasBounds(cardPositions, cards, timelinePos, isPinned) {
+function getCanvasBounds(cardPositions, cards) {
   let maxX = 1440;
   let maxY = 960;
 
@@ -664,11 +997,6 @@ function getCanvasBounds(cardPositions, cards, timelinePos, isPinned) {
     maxX = Math.max(maxX, pos.x + 320 + 160);
     maxY = Math.max(maxY, pos.y + estimateCardHeight(card) + 200);
   });
-
-  if (!isPinned) {
-    maxX = Math.max(maxX, timelinePos.x + 960);
-    maxY = Math.max(maxY, timelinePos.y + 240);
-  }
 
   return { width: maxX, height: maxY };
 }
@@ -691,7 +1019,10 @@ export default function Canvas({
   const [isBacklogOpen, setIsBacklogOpen] = useState(true);
   const [cardOffsets, setCardOffsets] = useState({});
   const [isPinned, setIsPinned] = useState(true);
-  const [timelinePos, setTimelinePos] = useState({ x: 260, y: 700 });
+  const [timelinePos, setTimelinePos] = useState({ x: 80, y: 800 });
+  const [isBacklogPinned, setIsBacklogPinned] = useState(true);
+  const [backlogPos, setBacklogPos] = useState({ x: 1200, y: 300 });
+  const [activeCardMenuId, setActiveCardMenuId] = useState(null);
 
   const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -845,7 +1176,9 @@ export default function Canvas({
     setIsBacklogOpen(true);
     setCardOffsets({});
     setIsPinned(true);
-    setTimelinePos({ x: 260, y: 700 });
+    setTimelinePos({ x: 80, y: 800 });
+    setIsBacklogPinned(true);
+    setBacklogPos({ x: 1200, y: 300 });
     setTransform({ x: 0, y: 0, scale: 1 });
   }, [workspaceId]);
 
@@ -883,6 +1216,18 @@ export default function Canvas({
       setTimelinePos(storedState.timelinePos);
     }
 
+    if (typeof storedState.isBacklogPinned === 'boolean') {
+      setIsBacklogPinned(storedState.isBacklogPinned);
+    }
+
+    if (
+      storedState.backlogPos &&
+      typeof storedState.backlogPos.x === 'number' &&
+      typeof storedState.backlogPos.y === 'number'
+    ) {
+      setBacklogPos(storedState.backlogPos);
+    }
+
     if (
       storedState.transform &&
       typeof storedState.transform.x === 'number' &&
@@ -914,15 +1259,18 @@ export default function Canvas({
       cardOffsets,
       isPinned,
       timelinePos,
+      isBacklogPinned,
+      backlogPos,
       transform,
       canvasSections,
     };
     localStorage.setItem(canvasViewStorageKey, JSON.stringify(nextState));
-  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, transform, canvasSections]);
+  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, isBacklogPinned, backlogPos, transform, canvasSections]);
 
   const handleAutoLayout = () => {
     setCardOffsets({});
-    setTimelinePos({ x: 260, y: 700 });
+    setTimelinePos({ x: 80, y: 800 });
+    setBacklogPos({ x: 1200, y: 300 });
     setTransform({ x: 0, y: 0, scale: 1 });
   };
 
@@ -962,6 +1310,7 @@ export default function Canvas({
   }, [transform]);
 
   const handlePointerDown = (event) => {
+    setActiveCardMenuId(null);
     if (event.button !== 0) return;
     if (draggingCardId) return;
 
@@ -1031,9 +1380,14 @@ export default function Canvas({
     setSelectedCardId((current) => (type === 'card' ? (current === id ? current : id) : current));
     if (type === 'card') setDraggingCardId(id);
 
-    const source = type === 'card'
-      ? (cardOffsets[id] || { x: 0, y: 0 })
-      : timelinePos;
+    let source;
+    if (type === 'card') {
+      source = cardOffsets[id] || { x: 0, y: 0 };
+    } else if (type === 'timeline') {
+      source = timelinePos;
+    } else if (type === 'backlog') {
+      source = backlogPos;
+    }
 
     dragSession.current = {
       type,
@@ -1061,8 +1415,13 @@ export default function Canvas({
             y: session.startY + deltaY,
           },
         }));
-      } else {
+      } else if (session.type === 'timeline') {
         setTimelinePos({
+          x: session.startX + deltaX,
+          y: session.startY + deltaY,
+        });
+      } else if (session.type === 'backlog') {
+        setBacklogPos({
           x: session.startX + deltaX,
           y: session.startY + deltaY,
         });
@@ -1286,6 +1645,8 @@ export default function Canvas({
           isDimmed={isDimmed}
           onPointerDown={(event) => beginFreeDrag('card', card.id, event)}
           onDeleteCard={handleDeleteCard}
+          activeCardMenuId={activeCardMenuId}
+          setActiveCardMenuId={setActiveCardMenuId}
         />
       </div>
     );
@@ -1320,7 +1681,10 @@ export default function Canvas({
           x={creatorState.x} 
           y={creatorState.y} 
           stage={creatorState.stage}
-          onClose={() => setCreatorState(null)} 
+          onClose={() => {
+            setCreatorState(null);
+            setActiveTool('select');
+          }} 
           onSubmit={handleCreateCardSubmit} 
         />
       )}
@@ -1370,71 +1734,7 @@ export default function Canvas({
         </button>
       </div>
 
-      <button
-        onClick={() => setIsBacklogOpen(!isBacklogOpen)}
-        className="chat-toggle-btn"
-        style={{
-          position: 'absolute',
-          top: 24,
-          right: isChatOpen ? 452 : 156,
-          zIndex: 100,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          height: 36,
-          boxSizing: 'border-box',
-          padding: '8px 16px',
-          fontSize: 12,
-          fontWeight: 600,
-          borderRadius: '999px',
-          border: '1px solid var(--border)',
-          background: 'var(--bg-surface)',
-          color: 'var(--text-secondary)',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-          cursor: 'pointer',
-          transition: 'all 0.2s',
-        }}
-        onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-        onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
-      >
-        <ListTodo size={14} color="currentColor" />
-        活跃缺口
-        <ChevronRight size={14} style={{ transform: isBacklogOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s', color: 'var(--text-tertiary)' }} />
-      </button>
 
-      {/* 独立一键整理按钮 */}
-      <button
-        onClick={handleAutoLayout}
-        title="一键整理所有卡片，让节点排版有序排列且不重叠冲突"
-        style={{
-          position: 'absolute',
-          top: 24,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 50,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          border: 'none',
-          padding: '8px 18px',
-          borderRadius: 20,
-          fontSize: 12,
-          fontWeight: 600,
-          cursor: 'pointer',
-          background: 'rgba(255, 255, 255, 0.86)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          border: '1px solid var(--border)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.06)',
-          color: 'var(--text-secondary)',
-          transition: 'all 0.2s ease-in-out'
-        }}
-        onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-        onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
-      >
-        <Sparkles size={13} style={{ color: 'currentColor' }} />
-        一键整理
-      </button>
 
       {/* 无限缩放平面 */}
       <div 
@@ -1505,28 +1805,50 @@ export default function Canvas({
               />
             );
           })}
-
-          {/* 当未固定时，时间轴作为一个漂移的卡片组件渲染在画布中 */}
+          {/* 画布内漂移时间轴 */}
           {!isPinned && (
-            <TimelineScrubber 
-              isChatOpen={isChatOpen} 
-              isBacklogOpen={false} 
-              isPinned={isPinned}
-              onPinToggle={() => setIsPinned(true)}
+            <div 
               style={{
                 position: 'absolute',
                 left: timelinePos.x,
                 top: timelinePos.y,
-                width: 800,
-                transform: 'none',
-                maxWidth: 'none',
-                margin: 0,
-                zIndex: 10
+                width: '720px',
+                zIndex: 10,
               }}
-              onPointerDown={(event) => beginFreeDrag('timeline', 'timeline', event)}
-            />
+            >
+              <TimelineScrubber 
+                isChatOpen={isChatOpen}
+                isPinned={false}
+                isCollapsedOverride={false}
+                onPinToggle={() => setIsPinned(true)}
+                onDragStart={(event) => beginFreeDrag('timeline', 'timeline', event)}
+              />
+            </div>
           )}
 
+          {/* 画布内漂移活跃缺口看板 */}
+          {isBacklogOpen && !isBacklogPinned && (
+            <div 
+              style={{
+                position: 'absolute',
+                left: backlogPos.x,
+                top: backlogPos.y,
+                width: '280px',
+                zIndex: 10,
+              }}
+            >
+              <ActiveBacklogPanel 
+                isChatOpen={isChatOpen}
+                isPinned={false}
+                onPinToggle={() => setIsBacklogPinned(true)}
+                onDragStart={(event) => beginFreeDrag('backlog', 'backlog', event)}
+                canvasSections={canvasSections}
+                selectedCardId={selectedCardId}
+                setSelectedCardId={setSelectedCardId}
+                uploadedMaterials={uploadedMaterials}
+              />
+            </div>
+          )}
         </div>
 
       {pendingMove && (
@@ -1543,210 +1865,26 @@ export default function Canvas({
       )}
 
       {moveError && <div className="canvas-move-toast">{moveError}</div>}
-
-      {/* 底部时间轴 (钉住状态下固定在屏幕底部) */}
+      {/* 底部时间轴 (钉住状态下固定在屏幕左下角偏极边缘) */}
       {isPinned && (
         <TimelineScrubber 
           isChatOpen={isChatOpen} 
-          isBacklogOpen={false} 
-          isPinned={isPinned}
-          onPinToggle={() => {
-            if (containerRef.current) {
-              const rect = containerRef.current.getBoundingClientRect();
-              const viewCenterCanvasX = ((rect.width / 2) - transform.x) / transform.scale - 400;
-              const viewBottomCanvasY = ((rect.height - 180) - transform.y) / transform.scale;
-              
-              const GRID_SIZE = 24;
-              const x = Math.round(viewCenterCanvasX / GRID_SIZE) * GRID_SIZE;
-              const y = Math.round(viewBottomCanvasY / GRID_SIZE) * GRID_SIZE;
-              setTimelinePos({ x, y });
-            }
-            setIsPinned(false);
-          }}
+          isPinned={true}
+          onPinToggle={() => setIsPinned(false)}
         />
       )}
 
-      {/* 活跃缺口 (Active Backlog) 悬浮卡片看板 */}
-      {isBacklogOpen && (
-        <div className="active-backlog-sidepanel" style={{
-          position: 'absolute',
-          top: 68,
-          right: isChatOpen ? 452 : 156,
-          width: 280,
-          maxHeight: 'calc(100vh - 120px)',
-          background: '#ffffff',
-          border: '1px solid var(--border)',
-          borderRadius: 12,
-          zIndex: 90,
-          padding: 16,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-          overflowY: 'auto',
-          boxSizing: 'border-box'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ListTodo size={16} color="var(--text-secondary)" /> 活跃缺口看板
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="canvas-badge" style={{ 
-                fontSize: 10, 
-                padding: '2px 8px',
-                background: 'var(--bg-subtle)',
-                border: '1px solid var(--border)',
-                color: 'var(--text-secondary)',
-                borderRadius: '4px',
-                fontWeight: '600'
-              }}>
-                {(Object.values(canvasSections).flat().filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status)).length +
-                  Object.values(canvasSections).flat().filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status)).length +
-                  Object.values(canvasSections).flat().filter(c => c.status === 'blocked').length)} 活跃
-              </span>
-              <button 
-                onClick={() => setIsBacklogOpen(false)}
-                title="收起看板"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: 'var(--text-tertiary)'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-tertiary)'}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-
-          {/* 1. 待澄清问题 */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              待澄清问题 (Clarification)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.values(canvasSections).flat()
-                .filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status))
-                .map(item => (
-                  <div 
-                    key={item.id}
-                    onClick={() => setSelectedCardId(item.id)}
-                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
-                    style={{
-                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
-                      cursor: 'pointer', 
-                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
-                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
-                      transition: 'all 0.2s', textAlign: 'left',
-                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
-                    }}
-                  >
-                    <HelpCircle size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500 }}>{item.title}</span>
-                  </div>
-                ))}
-              {Object.values(canvasSections).flat().filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status)).length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无活跃待澄清</div>
-              )}
-            </div>
-          </div>
-
-          {/* 2. 待决策拍板 */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              待决策事项 (Decision)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.values(canvasSections).flat()
-                .filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status))
-                .map(item => (
-                  <div 
-                    key={item.id}
-                    onClick={() => setSelectedCardId(item.id)}
-                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
-                    style={{
-                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
-                      cursor: 'pointer', 
-                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
-                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
-                      transition: 'all 0.2s', textAlign: 'left',
-                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
-                    }}
-                  >
-                    <Scale size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500 }}>{item.title}</span>
-                  </div>
-                ))}
-              {Object.values(canvasSections).flat().filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status)).length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无活跃决策</div>
-              )}
-            </div>
-          </div>
-
-          {/* 3. 阻塞项 */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              阻塞项 (Blocked)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.values(canvasSections).flat()
-                .filter(c => c.status === 'blocked')
-                .map(item => (
-                  <div 
-                    key={item.id}
-                    onClick={() => setSelectedCardId(item.id)}
-                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
-                    style={{
-                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
-                      cursor: 'pointer', 
-                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
-                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
-                      transition: 'all 0.2s', textAlign: 'left',
-                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
-                    }}
-                  >
-                    <AlertTriangle size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500 }}>{item.title}</span>
-                  </div>
-                ))}
-              {Object.values(canvasSections).flat().filter(c => c.status === 'blocked').length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无阻塞项</div>
-              )}
-            </div>
-          </div>
-
-          {/* 4. 来源物料 */}
-          <div style={{ marginTop: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              当前关联物料
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {uploadedMaterials.length === 0 ? (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>
-                  暂无物料输入
-                </div>
-              ) : (
-                uploadedMaterials.map(m => (
-                  <div key={m.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: 6,
-                    fontSize: 12, color: 'var(--text-secondary)'
-                  }}>
-                    <Paperclip size={14} color="#64748b" style={{ flexShrink: 0 }} />
-                    <span style={{
-                      fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
-                      textAlign: 'left'
-                    }} title={m.name}>{m.name}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+      {/* 活跃缺口 (Active Backlog) 悬浮卡片看板 (钉住状态下固定在右上角) */}
+      {isBacklogOpen && isBacklogPinned && (
+        <ActiveBacklogPanel 
+          isChatOpen={isChatOpen}
+          isPinned={true}
+          onPinToggle={() => setIsBacklogPinned(false)}
+          canvasSections={canvasSections}
+          selectedCardId={selectedCardId}
+          setSelectedCardId={setSelectedCardId}
+          uploadedMaterials={uploadedMaterials}
+        />
       )}
     </div>
   );
@@ -1762,7 +1900,13 @@ function CardCreatorBubble({ x, y, stage, onClose, onSubmit }) {
   });
 
   return (
-    <div className="floating-card-creator" style={{ left: x + 10, top: y + 10 }} onClick={(e) => e.stopPropagation()}>
+    <div 
+      className="floating-card-creator" 
+      style={{ left: x + 10, top: y + 10 }} 
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerUp={(e) => e.stopPropagation()}
+    >
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>添加新画布卡片</div>
       <input 
         placeholder="卡片标题" 

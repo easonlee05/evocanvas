@@ -37,8 +37,11 @@ function CustomArrow({
   outCount = 1,
   inIndex = 0,
   inCount = 1,
+  onDelete,
 }) {
   const [path, setPath] = useState('');
+  const [midPoint, setMidPoint] = useState(null);
+  const [isHovered, setIsHovered] = useState(false);
   
   useEffect(() => {
     const update = () => {
@@ -90,6 +93,8 @@ function CustomArrow({
         }
       }
 
+      setMidPoint({ x: midX, y: (startY + endY) / 2 });
+
       const signY = endY > startY ? 1 : -1;
       const r = Math.min(12, Math.abs(midX - startX), Math.abs(endX - midX), Math.abs(endY - startY) / 2);
 
@@ -130,34 +135,87 @@ function CustomArrow({
   }
 
   return (
-    <svg 
-      className="canvas-arrow-svg"
+    <div
       style={{
         position: 'absolute',
         top: 0,
         left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 1,
-        overflow: 'visible'
+        width: 0,
+        height: 0,
+        overflow: 'visible',
+        zIndex: 1
       }}
     >
-      <defs>
-        <marker id={markerId} markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
-          <polygon points="0 0, 6 2, 0 4" fill={strokeColor} />
-        </marker>
-      </defs>
-      <path
-        d={path}
-        fill="none"
-        stroke={strokeColor}
-        strokeWidth={strokeWidth}
-        opacity={opacity}
-        style={{ transition: 'stroke 0.2s, stroke-width 0.2s, opacity 0.2s' }}
-        markerEnd={`url(#${markerId})`}
-      />
-    </svg>
+      <svg 
+        className="canvas-arrow-svg"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          overflow: 'visible'
+        }}
+      >
+        <defs>
+          <marker id={markerId} markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+            <polygon points="0 0, 6 2, 0 4" fill={strokeColor} />
+          </marker>
+        </defs>
+        <path
+          d={path}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          fill="none"
+          markerEnd={`url(#${markerId})`}
+          style={{ opacity, transition: 'stroke 0.2s, stroke-width 0.2s, opacity 0.2s' }}
+        />
+        <path
+          d={path}
+          stroke="transparent"
+          strokeWidth="10"
+          fill="none"
+          style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+        />
+      </svg>
+      {isHovered && midPoint && onDelete && (
+        <button
+          style={{
+            position: 'absolute',
+            left: midPoint.x - 10,
+            top: midPoint.y - 10,
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            background: '#ef4444',
+            color: '#ffffff',
+            border: 'none',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '10px',
+            fontWeight: 'bold',
+            lineHeight: 1,
+            zIndex: 99,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            pointerEvents: 'auto',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(start, end);
+          }}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          title="删除连接线"
+        >
+          ✕
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -234,6 +292,8 @@ function CanvasCard({
   onDeleteCard,
   activeCardMenuId,
   setActiveCardMenuId,
+  activeTool,
+  onConnectStart,
 }) {
   const primaryTag = data.tags?.[0];
   const secondaryTags = data.tags?.slice(1) || [];
@@ -243,6 +303,18 @@ function CanvasCard({
   const isEditingDesc = editingState?.cardId === data.id && editingState?.field === 'desc';
 
   const cardClassName = `canvas-card${isSelectedSelf ? ' selected-self' : ''}${isSelectedRelated && !isSelectedSelf ? ' selected-related' : ''}${isPreviewSelf ? ' preview-self' : ''}${isPreviewRelated && !isPreviewSelf && !isSelectedRelated ? ' preview-related' : ''}${isDimmed ? ' is-dimmed' : ''}`;
+
+  const anchorBaseStyle = {
+    position: 'absolute',
+    width: '10px',
+    height: '10px',
+    background: '#ffffff',
+    border: '2px solid #1f6fff',
+    borderRadius: '50%',
+    zIndex: 10,
+    cursor: 'crosshair',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+  };
 
   return (
     <div 
@@ -403,6 +475,31 @@ function CanvasCard({
           </div>
         )}
       </div>
+
+      {activeTool === 'connector' && onConnectStart && (
+        <>
+          <div 
+            style={{ ...anchorBaseStyle, top: '-5px', left: 'calc(50% - 5px)' }} 
+            onPointerDown={(e) => { e.stopPropagation(); onConnectStart('top', e); }} 
+            title="向上连线"
+          />
+          <div 
+            style={{ ...anchorBaseStyle, bottom: '-5px', left: 'calc(50% - 5px)' }} 
+            onPointerDown={(e) => { e.stopPropagation(); onConnectStart('bottom', e); }} 
+            title="向下连线"
+          />
+          <div 
+            style={{ ...anchorBaseStyle, left: '-5px', top: 'calc(50% - 5px)' }} 
+            onPointerDown={(e) => { e.stopPropagation(); onConnectStart('left', e); }} 
+            title="向左连线"
+          />
+          <div 
+            style={{ ...anchorBaseStyle, right: '-5px', top: 'calc(50% - 5px)' }} 
+            onPointerDown={(e) => { e.stopPropagation(); onConnectStart('right', e); }} 
+            title="向右连线"
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -1015,6 +1112,8 @@ export default function Canvas({
 }) {
   const [viewMode, setViewMode] = useState('convergence'); // convergence | problem | option | decision | handoff
   const [activeTool, setActiveTool] = useState('select'); // select | card | connector | text
+  const [activeConnector, setActiveConnector] = useState(null); // { startCardId, startPort, endX, endY }
+  const [canvasTexts, setCanvasTexts] = useState([]);
   const [creatorState, setCreatorState] = useState(null); // { x, y, canvasX, canvasY, stage }
   const [isBacklogOpen, setIsBacklogOpen] = useState(true);
   const [cardOffsets, setCardOffsets] = useState({});
@@ -1180,6 +1279,7 @@ export default function Canvas({
     setIsBacklogPinned(true);
     setBacklogPos({ x: 1200, y: 300 });
     setTransform({ x: 0, y: 0, scale: 1 });
+    setCanvasTexts([]);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -1245,6 +1345,12 @@ export default function Canvas({
       setCanvasSections(storedState.canvasSections);
     }
 
+    if (Array.isArray(storedState.canvasTexts)) {
+      setCanvasTexts(storedState.canvasTexts);
+    } else {
+      setCanvasTexts([]);
+    }
+
     hasRestoredViewStateRef.current = true;
     setHasHydratedCanvasView(true);
   }, [canvasViewStorageKey]);
@@ -1263,9 +1369,10 @@ export default function Canvas({
       backlogPos,
       transform,
       canvasSections,
+      canvasTexts,
     };
     localStorage.setItem(canvasViewStorageKey, JSON.stringify(nextState));
-  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, isBacklogPinned, backlogPos, transform, canvasSections]);
+  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, isBacklogPinned, backlogPos, transform, canvasSections, canvasTexts]);
 
   const handleAutoLayout = () => {
     setCardOffsets({});
@@ -1336,11 +1443,32 @@ export default function Canvas({
       return;
     }
 
+    if (activeTool === 'text') {
+      event.stopPropagation();
+      const rect = containerRef.current.getBoundingClientRect();
+      const clientX = event.clientX;
+      const clientY = event.clientY;
+      const canvasX = (clientX - rect.left - transform.x) / transform.scale;
+      const canvasY = (clientY - rect.top - transform.y) / transform.scale;
+
+      const newText = {
+        id: 'text-' + Date.now(),
+        x: canvasX,
+        y: canvasY,
+        text: '',
+        isEditing: true
+      };
+
+      setCanvasTexts(prev => [...prev, newText]);
+      setActiveTool('select');
+      return;
+    }
+
     if (activeTool !== 'select') return;
     
     let target = event.target;
     while (target && target !== containerRef.current) {
-      if (target.className?.includes?.('canvas-card') || target.className?.includes?.('timeline-scrubber') || target.tagName === 'BUTTON' || target.tagName === 'INPUT') {
+      if (target.className?.includes?.('canvas-card') || target.className?.includes?.('timeline-scrubber') || target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.className?.includes?.('canvas-text-label')) {
         return;
       }
       target = target.parentNode;
@@ -1387,6 +1515,9 @@ export default function Canvas({
       source = timelinePos;
     } else if (type === 'backlog') {
       source = backlogPos;
+    } else if (type === 'text') {
+      const textItem = canvasTexts.find(t => t.id === id);
+      source = textItem ? { x: textItem.x, y: textItem.y } : { x: 0, y: 0 };
     }
 
     dragSession.current = {
@@ -1398,6 +1529,11 @@ export default function Canvas({
       startY: source.y,
     };
   };
+
+  const hoveredCardIdRef = useRef(null);
+  useEffect(() => {
+    hoveredCardIdRef.current = hoveredCardId;
+  }, [hoveredCardId]);
 
   useEffect(() => {
     const handleWindowPointerMove = (event) => {
@@ -1425,10 +1561,34 @@ export default function Canvas({
           x: session.startX + deltaX,
           y: session.startY + deltaY,
         });
+      } else if (session.type === 'text') {
+        setCanvasTexts((current) => current.map(t => t.id === session.id ? {
+          ...t,
+          x: session.startX + deltaX,
+          y: session.startY + deltaY,
+        } : t));
+      } else if (session.type === 'connector') {
+        const lanesEl = document.querySelector('.canvas-lanes');
+        if (lanesEl) {
+          const lanesRect = lanesEl.getBoundingClientRect();
+          const endX = (event.clientX - lanesRect.left) / transform.scale;
+          const endY = (event.clientY - lanesRect.top) / transform.scale;
+          setActiveConnector(prev => prev ? { ...prev, endX, endY } : null);
+        }
       }
     };
 
     const handleWindowPointerUp = () => {
+      const session = dragSession.current;
+      if (session && session.type === 'connector') {
+        const targetId = hoveredCardIdRef.current;
+        if (targetId && targetId !== session.startCardId) {
+          handleAddConnection(session.startCardId, targetId);
+        }
+        setActiveConnector(null);
+        setActiveTool('select');
+      }
+
       dragSession.current = null;
       setDraggingCardId(null);
     };
@@ -1439,7 +1599,7 @@ export default function Canvas({
       window.removeEventListener('pointermove', handleWindowPointerMove);
       window.removeEventListener('pointerup', handleWindowPointerUp);
     };
-  }, [transform.scale, cardOffsets, timelinePos]);
+  }, [transform.scale, cardOffsets, timelinePos, canvasTexts]);
 
   const startEdit = (cardId, field, currentValue) => {
     setEditingState({ cardId, field, value: currentValue });
@@ -1472,6 +1632,71 @@ export default function Canvas({
         setMoveError('保存修改失败，请刷新页面');
       }
     }
+  };
+
+  const handleAddConnection = (startId, endId) => {
+    setCanvasSections(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(key => {
+        next[key] = next[key].map(c => {
+          if (c.id === startId) {
+            const currentNext = Array.isArray(c.next) ? c.next : (c.next ? [c.next] : []);
+            if (!currentNext.includes(endId)) {
+              return {
+                ...c,
+                next: [...currentNext, endId]
+              };
+            }
+          }
+          return c;
+        });
+      });
+      return next;
+    });
+  };
+
+  const handleDeleteConnection = (startId, endId) => {
+    setCanvasSections(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(key => {
+        next[key] = next[key].map(c => {
+          if (c.id === startId && c.next) {
+            return {
+              ...c,
+              next: (Array.isArray(c.next) ? c.next : [c.next]).filter(id => id !== endId)
+            };
+          }
+          return c;
+        });
+      });
+      return next;
+    });
+  };
+
+  const handleConnectStart = (cardId, port, event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    const lanesEl = document.querySelector('.canvas-lanes');
+    if (!lanesEl) return;
+
+    const lanesRect = lanesEl.getBoundingClientRect();
+    const currentX = (event.clientX - lanesRect.left) / transform.scale;
+    const currentY = (event.clientY - lanesRect.top) / transform.scale;
+
+    setActiveConnector({
+      startCardId: cardId,
+      startPort: port,
+      endX: currentX,
+      endY: currentY,
+    });
+
+    dragSession.current = {
+      type: 'connector',
+      startCardId: cardId,
+      startPort: port,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+    };
   };
 
   const handleCreateCardSubmit = async (formData) => {
@@ -1647,6 +1872,8 @@ export default function Canvas({
           onDeleteCard={handleDeleteCard}
           activeCardMenuId={activeCardMenuId}
           setActiveCardMenuId={setActiveCardMenuId}
+          activeTool={activeTool}
+          onConnectStart={handleConnectStart}
         />
       </div>
     );
@@ -1802,9 +2029,107 @@ export default function Canvas({
                 outCount={arr.startOffsetTotal}
                 inIndex={arr.endOffsetIndex}
                 inCount={arr.endOffsetTotal}
+                onDelete={handleDeleteConnection}
               />
             );
           })}
+
+          {activeConnector && (
+            <TempConnectionLine
+              startCardId={activeConnector.startCardId}
+              startPort={activeConnector.startPort}
+              endX={activeConnector.endX}
+              endY={activeConnector.endY}
+              transform={transform}
+            />
+          )}
+
+          {/* 渲染自由文本标签 */}
+          {canvasTexts.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                position: 'absolute',
+                left: item.x,
+                top: item.y,
+                zIndex: 20,
+              }}
+              onPointerDown={(event) => beginFreeDrag('text', item.id, event)}
+            >
+              {item.isEditing ? (
+                <textarea
+                  style={{
+                    background: '#ffffff',
+                    border: '1px dashed #1f6fff',
+                    outline: 'none',
+                    fontFamily: 'inherit',
+                    fontSize: '13px',
+                    color: 'var(--text-primary)',
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    resize: 'both',
+                    minWidth: '120px',
+                    minHeight: '36px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  }}
+                  autoFocus
+                  defaultValue={item.text}
+                  placeholder="输入注释文字..."
+                  onBlur={(e) => {
+                    const val = e.target.value.trim();
+                    if (!val) {
+                      setCanvasTexts(prev => prev.filter(t => t.id !== item.id));
+                    } else {
+                      setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, text: val, isEditing: false } : t));
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      const val = e.target.value.trim();
+                      if (!val) {
+                        setCanvasTexts(prev => prev.filter(t => t.id !== item.id));
+                      } else {
+                        setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, text: val, isEditing: false } : t));
+                      }
+                    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      const val = e.target.value.trim();
+                      if (!val) {
+                        setCanvasTexts(prev => prev.filter(t => t.id !== item.id));
+                      } else {
+                        setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, text: val, isEditing: false } : t));
+                      }
+                    }
+                  }}
+                />
+              ) : (
+                <div
+                  className="canvas-text-label"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid transparent',
+                    color: 'var(--text-primary)',
+                    padding: '6px 10px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'text',
+                    whiteSpace: 'pre-wrap',
+                    userSelect: 'none',
+                    lineHeight: '1.4',
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, isEditing: true } : t));
+                  }}
+                  title="双击编辑，拖拽移动"
+                >
+                  {item.text}
+                </div>
+              )}
+            </div>
+          ))}
           {/* 画布内漂移时间轴 */}
           {!isPinned && (
             <div 
@@ -1933,5 +2258,71 @@ function CardCreatorBubble({ x, y, stage, onClose, onSubmit }) {
         <button className="save" onClick={() => onSubmit({ title, desc, kind })}>创建</button>
       </div>
     </div>
+  );
+}
+
+function TempConnectionLine({ startCardId, startPort, endX, endY, transform }) {
+  const [startPos, setStartPos] = useState(null);
+
+  useEffect(() => {
+    const el = document.getElementById(startCardId);
+    const container = document.querySelector('.canvas-lanes');
+    if (!el || !container) return;
+
+    const sRect = el.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const scale = transform.scale;
+
+    let x = (sRect.left + sRect.right) / 2 - cRect.left;
+    let y = (sRect.top + sRect.bottom) / 2 - cRect.top;
+
+    if (startPort === 'top') {
+      x = (sRect.left + sRect.right) / 2 - cRect.left;
+      y = sRect.top - cRect.top;
+    } else if (startPort === 'bottom') {
+      x = (sRect.left + sRect.right) / 2 - cRect.left;
+      y = sRect.bottom - cRect.top;
+    } else if (startPort === 'left') {
+      x = sRect.left - cRect.left;
+      y = (sRect.top + sRect.bottom) / 2 - cRect.top;
+    } else if (startPort === 'right') {
+      x = sRect.right - cRect.left;
+      y = (sRect.top + sRect.bottom) / 2 - cRect.top;
+    }
+
+    setStartPos({ x: x / scale, y: y / scale });
+  }, [startCardId, startPort, transform]);
+
+  if (!startPos) return null;
+
+  return (
+    <svg 
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 100,
+        overflow: 'visible'
+      }}
+    >
+      <defs>
+        <marker id="temp-arrowhead" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+          <polygon points="0 0, 6 2, 0 4" fill="#1f6fff" />
+        </marker>
+      </defs>
+      <line 
+        x1={startPos.x} 
+        y1={startPos.y} 
+        x2={endX} 
+        y2={endY} 
+        stroke="#1f6fff" 
+        strokeWidth="2" 
+        strokeDasharray="4 4"
+        markerEnd="url(#temp-arrowhead)"
+      />
+    </svg>
   );
 }

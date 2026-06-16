@@ -6,7 +6,11 @@ import { apiGet, apiPost, apiPut, apiUrl, apiUpload } from '../../api';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
-import { shouldAutoRunTaskOnOpen } from './workspaceSession';
+import {
+  getCanvasViewStateStorageKey,
+  readStoredCanvasViewState,
+  shouldAutoRunTaskOnOpen,
+} from './workspaceSession';
 import { sanitizeWorkspaceContent } from './workspaceContent';
 import {
   Zap, Settings2, Send, Mic, Paperclip,
@@ -158,6 +162,7 @@ export default function Workspace() {
   const [attachedSourceRefs, setAttachedSourceRefs] = useState([]);
   const [showKnowledgeMenu, setShowKnowledgeMenu] = useState(false);
   const [showSourceMenu, setShowSourceMenu] = useState(false);
+  const [hasHydratedWorkspaceView, setHasHydratedWorkspaceView] = useState(false);
 
   const streamRef = useRef(null);
   const savedRef = useRef(true);
@@ -245,6 +250,28 @@ export default function Workspace() {
     });
     return () => { closed = true; if (streamRef.current) streamRef.current.close(); };
   }, [taskId]);
+
+  useEffect(() => {
+    setHasHydratedWorkspaceView(false);
+    const storageKey = getCanvasViewStateStorageKey(taskId);
+    const storedState = readStoredCanvasViewState(storageKey);
+    setSelectedCardId(storedState?.selectedCardId || null);
+    setHasHydratedWorkspaceView(true);
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!hasHydratedWorkspaceView) return;
+
+    const storageKey = getCanvasViewStateStorageKey(taskId);
+    if (!storageKey) return;
+
+    const currentState = readStoredCanvasViewState(storageKey) || {};
+    const nextState = {
+      ...currentState,
+      selectedCardId,
+    };
+    localStorage.setItem(storageKey, JSON.stringify(nextState));
+  }, [hasHydratedWorkspaceView, selectedCardId, taskId]);
 
   // 实时同步材料状态到 LocalStorage
   useEffect(() => {

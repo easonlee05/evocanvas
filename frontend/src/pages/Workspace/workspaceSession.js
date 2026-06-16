@@ -27,3 +27,29 @@ export function shouldAutoRunTaskOnOpen() {
   return false;
 }
 
+/**
+ * 生成工作区画布视图状态的本地缓存键。
+ * 该状态只用于恢复用户离开页面前的画布视角与交互位置，不作为事实数据源。
+ * @param {string | null | undefined} workspaceId
+ * @returns {string | null}
+ */
+export function getCanvasViewStateStorageKey(workspaceId) {
+  if (!workspaceId || workspaceId === 'new') return null;
+  return `evocanvas_canvas_view_${workspaceId}`;
+}
+
+/**
+ * 安全读取 JSON 本地缓存，遇到损坏数据时返回 null。
+ * @param {string | null} storageKey
+ * @returns {any | null}
+ */
+export function readStoredCanvasViewState(storageKey) {
+  if (!storageKey) return null;
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    return null;
+  }
+}

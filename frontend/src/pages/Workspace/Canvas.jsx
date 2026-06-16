@@ -13,6 +13,11 @@ import {
   SECTION_META,
   updateCanvasCard,
 } from './canvasEditing.js';
+import {
+  getCanvasViewStateStorageKey,
+  readStoredCanvasViewState,
+} from './workspaceSession';
+
 const LANE_DEFINITIONS = [
   { sectionKey: 'clarify', laneTitle: '待澄清项', clusterTitle: '问题与不确定性' },
   { sectionKey: 'rules', laneTitle: '规则约束', clusterTitle: '核心业务规则' },
@@ -683,9 +688,13 @@ export default function Canvas({
   const [dropTarget, setDropTarget] = useState(null);
   const [pendingMove, setPendingMove] = useState(null);
   const [moveError, setMoveError] = useState(null);
+  const [hasHydratedCanvasView, setHasHydratedCanvasView] = useState(false);
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const dragSession = useRef(null);
+  const hasRestoredViewStateRef = useRef(false);
+
+  const canvasViewStorageKey = getCanvasViewStateStorageKey(workspaceId);
 
   function mapSectionToBackendStage(sectionKey) {
     if (sectionKey === 'evidence') return 'discovery';
@@ -778,6 +787,78 @@ export default function Canvas({
       });
     }
   }, [cards, relations, workspaceId]);
+
+  useEffect(() => {
+    hasRestoredViewStateRef.current = false;
+    setHasHydratedCanvasView(false);
+    setIsBacklogOpen(true);
+    setCardOffsets({});
+    setIsPinned(true);
+    setTimelinePos({ x: 260, y: 700 });
+    setTransform({ x: 0, y: 0, scale: 1 });
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (hasRestoredViewStateRef.current) return;
+
+    const storedState = readStoredCanvasViewState(canvasViewStorageKey);
+    if (!storedState) {
+      hasRestoredViewStateRef.current = true;
+      setHasHydratedCanvasView(true);
+      return;
+    }
+
+    if (typeof storedState.isBacklogOpen === 'boolean') {
+      setIsBacklogOpen(storedState.isBacklogOpen);
+    }
+
+    if (
+      storedState.cardOffsets &&
+      typeof storedState.cardOffsets === 'object' &&
+      !Array.isArray(storedState.cardOffsets)
+    ) {
+      setCardOffsets(storedState.cardOffsets);
+    }
+
+    if (typeof storedState.isPinned === 'boolean') {
+      setIsPinned(storedState.isPinned);
+    }
+
+    if (
+      storedState.timelinePos &&
+      typeof storedState.timelinePos.x === 'number' &&
+      typeof storedState.timelinePos.y === 'number'
+    ) {
+      setTimelinePos(storedState.timelinePos);
+    }
+
+    if (
+      storedState.transform &&
+      typeof storedState.transform.x === 'number' &&
+      typeof storedState.transform.y === 'number' &&
+      typeof storedState.transform.scale === 'number'
+    ) {
+      setTransform(storedState.transform);
+    }
+
+    hasRestoredViewStateRef.current = true;
+    setHasHydratedCanvasView(true);
+  }, [canvasViewStorageKey]);
+
+  useEffect(() => {
+    if (!canvasViewStorageKey || !hasHydratedCanvasView) return;
+
+    const currentState = readStoredCanvasViewState(canvasViewStorageKey) || {};
+    const nextState = {
+      ...currentState,
+      isBacklogOpen,
+      cardOffsets,
+      isPinned,
+      timelinePos,
+      transform,
+    };
+    localStorage.setItem(canvasViewStorageKey, JSON.stringify(nextState));
+  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, transform]);
 
   const handleAutoLayout = () => {
     setCardOffsets({});

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import './Canvas.css';
 import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp, Paperclip, HelpCircle, Scale, AlertTriangle, Sparkles, X, Pin } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
-import { apiPost, apiUrl } from '../../api';
+import { apiPost, apiDelete, apiUrl } from '../../api';
 import { collectCanvasArrows, getArrowKey, getArrowPresentation, getFocusedRelationColors, getRelatedCardIds } from './canvasRelations.js';
 import {
   createInitialCanvasSections,
@@ -715,9 +715,11 @@ export default function Canvas({
 
     const nextMap = {};
     (backendRelations || []).forEach(rel => {
-      if (rel.relation_type === 'next') {
-        if (!nextMap[rel.source_id]) nextMap[rel.source_id] = [];
-        nextMap[rel.source_id].push(rel.target_id);
+      const sourceId = rel.from_card_id || rel.source_id;
+      const targetId = rel.to_card_id || rel.target_id;
+      if (sourceId && targetId) {
+        if (!nextMap[sourceId]) nextMap[sourceId] = [];
+        nextMap[sourceId].push(targetId);
       }
     });
 

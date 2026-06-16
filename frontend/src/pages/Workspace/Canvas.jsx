@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './Canvas.css';
-import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp, Paperclip, HelpCircle, Scale, AlertTriangle, Sparkles, X, Pin } from 'lucide-react';
+import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp, Paperclip, HelpCircle, Scale, AlertTriangle, Sparkles, X, Pin, MousePointer, Square, MoveUpRight, Type } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 import { apiPost, apiDelete, apiUrl } from '../../api';
 import { collectCanvasArrows, getArrowKey, getArrowPresentation, getFocusedRelationColors, getRelatedCardIds } from './canvasRelations.js';
@@ -675,6 +675,7 @@ export default function Canvas({
   uploadedMaterials = [],
 }) {
   const [viewMode, setViewMode] = useState('convergence'); // convergence | problem | option | decision | handoff
+  const [activeTool, setActiveTool] = useState('select'); // select | card | connector | text
   const [isBacklogOpen, setIsBacklogOpen] = useState(true);
   const [cardOffsets, setCardOffsets] = useState({});
   const [isPinned, setIsPinned] = useState(true);
@@ -906,6 +907,7 @@ export default function Canvas({
   const handlePointerDown = (event) => {
     if (event.button !== 0) return;
     if (draggingCardId) return;
+    if (activeTool !== 'select') return;
     
     let target = event.target;
     while (target && target !== containerRef.current) {
@@ -942,6 +944,7 @@ export default function Canvas({
   };
 
   const beginFreeDrag = (type, id, event) => {
+    if (activeTool !== 'select') return;
     if (editingState?.cardId) return;
     if (event.target.closest('button, input, textarea')) return;
     event.stopPropagation();
@@ -1113,9 +1116,66 @@ export default function Canvas({
       onPointerUp={handlePointerUp}
       style={{
         backgroundPosition: `${transform.x}px ${transform.y}px`,
-        backgroundSize: `${24 * transform.scale}px ${24 * transform.scale}px`
+        backgroundSize: `${24 * transform.scale}px ${24 * transform.scale}px`,
+        cursor: activeTool === 'select' 
+          ? (isDragging.current ? 'grabbing' : 'grab') 
+          : (activeTool === 'text' ? 'text' : 'crosshair')
       }}
     >
+      {/* 顶部操作提示 */}
+      {activeTool !== 'select' && (
+        <div className="active-tool-hint">
+          {activeTool === 'card' && '卡片工具激活：点击画布空白处以添加新卡片'}
+          {activeTool === 'connector' && '连接线工具激活：拖动卡片边缘锚点以建立关联'}
+          {activeTool === 'text' && '文本工具激活：点击画布空白处添加注释文本'}
+        </div>
+      )}
+
+      {/* 底部悬浮工具栏 */}
+      <div className="figma-toolbar" onClick={(e) => e.stopPropagation()}>
+        <button
+          className={`figma-toolbar-btn${activeTool === 'select' ? ' active' : ''}`}
+          title="选择与拖拽 (V)"
+          onClick={() => setActiveTool('select')}
+        >
+          <MousePointer size={16} />
+        </button>
+        <button
+          className={`figma-toolbar-btn${activeTool === 'card' ? ' active' : ''}`}
+          title="添加卡片 (C)"
+          onClick={() => setActiveTool('card')}
+        >
+          <Square size={16} />
+        </button>
+        <button
+          className={`figma-toolbar-btn${activeTool === 'connector' ? ' active' : ''}`}
+          title="连接线工具 (L)"
+          onClick={() => setActiveTool('connector')}
+        >
+          <MoveUpRight size={16} />
+        </button>
+        <button
+          className={`figma-toolbar-btn${activeTool === 'text' ? ' active' : ''}`}
+          title="注释文本 (T)"
+          onClick={() => setActiveTool('text')}
+        >
+          <Type size={16} />
+        </button>
+        
+        <div className="figma-toolbar-divider" />
+        
+        <button
+          className="figma-toolbar-btn"
+          title="一键整理布局"
+          onClick={() => {
+            handleAutoLayout();
+            setActiveTool('select');
+          }}
+        >
+          <Sparkles size={16} />
+        </button>
+      </div>
+
       <button
         onClick={() => setIsBacklogOpen(!isBacklogOpen)}
         className="chat-toggle-btn"

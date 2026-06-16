@@ -901,3 +901,244 @@
   padding: 1px 4px;
   border-radius: 2px;
 }
+
+/* ── Figma 底部浮动工具栏 ── */
+.figma-toolbar {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 48px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 10px 32px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 4px;
+  z-index: 1000;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.figma-toolbar-btn {
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.2s ease-in-out;
+  outline: none;
+}
+
+.figma-toolbar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.figma-toolbar-btn.active {
+  background: #007aff;
+  color: white;
+}
+
+.figma-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* 顶部操作提示栏 */
+.active-tool-hint {
+  position: absolute;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.82);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 999px;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* ── 新增卡片悬浮创建气泡 ── */
+.floating-card-creator {
+  position: absolute;
+  width: 320px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 16px;
+  z-index: 1200;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.floating-card-creator input,
+.floating-card-creator textarea,
+.floating-card-creator select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  outline: none;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.floating-card-creator .btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.floating-card-creator button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.floating-card-creator button.cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.floating-card-creator button.save {
+  background: #007aff;
+  border: none;
+  color: #fff;
+}
+
+/* ── 卡片右上角 Hover 物理删除按钮 ── */
+.card-delete-hover-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.canvas-card:hover .card-delete-hover-btn {
+  display: flex;
+}
+
+.card-delete-hover-btn:hover {
+  background: #ef4444;
+  color: white;
+  transform: scale(1.15);
+}
+
+/* ── 连线工具锚点 ── */
+.connector-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: rgba(0, 122, 255, 0.5);
+  border: 2px solid white;
+  border-radius: 50%;
+  z-index: 30;
+  display: none;
+  cursor: crosshair;
+  transition: transform 0.2s, background-color 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.canvas-card-slot:hover .connector-dot {
+  display: block;
+}
+
+.connector-dot:hover {
+  transform: scale(1.4);
+  background: #007aff;
+}
+
+.connector-dot.top { top: -4px; left: 50%; transform: translateX(-50%); }
+.connector-dot.bottom { bottom: -4px; left: 50%; transform: translateX(-50%); }
+.connector-dot.left { left: -4px; top: 50%; transform: translateY(-50%); }
+.connector-dot.right { right: -4px; top: 50%; transform: translateY(-50%); }
+
+/* ── 连线中点删除气泡 ── */
+.arrow-delete-badge {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35);
+  font-size: 10px;
+  font-weight: bold;
+  z-index: 1000;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  transition: transform 0.2s;
+  border: 1px solid white;
+}
+
+.arrow-delete-badge:hover {
+  transform: translate(-50%, -50%) scale(1.25);
+}
+
+/* ── 纯文本注释 ── */
+.canvas-text-node {
+  position: absolute;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  z-index: 10;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.canvas-text-node:hover {
+  border-color: rgba(0,0,0,0.06);
+  background: rgba(0,0,0,0.01);
+}
+
+.canvas-text-node.editing {
+  background: #fff;
+  border-color: #007aff;
+  box-shadow: 0 0 0 2px rgba(0,122,255,0.15);
+  cursor: text;
+}

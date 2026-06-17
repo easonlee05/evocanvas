@@ -256,6 +256,7 @@ export default function Workspace() {
     const storageKey = getCanvasViewStateStorageKey(taskId);
     const storedState = readStoredCanvasViewState(storageKey);
     setSelectedCardId(storedState?.selectedCardId || null);
+    setIsChatOpen(typeof storedState?.isChatOpen === 'boolean' ? storedState.isChatOpen : true);
     setHasHydratedWorkspaceView(true);
   }, [taskId]);
 
@@ -269,9 +270,10 @@ export default function Workspace() {
     const nextState = {
       ...currentState,
       selectedCardId,
+      isChatOpen,
     };
     localStorage.setItem(storageKey, JSON.stringify(nextState));
-  }, [hasHydratedWorkspaceView, selectedCardId, taskId]);
+  }, [hasHydratedWorkspaceView, selectedCardId, isChatOpen, taskId]);
 
   // 实时同步材料状态到 LocalStorage
   useEffect(() => {

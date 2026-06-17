@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './Canvas.css';
-import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp, Paperclip, HelpCircle, Scale, AlertTriangle, Sparkles, X, Pin, MousePointer, Square, MoveUpRight, Type } from 'lucide-react';
+import { MoreHorizontal, ChevronRight, Sparkles, X, MousePointer, Square, MoveUpRight, Type } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 import { apiPost, apiDelete, apiUrl } from '../../api';
 import {
@@ -25,14 +25,29 @@ import {
   updateCanvasCard,
 } from './canvasEditing.js';
 import {
+  buildCompactSectionLayout,
+  estimateCardHeight,
+  getCanvasBounds,
+  resolveCollisions,
+} from './canvasLayout.js';
+import {
   getCanvasViewStateStorageKey,
   readStoredCanvasViewState,
 } from './workspaceSession';
+import { CARD_PORTS } from './edgeRouter.js';
 import {
-  CARD_PORTS,
-  getPortPosition,
-  routeEdge,
-} from './edgeRouter.js';
+  ActiveBacklogPanel,
+  CardCreatorBubble,
+  TimelineScrubber,
+} from './CanvasOverlays.jsx';
+import CanvasTextLayer from './CanvasTextLayer.jsx';
+import {
+  CustomArrow,
+  TempConnectionLine,
+  getCardPorts,
+  getCardRectInCanvas,
+  getPortPointByName,
+} from './CanvasEdges.jsx';
 
 const LANE_DEFINITIONS = [
   { sectionKey: 'clarify', laneTitle: '待澄清项', clusterTitle: '问题与不确定性' },
@@ -45,206 +60,6 @@ const LANE_DEFINITIONS = [
 
 const CONNECT_SNAP_RADIUS = 64;
 const EXPLICIT_PORT_SNAP_RADIUS = 20;
-
-function getCanvasRect(rect, containerRect, scale, id = null) {
-  return {
-    id,
-    left: (rect.left - containerRect.left) / scale,
-    right: (rect.right - containerRect.left) / scale,
-    top: (rect.top - containerRect.top) / scale,
-    bottom: (rect.bottom - containerRect.top) / scale,
-  };
-}
-
-function getElementCanvasRect(element, container, scale) {
-  return getCanvasRect(
-    element.getBoundingClientRect(),
-    container.getBoundingClientRect(),
-    scale,
-    element.id,
-  );
-}
-
-function getCardPorts(rect) {
-  return {
-    top: getPortPosition(rect, 'top'),
-    right: getPortPosition(rect, 'right'),
-    bottom: getPortPosition(rect, 'bottom'),
-    left: getPortPosition(rect, 'left'),
-  };
-}
-
-function getPortPointByName(element, container, scale, port) {
-  return getPortPosition(getElementCanvasRect(element, container, scale), port || 'right');
-}
-
-function getCanvasCardObstacles(container, scale) {
-  return [...document.querySelectorAll('.canvas-card')]
-    .filter((cardElement) => cardElement.id)
-    .map((cardElement) => getElementCanvasRect(cardElement, container, scale));
-}
-
-function CustomArrow({
-  start,
-  end,
-  transform,
-  visualState = 'muted',
-  accentColor,
-  outIndex = 0,
-  outCount = 1,
-  inIndex = 0,
-  inCount = 1,
-  onDelete,
-  canDelete = false,
-  startPort = null,
-  endPort = null,
-}) {
-  const [path, setPath] = useState('');
-  const [arrowHead, setArrowHead] = useState('');
-  const [midPoint, setMidPoint] = useState(null);
-  const [isHovered, setIsHovered] = useState(false);
-  
-  useEffect(() => {
-    const update = () => {
-      const s = document.getElementById(start);
-      const e = document.getElementById(end);
-      const container = document.querySelector('.canvas-lanes');
-      if (!s || !e || !container) return;
-      
-      const sRect = s.getBoundingClientRect();
-      const eRect = e.getBoundingClientRect();
-      const cRect = container.getBoundingClientRect();
-      
-      const scale = transform.scale;
-      const sourceRect = getCanvasRect(sRect, cRect, scale, start);
-      const targetRect = getCanvasRect(eRect, cRect, scale, end);
-      const route = routeEdge({
-        sourceRect,
-        targetRect,
-        sourcePort: startPort,
-        targetPort: endPort,
-        sourceOffsetIndex: outIndex,
-        sourceOffsetTotal: outCount,
-        targetOffsetIndex: inIndex,
-        targetOffsetTotal: inCount,
-        obstacles: getCanvasCardObstacles(container, scale),
-      });
-
-      setMidPoint(route.midPoint);
-      setPath(route.path);
-      setArrowHead(route.arrowHead);
-    };
-
-    update();
-    const interval = window.setInterval(update, 50);
-    return () => window.clearInterval(interval);
-  }, [start, end, transform, outIndex, outCount, inIndex, inCount, startPort, endPort]);
-
-  if (!path) return null;
-
-  let opacity = 1;
-  let strokeColor = '#94a3b8';
-  let strokeWidth = 1.8;
-  const isHidden = visualState === 'hidden';
-
-  if (visualState === 'active' || visualState === 'focused') {
-    opacity = 1;
-    strokeColor = accentColor || '#1f6fff';
-    strokeWidth = 2.8;
-  } else if (visualState === 'hidden') {
-    opacity = 0;
-    strokeColor = '#cbd5e1';
-    strokeWidth = 1.5;
-  }
-
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        overflow: 'visible',
-        zIndex: 1,
-        pointerEvents: 'none',
-      }}
-    >
-      <svg 
-        className="canvas-arrow-svg"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          overflow: 'visible'
-        }}
-      >
-        <path
-          d={path}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          fill="none"
-          style={{ opacity, transition: 'stroke 0.2s, stroke-width 0.2s, opacity 0.2s' }}
-        />
-        {arrowHead && (
-          <polygon
-            points={arrowHead}
-            fill={strokeColor}
-            style={{ opacity, transition: 'fill 0.2s, opacity 0.2s' }}
-          />
-        )}
-        <path
-          d={path}
-          stroke="transparent"
-          strokeWidth="10"
-          fill="none"
-          style={{ cursor: 'pointer', pointerEvents: isHidden ? 'none' : 'stroke' }}
-          onMouseEnter={() => {
-            if (!isHidden) setIsHovered(true);
-          }}
-          onMouseLeave={() => setIsHovered(false)}
-        />
-      </svg>
-      {!isHidden && isHovered && midPoint && onDelete && canDelete && (
-        <button
-          style={{
-            position: 'absolute',
-            left: midPoint.x - 10,
-            top: midPoint.y - 10,
-            width: 20,
-            height: 20,
-            borderRadius: '50%',
-            background: '#ef4444',
-            color: '#ffffff',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '10px',
-            fontWeight: 'bold',
-            lineHeight: 1,
-            zIndex: 99,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-            pointerEvents: 'auto',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(start, end);
-          }}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-          title="删除连接线"
-        >
-          ✕
-        </button>
-      )}
-    </div>
-  );
-}
 
 function CardPersonaRow({ meta }) {
   if (!meta) return null;
@@ -529,600 +344,6 @@ function CanvasCard({
   );
 }
 
-function TimelineScrubber({ 
-  isChatOpen, 
-  isPinned = true,
-  onPinToggle,
-  onDragStart,
-  isCollapsedOverride,
-  style,
-}) {
-  const [isCollapsed, setIsCollapsed] = useState(true);
-  const collapsed = isCollapsedOverride !== undefined ? isCollapsedOverride : isCollapsed;
-
-  const containerStyle = isPinned ? {
-    position: 'absolute',
-    left: '12px',
-    bottom: '12px',
-    width: collapsed ? '140px' : '720px',
-    height: collapsed ? '34px' : '160px',
-    background: 'rgba(255, 255, 255, 0.95)',
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
-    border: '1px solid var(--border)',
-    borderRadius: collapsed ? '17px' : '12px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
-    padding: collapsed ? '6px 12px' : '14px 20px var(--sp-4) 20px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: collapsed ? 0 : 10,
-    zIndex: 95,
-    overflow: 'hidden',
-    cursor: collapsed ? 'pointer' : 'default',
-    transition: 'width 0.35s cubic-bezier(0.4, 0, 0.2, 1), height 0.35s cubic-bezier(0.4, 0, 0.2, 1), border-radius 0.35s, padding 0.35s, gap 0.35s',
-    ...style
-  } : {
-    width: '100%',
-    height: '160px',
-    background: 'rgba(255, 255, 255, 0.95)',
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
-    border: '1px solid var(--border)',
-    borderRadius: '12px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.08)',
-    padding: '14px 20px var(--sp-4) 20px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-    overflow: 'hidden',
-  };
-
-  return (
-    <div 
-      className={`timeline-scrubber-fixed ${isPinned ? 'pinned' : 'unpinned'} ${collapsed ? 'collapsed' : ''}`}
-      style={containerStyle}
-      onClick={(isPinned && collapsed) ? () => setIsCollapsed(false) : undefined}
-      onPointerDown={isPinned ? (e) => e.stopPropagation() : undefined}
-    >
-      {(isPinned && collapsed) ? (
-        <div 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            gap: 6, 
-            width: '100%', 
-            height: '100%',
-            color: 'var(--text-secondary)',
-            fontWeight: 600,
-            fontSize: '11px',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          <span>显示项目时间轴</span>
-          <ChevronUp size={12} style={{ color: 'var(--text-tertiary)' }} />
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', width: '100%' }}>
-          <div 
-            className="timeline-header" 
-            style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              width: '100%',
-              cursor: !isPinned ? 'move' : 'default'
-            }}
-            onPointerDown={!isPinned ? onDragStart : undefined}
-          >
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>时间轴：项目里程碑</span>
-            <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* 大头针 Pin 切换 */}
-              <button 
-                className="icon-btn" 
-                onClick={(e) => { e.stopPropagation(); onPinToggle(); }} 
-                title={isPinned ? "取消固定，移入画布漂移" : "固定在左下角"}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: isPinned ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  transition: 'color 0.2s'
-                }}
-              >
-                <Pin size={13} style={!isPinned ? { transform: 'rotate(-45deg)' } : {}} fill={isPinned ? 'var(--text-primary)' : 'none'} />
-              </button>
-              {isPinned && (
-                <button 
-                  className="icon-btn" 
-                  onClick={(e) => { e.stopPropagation(); setIsCollapsed(true); }} 
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}
-                  title="收起时间轴"
-                >
-                  <ChevronDown size={14} className="text-tertiary" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="timeline-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div className="timeline-ticks">
-              <div className="tick-item" style={{ left: '12.5%' }}>
-                <span className="tick-label">Q2 - 4月</span>
-                <div className="tick-line"></div>
-              </div>
-              <div className="tick-item" style={{ left: '25%' }}>
-                <span className="tick-label">5月</span>
-                <div className="tick-line"></div>
-              </div>
-              <div className="tick-item" style={{ left: '70%' }}>
-                <span className="tick-label">6月</span>
-                <div className="tick-line"></div>
-              </div>
-              <div className="tick-item" style={{ left: '92%' }}>
-                <span className="tick-label">Q3 - 7月</span>
-                <div className="tick-line"></div>
-              </div>
-            </div>
-
-            <div className="timeline-segmented-track" style={{ marginTop: 8 }}>
-              <div className="track-segment segment-gray" style={{ width: '25%' }}>
-                <span>阶段</span>
-              </div>
-              <div className="track-segment segment-blue" style={{ width: '45%' }}>
-                <span>内测发布</span>
-              </div>
-              <div className="track-segment segment-gray" style={{ width: '30%' }}>
-                <span>MVP 上线</span>
-              </div>
-
-              <div className="timeline-current-pointer" style={{ left: '51%' }}>
-                <div className="pointer-line"></div>
-                <span className="pointer-label">当前日期：5月18日</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ActiveBacklogPanel({
-  isChatOpen,
-  isPinned = true,
-  onPinToggle,
-  onDragStart,
-  canvasSections = {},
-  selectedCardId,
-  setSelectedCardId,
-  uploadedMaterials = [],
-  style,
-}) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-
-  // 活跃项计数
-  const activeCount = (Object.values(canvasSections).flat().filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status)).length +
-    Object.values(canvasSections).flat().filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status)).length +
-    Object.values(canvasSections).flat().filter(c => c.status === 'blocked').length);
-
-  const containerStyle = isPinned ? {
-    position: 'absolute',
-    top: '24px',
-    right: isChatOpen ? '452px' : '156px',
-    width: isCollapsed ? 'auto' : '280px',
-    height: isCollapsed ? '36px' : 'auto',
-    maxHeight: isCollapsed ? '36px' : 'calc(100vh - 64px)',
-    background: '#ffffff',
-    border: '1px solid var(--border)',
-    borderRadius: isCollapsed ? '999px' : '12px',
-    zIndex: 90,
-    padding: isCollapsed ? '8px 16px' : '16px',
-    boxShadow: isCollapsed ? '0 4px 12px rgba(0,0,0,0.06)' : '0 10px 30px rgba(0,0,0,0.1)',
-    display: 'flex',
-    flexDirection: isCollapsed ? 'row' : 'column',
-    alignItems: isCollapsed ? 'center' : 'stretch',
-    gap: isCollapsed ? 6 : 16,
-    overflowY: isCollapsed ? 'hidden' : 'auto',
-    boxSizing: 'border-box',
-    cursor: isCollapsed ? 'pointer' : 'default',
-    transition: 'width 0.3s ease, height 0.3s ease, max-height 0.3s ease, border-radius 0.3s, padding 0.3s, gap 0.3s',
-    ...style
-  } : {
-    width: '280px',
-    height: 'auto',
-    maxHeight: '450px',
-    background: '#ffffff',
-    border: '1px solid var(--border)',
-    borderRadius: '12px',
-    zIndex: 10,
-    padding: '16px',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-    overflowY: 'auto',
-    boxSizing: 'border-box',
-  };
-
-  return (
-    <div 
-      className={`active-backlog-sidepanel ${isPinned ? 'pinned' : 'unpinned'} ${isCollapsed ? 'collapsed' : ''}`}
-      style={containerStyle}
-      onClick={(isPinned && isCollapsed) ? () => setIsCollapsed(false) : undefined}
-      onPointerDown={isPinned ? (e) => e.stopPropagation() : undefined}
-    >
-      {(isPinned && isCollapsed) ? (
-        <div 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            gap: 6, 
-            width: '100%', 
-            height: '100%',
-            color: 'var(--text-secondary)',
-            fontWeight: 600,
-            fontSize: '12px',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          <ListTodo size={14} color="var(--text-secondary)" style={{ flexShrink: 0 }} />
-          <span>活跃缺口 ({activeCount})</span>
-        </div>
-      ) : (
-        <>
-          <div 
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'space-between', 
-              borderBottom: '1px solid #f1f5f9', 
-              paddingBottom: 10,
-              cursor: !isPinned ? 'move' : 'default'
-            }}
-            onPointerDown={!isPinned ? onDragStart : undefined}
-          >
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-              <ListTodo size={16} color="var(--text-secondary)" /> 活跃缺口看板
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="canvas-badge" style={{ 
-                fontSize: 10, 
-                padding: '2px 6px',
-                background: 'var(--bg-subtle)',
-                border: '1px solid var(--border)',
-                color: 'var(--text-secondary)',
-                borderRadius: '4px',
-                fontWeight: '600'
-              }}>
-                {activeCount} 活跃
-              </span>
-              <button 
-                onClick={(e) => { e.stopPropagation(); onPinToggle(); }}
-                title={isPinned ? "取消固定，移入画布漂移" : "固定在右上角"}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: isPinned ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  transition: 'color 0.2s'
-                }}
-              >
-                <Pin size={13} style={!isPinned ? { transform: 'rotate(-45deg)' } : {}} fill={isPinned ? 'var(--text-primary)' : 'none'} />
-              </button>
-              {isPinned && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setIsCollapsed(true); }}
-                  title="收起看板"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    color: 'var(--text-tertiary)'
-                  }}
-                >
-                  <ChevronDown size={14} className="text-tertiary" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* 1. 待澄清问题 */}
-          <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              待澄清问题 (Clarification)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.values(canvasSections).flat()
-                .filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status))
-                .map(item => (
-                  <div 
-                    key={item.id}
-                    onClick={() => setSelectedCardId(item.id)}
-                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
-                    style={{
-                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
-                      cursor: 'pointer', 
-                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
-                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
-                      transition: 'all 0.2s', textAlign: 'left',
-                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
-                    }}
-                  >
-                    <HelpCircle size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500 }}>{item.title}</span>
-                  </div>
-                ))}
-              {Object.values(canvasSections).flat().filter(c => c.kind === 'clarification' && ['open', 'draft', 'pending', 'active'].includes(c.status)).length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无活跃待澄清</div>
-              )}
-            </div>
-          </div>
-
-          {/* 2. 待决策拍板 */}
-          <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              待决策事项 (Decision)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.values(canvasSections).flat()
-                .filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status))
-                .map(item => (
-                  <div 
-                    key={item.id}
-                    onClick={() => setSelectedCardId(item.id)}
-                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
-                    style={{
-                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
-                      cursor: 'pointer', 
-                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
-                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
-                      transition: 'all 0.2s', textAlign: 'left',
-                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
-                    }}
-                  >
-                    <Scale size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500 }}>{item.title}</span>
-                  </div>
-                ))}
-              {Object.values(canvasSections).flat().filter(c => c.kind === 'decision' && ['pending', 'active', 'draft'].includes(c.status)).length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无活跃决策</div>
-              )}
-            </div>
-          </div>
-
-          {/* 3. 阻塞项 */}
-          <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              阻塞项 (Blocked)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Object.values(canvasSections).flat()
-                .filter(c => c.status === 'blocked')
-                .map(item => (
-                  <div 
-                    key={item.id}
-                    onClick={() => setSelectedCardId(item.id)}
-                    className={`backlog-item ${selectedCardId === item.id ? 'active' : ''}`}
-                    style={{
-                      display: 'flex', gap: 8, padding: 8, borderRadius: 8, fontSize: 12,
-                      cursor: 'pointer', 
-                      background: selectedCardId === item.id ? 'var(--bg-hover)' : 'rgba(0,0,0,0.01)',
-                      border: selectedCardId === item.id ? '1px solid var(--border)' : '1px solid transparent',
-                      transition: 'all 0.2s', textAlign: 'left',
-                      color: selectedCardId === item.id ? 'var(--text-primary)' : 'var(--text-secondary)'
-                    }}
-                  >
-                    <AlertTriangle size={14} style={{ color: 'var(--text-secondary)', marginTop: 1, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 500 }}>{item.title}</span>
-                  </div>
-                ))}
-              {Object.values(canvasSections).flat().filter(c => c.status === 'blocked').length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>无阻塞项</div>
-              )}
-            </div>
-          </div>
-
-          {/* 4. 来源物料 */}
-          <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 16, textAlign: 'left' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
-              当前关联物料
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {uploadedMaterials.length === 0 ? (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', paddingLeft: 4, textAlign: 'left' }}>
-                  暂无物料输入
-                </div>
-              ) : (
-                uploadedMaterials.map(m => (
-                  <div key={m.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 8, padding: 6,
-                    fontSize: 12, color: 'var(--text-secondary)'
-                  }}>
-                    <Paperclip size={14} color="#64748b" style={{ flexShrink: 0 }} />
-                    <span style={{
-                      fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1,
-                      textAlign: 'left'
-                    }} title={m.name}>{m.name}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function estimateCardHeight(card) {
-  let height = 32; // 上下 padding (16 * 2)
-
-  // 1. Header (标题 + Tags)
-  const titleLen = card.title?.length || 0;
-  const titleRows = Math.max(1, Math.ceil(titleLen / 13)); // 一行约 13 个汉字
-  height += titleRows * 20;
-  
-  const hasTags = card.tags?.length > 0 || card.statusPill;
-  if (hasTags) {
-    height += 24;
-    height += 8;
-  }
-  height += 8;
-
-  // 2. Description (摘要)
-  if (card.desc) {
-    const descLen = card.desc.length;
-    const descRows = Math.max(1, Math.ceil(descLen / 15)); // 一行约 15 个汉字
-    height += descRows * 18;
-  } else {
-    height += 18;
-  }
-  height += 8;
-
-  // 3. StructuredContent (结构化列表)
-  if (card.structuredItems && card.structuredItems.length > 0) {
-    const itemCount = card.structuredItems.length;
-    let structHeight = 16;
-    if (card.structureKind === 'quote') {
-      structHeight += itemCount * 40;
-    } else if (card.structureKind === 'checkpoints') {
-      structHeight += itemCount * 38;
-    } else {
-      structHeight += itemCount * 28;
-    }
-    height += structHeight;
-    height += 8;
-  }
-
-  // 4. Attachments (附件)
-  if (card.attachments && card.attachments.length > 0) {
-    height += 32;
-    height += 8;
-  }
-
-  // 5. Bottom (Meta 信息 / 置信度)
-  let bottomHeight = 0;
-  if (card.source) bottomHeight += 24;
-  if (card.owner) bottomHeight += 24;
-  if (typeof card.confidence === 'number') bottomHeight += 32;
-  if (bottomHeight > 0) {
-    height += bottomHeight;
-    height += 8;
-  }
-
-  // 引入 1.15 的高度安全膨胀系数，并加上 24px 的保底高度
-  const finalHeight = Math.round(height * 1.15) + 24;
-
-  return Math.max(160, finalHeight);
-}
-
-function resolveCollisions(positions, allCards) {
-  const resolved = {};
-  allCards.forEach(card => {
-    resolved[card.id] = positions[card.id] ? { ...positions[card.id] } : { x: 0, y: 0 };
-  });
-
-  const VERTICAL_GAP = 28;
-
-  const columns = [];
-  allCards.forEach(card => {
-    const pos = resolved[card.id];
-    let placed = false;
-    for (const col of columns) {
-      if (Math.abs(col[0].x - pos.x) < 220) {
-        col.push({ id: card.id, x: pos.x, y: pos.y, height: estimateCardHeight(card) });
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      columns.push([{ id: card.id, x: pos.x, y: pos.y, height: estimateCardHeight(card) }]);
-    }
-  });
-
-  columns.forEach(col => {
-    col.sort((a, b) => a.y - b.y);
-
-    for (let i = 1; i < col.length; i++) {
-      const prev = col[i - 1];
-      const curr = col[i];
-
-      const prevBottom = prev.y + prev.height + VERTICAL_GAP;
-      if (curr.y < prevBottom) {
-        curr.y = Math.ceil(prevBottom / 24) * 24;
-        resolved[curr.id].y = curr.y;
-      }
-    }
-  });
-
-  return resolved;
-}
-
-function buildCompactSectionLayout(canvasSections) {
-  const SECTION_LAYOUT = {
-    evidence: { x: 72, y: 88 },
-    rules: { x: 472, y: 88 },
-    planning: { x: 872, y: 88 },
-    problems: { x: 472, y: 356 },
-    clarify: { x: 472, y: 648 },
-    options: { x: 872, y: 356 },
-  };
-  const CARD_WIDTH = 320;
-  const CARD_GAP = 24;
-  const COLUMN_WRAP_THRESHOLD = 4;
-  const COLUMN_OFFSET_X = 352;
-
-  const positions = {};
-
-  Object.entries(canvasSections).forEach(([sectionKey, sectionCards]) => {
-    const anchor = SECTION_LAYOUT[sectionKey] || { x: 72, y: 88 };
-    let columnIndex = 0;
-    let cursorY = anchor.y;
-
-    sectionCards.forEach((card, index) => {
-      if (index > 0 && index % COLUMN_WRAP_THRESHOLD === 0) {
-        columnIndex += 1;
-        cursorY = anchor.y;
-      }
-
-      positions[card.id] = {
-        x: anchor.x + columnIndex * COLUMN_OFFSET_X,
-        y: cursorY,
-      };
-
-      cursorY += estimateCardHeight(card) + CARD_GAP;
-    });
-  });
-
-  return positions;
-}
-
-function getCanvasBounds(cardPositions, cards) {
-  let maxX = 1440;
-  let maxY = 960;
-
-  cards.forEach((card) => {
-    const pos = cardPositions[card.id];
-    if (!pos) return;
-
-    maxX = Math.max(maxX, pos.x + 320 + 160);
-    maxY = Math.max(maxY, pos.y + estimateCardHeight(card) + 200);
-  });
-
-  return { width: maxX, height: maxY };
-}
-
 export default function Canvas({ 
   isChatOpen = true,
   workspaceId,
@@ -1143,8 +364,10 @@ export default function Canvas({
   const [isBacklogOpen, setIsBacklogOpen] = useState(true);
   const [cardOffsets, setCardOffsets] = useState({});
   const [isPinned, setIsPinned] = useState(true);
+  const [isTimelineCollapsed, setIsTimelineCollapsed] = useState(true);
   const [timelinePos, setTimelinePos] = useState({ x: 80, y: 800 });
   const [isBacklogPinned, setIsBacklogPinned] = useState(true);
+  const [isBacklogCollapsed, setIsBacklogCollapsed] = useState(false);
   const [backlogPos, setBacklogPos] = useState({ x: 1200, y: 300 });
   const [activeCardMenuId, setActiveCardMenuId] = useState(null);
 
@@ -1162,9 +385,38 @@ export default function Canvas({
   const dragStart = useRef({ x: 0, y: 0 });
   const dragSession = useRef(null);
   const hasRestoredViewStateRef = useRef(false);
+  const pendingTextFocusIdRef = useRef(null);
 
   const canvasViewStorageKey = getCanvasViewStateStorageKey(workspaceId);
   const connectionPortMapRef = useRef({});
+
+  const focusCanvasTextEditor = (textId) => {
+    requestAnimationFrame(() => {
+      const editor = document.getElementById(`canvas-text-editor-${textId}`);
+      if (!editor) return;
+      editor.focus();
+      const length = editor.value?.length ?? 0;
+      if (typeof editor.setSelectionRange === 'function') {
+        editor.setSelectionRange(length, length);
+      }
+    });
+  };
+
+  const updateCanvasText = (textId, updates) => {
+    setCanvasTexts((current) => current.map((item) => (
+      item.id === textId ? { ...item, ...updates } : item
+    )));
+  };
+
+  const finishCanvasTextEdit = (textId, rawValue) => {
+    const nextValue = rawValue.trim();
+    if (!nextValue) {
+      setCanvasTexts((current) => current.filter((item) => item.id !== textId));
+      return;
+    }
+
+    updateCanvasText(textId, { text: nextValue, isEditing: false });
+  };
 
   function mapSectionToBackendStage(sectionKey) {
     if (sectionKey === 'evidence') return 'discovery';
@@ -1309,8 +561,10 @@ export default function Canvas({
     setIsBacklogOpen(true);
     setCardOffsets({});
     setIsPinned(true);
+    setIsTimelineCollapsed(true);
     setTimelinePos({ x: 80, y: 800 });
     setIsBacklogPinned(true);
+    setIsBacklogCollapsed(false);
     setBacklogPos({ x: 1200, y: 300 });
     setTransform({ x: 0, y: 0, scale: 1 });
     setCanvasTexts([]);
@@ -1343,6 +597,10 @@ export default function Canvas({
       setIsPinned(storedState.isPinned);
     }
 
+    if (typeof storedState.isTimelineCollapsed === 'boolean') {
+      setIsTimelineCollapsed(storedState.isTimelineCollapsed);
+    }
+
     if (
       storedState.timelinePos &&
       typeof storedState.timelinePos.x === 'number' &&
@@ -1353,6 +611,10 @@ export default function Canvas({
 
     if (typeof storedState.isBacklogPinned === 'boolean') {
       setIsBacklogPinned(storedState.isBacklogPinned);
+    }
+
+    if (typeof storedState.isBacklogCollapsed === 'boolean') {
+      setIsBacklogCollapsed(storedState.isBacklogCollapsed);
     }
 
     if (
@@ -1399,15 +661,28 @@ export default function Canvas({
       isBacklogOpen,
       cardOffsets,
       isPinned,
+      isTimelineCollapsed,
       timelinePos,
       isBacklogPinned,
+      isBacklogCollapsed,
       backlogPos,
       transform,
       canvasSections,
       canvasTexts,
     };
     localStorage.setItem(canvasViewStorageKey, JSON.stringify(nextState));
-  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, timelinePos, isBacklogPinned, backlogPos, transform, canvasSections, canvasTexts]);
+  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, isTimelineCollapsed, timelinePos, isBacklogPinned, isBacklogCollapsed, backlogPos, transform, canvasSections, canvasTexts]);
+
+  useEffect(() => {
+    if (!pendingTextFocusIdRef.current) return;
+
+    const pendingId = pendingTextFocusIdRef.current;
+    const targetExists = canvasTexts.some((item) => item.id === pendingId && item.isEditing);
+    if (!targetExists) return;
+
+    focusCanvasTextEditor(pendingId);
+    pendingTextFocusIdRef.current = null;
+  }, [canvasTexts]);
 
   const handleAutoLayout = () => {
     setCardOffsets({});
@@ -1480,20 +755,23 @@ export default function Canvas({
 
     if (activeTool === 'text') {
       event.stopPropagation();
+      event.preventDefault();
       const rect = containerRef.current.getBoundingClientRect();
       const clientX = event.clientX;
       const clientY = event.clientY;
       const canvasX = (clientX - rect.left - transform.x) / transform.scale;
       const canvasY = (clientY - rect.top - transform.y) / transform.scale;
+      const textId = 'text-' + Date.now();
 
       const newText = {
-        id: 'text-' + Date.now(),
+        id: textId,
         x: canvasX,
         y: canvasY,
         text: '',
         isEditing: true
       };
 
+      pendingTextFocusIdRef.current = textId;
       setCanvasTexts(prev => [...prev, newText]);
       setActiveTool('select');
       return;
@@ -1593,7 +871,7 @@ export default function Canvas({
       const cardRight = (cardRect.right - containerRect.left) / scale;
       const cardTop = (cardRect.top - containerRect.top) / scale;
       const cardBottom = (cardRect.bottom - containerRect.top) / scale;
-      const ports = getCardPorts(getCanvasRect(cardRect, containerRect, scale, cardId));
+      const ports = getCardPorts(getCardRectInCanvas(cardRect, containerRect, scale, cardId));
 
       const edgeCandidates = [
         { port: 'left', distance: Math.abs(pointerX - cardLeft), aligned: pointerY >= cardTop - CONNECT_SNAP_RADIUS && pointerY <= cardBottom + CONNECT_SNAP_RADIUS },
@@ -2217,92 +1495,16 @@ export default function Canvas({
             />
           )}
 
-          {/* 渲染自由文本标签 */}
-          {canvasTexts.map((item) => (
-            <div
-              key={item.id}
-              style={{
-                position: 'absolute',
-                left: item.x,
-                top: item.y,
-                zIndex: 20,
-              }}
-              onPointerDown={(event) => beginFreeDrag('text', item.id, event)}
-            >
-              {item.isEditing ? (
-                <textarea
-                  style={{
-                    background: '#ffffff',
-                    border: '1px dashed #1f6fff',
-                    outline: 'none',
-                    fontFamily: 'inherit',
-                    fontSize: '13px',
-                    color: 'var(--text-primary)',
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    resize: 'both',
-                    minWidth: '120px',
-                    minHeight: '36px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                  }}
-                  autoFocus
-                  defaultValue={item.text}
-                  placeholder="输入注释文字..."
-                  onBlur={(e) => {
-                    const val = e.target.value.trim();
-                    if (!val) {
-                      setCanvasTexts(prev => prev.filter(t => t.id !== item.id));
-                    } else {
-                      setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, text: val, isEditing: false } : t));
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      const val = e.target.value.trim();
-                      if (!val) {
-                        setCanvasTexts(prev => prev.filter(t => t.id !== item.id));
-                      } else {
-                        setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, text: val, isEditing: false } : t));
-                      }
-                    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                      const val = e.target.value.trim();
-                      if (!val) {
-                        setCanvasTexts(prev => prev.filter(t => t.id !== item.id));
-                      } else {
-                        setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, text: val, isEditing: false } : t));
-                      }
-                    }
-                  }}
-                />
-              ) : (
-                <div
-                  className="canvas-text-label"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid transparent',
-                    color: 'var(--text-primary)',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'text',
-                    whiteSpace: 'pre-wrap',
-                    userSelect: 'none',
-                    lineHeight: '1.4',
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setCanvasTexts(prev => prev.map(t => t.id === item.id ? { ...t, isEditing: true } : t));
-                  }}
-                  title="双击编辑，拖拽移动"
-                >
-                  {item.text}
-                </div>
-              )}
-            </div>
-          ))}
+          <CanvasTextLayer
+            canvasTexts={canvasTexts}
+            onBeginDrag={(textId, event) => beginFreeDrag('text', textId, event)}
+            onTextChange={(textId, nextText) => updateCanvasText(textId, { text: nextText })}
+            onTextFinishEdit={finishCanvasTextEdit}
+            onTextStartEdit={(textId) => {
+              pendingTextFocusIdRef.current = textId;
+              updateCanvasText(textId, { isEditing: true });
+            }}
+          />
           {/* 画布内漂移时间轴 */}
           {!isPinned && (
             <div 
@@ -2315,11 +1517,11 @@ export default function Canvas({
               }}
             >
               <TimelineScrubber 
-                isChatOpen={isChatOpen}
                 isPinned={false}
-                isCollapsedOverride={false}
+                isCollapsed={false}
                 onPinToggle={() => setIsPinned(true)}
                 onDragStart={(event) => beginFreeDrag('timeline', 'timeline', event)}
+                onCollapsedChange={setIsTimelineCollapsed}
               />
             </div>
           )}
@@ -2339,6 +1541,8 @@ export default function Canvas({
                 isChatOpen={isChatOpen}
                 isPinned={false}
                 onPinToggle={() => setIsBacklogPinned(true)}
+                isCollapsed={false}
+                onCollapsedChange={setIsBacklogCollapsed}
                 onDragStart={(event) => beginFreeDrag('backlog', 'backlog', event)}
                 canvasSections={canvasSections}
                 selectedCardId={selectedCardId}
@@ -2366,8 +1570,9 @@ export default function Canvas({
       {/* 底部时间轴 (钉住状态下固定在屏幕左下角偏极边缘) */}
       {isPinned && (
         <TimelineScrubber 
-          isChatOpen={isChatOpen} 
           isPinned={true}
+          isCollapsed={isTimelineCollapsed}
+          onCollapsedChange={setIsTimelineCollapsed}
           onPinToggle={() => setIsPinned(false)}
         />
       )}
@@ -2377,6 +1582,8 @@ export default function Canvas({
         <ActiveBacklogPanel 
           isChatOpen={isChatOpen}
           isPinned={true}
+          isCollapsed={isBacklogCollapsed}
+          onCollapsedChange={setIsBacklogCollapsed}
           onPinToggle={() => setIsBacklogPinned(false)}
           canvasSections={canvasSections}
           selectedCardId={selectedCardId}
@@ -2385,104 +1592,5 @@ export default function Canvas({
         />
       )}
     </div>
-  );
-}
-
-function CardCreatorBubble({ x, y, stage, onClose, onSubmit }) {
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [kind, setKind] = useState(() => {
-    if (stage === 'define') return 'problems';
-    if (stage === 'handoff') return 'planning';
-    return 'evidence';
-  });
-
-  return (
-    <div 
-      className="floating-card-creator" 
-      style={{ left: x + 10, top: y + 10 }} 
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onPointerUp={(e) => e.stopPropagation()}
-    >
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: 'var(--text-primary)' }}>添加新画布卡片</div>
-      <input 
-        placeholder="卡片标题" 
-        value={title} 
-        onChange={e => setTitle(e.target.value)} 
-        autoFocus
-      />
-      <textarea 
-        placeholder="一句话摘要说明..." 
-        value={desc} 
-        onChange={e => setDesc(e.target.value)} 
-        rows={3}
-      />
-      <select value={kind} onChange={e => setKind(e.target.value)}>
-        <option value="evidence">发现 ➔ 证据卡</option>
-        <option value="problems">定义 ➔ 问题定义卡</option>
-        <option value="clarify">定义 ➔ 待澄清卡</option>
-        <option value="rules">定义 ➔ 约束卡</option>
-        <option value="options">定义 ➔ 待决策卡</option>
-        <option value="planning">交付 ➔ 结构化交接物</option>
-      </select>
-      <div className="btn-row">
-        <button className="cancel" onClick={onClose}>取消</button>
-        <button className="save" onClick={() => onSubmit({ title, desc, kind })}>创建</button>
-      </div>
-    </div>
-  );
-}
-
-function TempConnectionLine({ startCardId, startPort, targetCardId, endX, endY, endPort, transform }) {
-  const [routePath, setRoutePath] = useState('');
-  const [arrowHead, setArrowHead] = useState('');
-
-  useEffect(() => {
-    const el = document.getElementById(startCardId);
-    const container = document.querySelector('.canvas-lanes');
-    if (!el || !container) return;
-
-    const targetEl = targetCardId ? document.getElementById(targetCardId) : null;
-    const scale = transform.scale;
-    const sourceRect = getElementCanvasRect(el, container, scale);
-    const targetRect = targetEl ? getElementCanvasRect(targetEl, container, scale) : null;
-    const route = routeEdge({
-      sourceRect,
-      targetRect,
-      targetPoint: { x: endX, y: endY },
-      sourcePort: startPort,
-      targetPort: endPort,
-      obstacles: getCanvasCardObstacles(container, scale),
-    });
-
-    setRoutePath(route.path);
-    setArrowHead(route.arrowHead);
-  }, [startCardId, startPort, targetCardId, endX, endY, endPort, transform.scale]);
-
-  if (!routePath) return null;
-
-  return (
-    <svg 
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        zIndex: 100,
-        overflow: 'visible'
-      }}
-    >
-      <path
-        d={routePath}
-        stroke="#1f6fff"
-        strokeWidth="2"
-        strokeDasharray="4 4"
-        fill="none"
-      />
-      {arrowHead && <polygon points={arrowHead} fill="#1f6fff" />}
-    </svg>
   );
 }

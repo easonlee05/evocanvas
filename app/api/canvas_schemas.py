@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     from pydantic import BaseModel, Field, constr
@@ -42,6 +42,7 @@ class CanvasRelationCreateRequest(BaseModel):
     from_card_id: str
     to_card_id: str
     note: str = ""
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class CanvasSnapshotCreateRequest(BaseModel):

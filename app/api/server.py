@@ -48,6 +48,7 @@ from app.canvas.service import (
     CanvasCardMoveValidationError,
     CanvasCardNotFoundError,
     CanvasMessageValidationError,
+    CanvasRelationNotFoundError,
     CanvasRelationValidationError,
     CanvasService,
     CanvasSnapshotNotFoundError,
@@ -408,9 +409,21 @@ def create_app(task_service: TaskService | None = None):
                 from_card_id=request.from_card_id,
                 to_card_id=request.to_card_id,
                 note=request.note,
+                metadata=request.metadata,
             )
         except CanvasRelationValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.delete("/api/canvas/workspaces/{workspace_id}/relations/{relation_id}")
+    async def delete_canvas_relation(
+        workspace_id: str,
+        relation_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.delete_relation(workspace_id, relation_id)
+        except CanvasRelationNotFoundError:
+            raise HTTPException(status_code=404, detail="canvas relation not found")
 
     @app.post("/api/canvas/workspaces/{workspace_id}/cards/{card_id}/move")
     async def move_canvas_card(

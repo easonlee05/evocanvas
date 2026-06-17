@@ -1,7 +1,9 @@
 /**
  * @file canvasRelations.js
- * @description Canvas 关系图辅助逻辑，负责从卡片数据提取边关系并计算激活态可见性。
+ * @description Canvas 关系图辅助逻辑，负责同步卡片连接、提取边关系并计算激活态可见性。
  */
+
+const VALID_PORTS = new Set(['top', 'right', 'bottom', 'left']);
 
 export function flattenCanvasCards(sections) {
   return Object.values(sections).flat();
@@ -11,7 +13,29 @@ export function getArrowKey(arrow) {
   return `${arrow.start}->${arrow.end}`;
 }
 
-export function collectCanvasArrows(sections) {
+function normalizePort(port) {
+  return VALID_PORTS.has(port) ? port : null;
+}
+
+export function buildConnectionPortMap(relations = []) {
+  const connectionPortMap = {};
+
+  (relations || []).forEach((relation) => {
+    const startId = relation.from_card_id || relation.source_id;
+    const endId = relation.to_card_id || relation.target_id;
+    if (!startId || !endId) return;
+
+    const key = getArrowKey({ start: startId, end: endId });
+    connectionPortMap[key] = {
+      startPort: normalizePort(relation.metadata?.start_port),
+      endPort: normalizePort(relation.metadata?.end_port),
+    };
+  });
+
+  return connectionPortMap;
+}
+
+export function collectCanvasArrows(sections, connectionPortMap = {}) {
   const cards = flattenCanvasCards(sections);
   const outConnections = {};
   const inConnections = {};
@@ -35,6 +59,7 @@ export function collectCanvasArrows(sections) {
   return rawArrows.map((arrow) => {
     const startOuts = outConnections[arrow.start] || [];
     const endIns = inConnections[arrow.end] || [];
+    const ports = connectionPortMap[getArrowKey(arrow)] || {};
 
     return {
       ...arrow,
@@ -42,8 +67,92 @@ export function collectCanvasArrows(sections) {
       startOffsetTotal: startOuts.length,
       endOffsetIndex: endIns.indexOf(arrow.start),
       endOffsetTotal: endIns.length,
+      startPort: normalizePort(ports.startPort),
+      endPort: normalizePort(ports.endPort),
     };
   });
+}
+
+export function findRelationId(relations = [], startId, endId) {
+  const match = (relations || []).find((relation) => {
+    const relationStartId = relation.from_card_id || relation.source_id;
+    const relationEndId = relation.to_card_id || relation.target_id;
+    return relationStartId === startId && relationEndId === endId;
+  });
+
+  return match?.relation_id || null;
+}
+
+function normalizeNextIds(next) {
+  if (Array.isArray(next)) return next;
+  if (next) return [next];
+  return [];
+}
+
+export function applyConnectionToSections(sections, startId, endId) {
+  const nextSections = {};
+
+  Object.entries(sections).forEach(([sectionKey, cards]) => {
+    nextSections[sectionKey] = cards.map((card) => {
+      if (card.id !== startId) return card;
+
+      const nextIds = normalizeNextIds(card.next);
+      if (nextIds.includes(endId)) return card;
+
+      return {
+        ...card,
+        next: [...nextIds, endId],
+      };
+    });
+  });
+
+  return nextSections;
+}
+
+export function removeConnectionFromSections(sections, startId, endId) {
+  const nextSections = {};
+
+  Object.entries(sections).forEach(([sectionKey, cards]) => {
+    nextSections[sectionKey] = cards.map((card) => {
+      if (card.id !== startId) return card;
+
+      const nextIds = normalizeNextIds(card.next);
+      const filteredNextIds = nextIds.filter((cardId) => cardId !== endId);
+      if (filteredNextIds.length === nextIds.length) return card;
+
+      return {
+        ...card,
+        next: filteredNextIds,
+      };
+    });
+  });
+
+  return nextSections;
+}
+
+export function syncSectionConnectionsFromRelations(sections, relations = []) {
+  const nextMap = {};
+
+  (relations || []).forEach((relation) => {
+    const startId = relation.from_card_id || relation.source_id;
+    const endId = relation.to_card_id || relation.target_id;
+    if (!startId || !endId) return;
+
+    if (!nextMap[startId]) nextMap[startId] = [];
+    if (!nextMap[startId].includes(endId)) {
+      nextMap[startId].push(endId);
+    }
+  });
+
+  const nextSections = {};
+  Object.entries(sections).forEach(([sectionKey, cards]) => {
+    nextSections[sectionKey] = cards.map((card) => ({
+      ...card,
+      next: nextMap[card.id] || [],
+    }));
+  });
+
+  return nextSections;
 }
 
 export function getRelatedCardIds(activeCardId, arrows) {

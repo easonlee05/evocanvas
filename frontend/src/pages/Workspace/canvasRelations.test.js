@@ -7,12 +7,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 import {
+  applyConnectionToSections,
+  buildConnectionPortMap,
   collectCanvasArrows,
   getArrowKey,
   getArrowPresentation,
   getArrowVisualState,
   getFocusedRelationColors,
   getRelatedCardIds,
+  removeConnectionFromSections,
+  syncSectionConnectionsFromRelations,
 } from './canvasRelations.js';
 
 test('collectCanvasArrows extracts graph edges with per-end offsets', () => {
@@ -23,6 +27,25 @@ test('collectCanvasArrows extracts graph edges with per-end offsets', () => {
   assert.ok(evidenceToProblem, 'expected evidence to problem edge should exist');
   assert.equal(typeof evidenceToProblem.startOffsetIndex, 'number');
   assert.equal(typeof evidenceToProblem.endOffsetIndex, 'number');
+});
+
+test('collectCanvasArrows carries persisted start and end ports from relation metadata', () => {
+  const connectionPortMap = buildConnectionPortMap([
+    {
+      relation_id: 'rel_1',
+      from_card_id: 'e1',
+      to_card_id: 'p1',
+      metadata: {
+        start_port: 'right',
+        end_port: 'left',
+      },
+    },
+  ]);
+  const arrows = collectCanvasArrows(DEMO_CANVAS_SECTIONS, connectionPortMap);
+  const evidenceToProblem = arrows.find((arrow) => arrow.start === 'e1' && arrow.end === 'p1');
+
+  assert.equal(evidenceToProblem.startPort, 'right');
+  assert.equal(evidenceToProblem.endPort, 'left');
 });
 
 test('getRelatedCardIds returns one-hop neighbors for the active card', () => {
@@ -78,3 +101,44 @@ test('getFocusedRelationColors assigns distinct colors to direct active edges on
     colors[getArrowKey({ start: 'e2', end: 'p1' })],
   );
 });
+
+test('applyConnectionToSections adds a new one-way connection without duplicating edges', () => {
+  const sections = createSections();
+  const connected = applyConnectionToSections(sections, 'e3', 'p1');
+  const connectedAgain = applyConnectionToSections(connected, 'e3', 'p1');
+  const card = connectedAgain.evidence.find((item) => item.id === 'e3');
+
+  assert.deepEqual(toNextArray(card.next), ['p1']);
+});
+
+test('removeConnectionFromSections removes a direct edge from the source card only', () => {
+  const sections = createSections();
+  const nextSections = removeConnectionFromSections(sections, 'e1', 'p1');
+  const sourceCard = nextSections.evidence.find((item) => item.id === 'e1');
+  const untouchedCard = nextSections.evidence.find((item) => item.id === 'e2');
+
+  assert.deepEqual(toNextArray(sourceCard.next), []);
+  assert.deepEqual(toNextArray(untouchedCard.next), ['p1']);
+});
+
+test('syncSectionConnectionsFromRelations rebuilds local next pointers from backend relations', () => {
+  const sections = createSections();
+  const synced = syncSectionConnectionsFromRelations(sections, [
+    { relation_id: 'rel_1', from_card_id: 'e1', to_card_id: 'p1' },
+    { relation_id: 'rel_2', from_card_id: 'c1', to_card_id: 'r1' },
+  ]);
+
+  assert.deepEqual(synced.evidence.find((item) => item.id === 'e1').next, ['p1']);
+  assert.deepEqual(synced.evidence.find((item) => item.id === 'e2').next, []);
+  assert.deepEqual(synced.clarify.find((item) => item.id === 'c1').next, ['r1']);
+});
+
+function createSections() {
+  return JSON.parse(JSON.stringify(DEMO_CANVAS_SECTIONS));
+}
+
+function toNextArray(next) {
+  if (Array.isArray(next)) return next;
+  if (next) return [next];
+  return [];
+}

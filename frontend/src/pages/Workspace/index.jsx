@@ -299,7 +299,7 @@ export default function Workspace() {
       'canvas.mutation.applied', 'canvas.turn.completed', 'canvas.turn.failed',
       'canvas.confirmation.approved', 'canvas.confirmation.rejected',
       'canvas.snapshot.created', 'canvas.handoff.refreshed',
-      'canvas.card.updated', 'canvas.relation.created', 'canvas.card.moved'
+      'canvas.card.updated', 'canvas.relation.created', 'canvas.relation.deleted', 'canvas.card.moved'
     ].forEach(t => source.addEventListener(t, handle));
     source.onerror = () => { source.close(); };
   }
@@ -337,7 +337,7 @@ export default function Workspace() {
         text: `⚠️ 分析运行失败：${p.error || '未知错误'}`
       }]);
     }
-    else if (evType === 'canvas.card.updated' || evType === 'canvas.relation.created' || evType === 'canvas.card.moved' || evType === 'canvas.handoff.refreshed') {
+    else if (evType === 'canvas.card.updated' || evType === 'canvas.relation.created' || evType === 'canvas.relation.deleted' || evType === 'canvas.card.moved' || evType === 'canvas.handoff.refreshed') {
       loadCanvasData(taskId);
     }
   }

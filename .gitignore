@@ -42,3 +42,4 @@ knowledge_repo/
 
 # Human Only Documents (AI Ignored)
 /human_docs/
+.gstack/

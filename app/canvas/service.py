@@ -41,6 +41,10 @@ class CanvasRelationValidationError(ValueError):
     """表示画布关系请求引用了不存在的卡片或非法关系类型。"""
 
 
+class CanvasRelationNotFoundError(KeyError):
+    """表示请求删除的画布关系不存在。"""
+
+
 class CanvasCardMoveValidationError(ValueError):
     """表示卡片迁移目标不合法，不能静默破坏 EvoCanvas 的阶段语义。"""
 
@@ -596,6 +600,7 @@ class CanvasService:
         from_card_id: str,
         to_card_id: str,
         note: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """创建两张已有卡片之间的语义关系，帮助画布显性化证据链与冲突链。"""
 
@@ -616,7 +621,11 @@ class CanvasService:
             from_card_id=from_card_id,
             to_card_id=to_card_id,
             note=note.strip(),
-            metadata={"created_by": "user", "created_at": utc_now_iso()},
+            metadata={
+                "created_by": "user",
+                "created_at": utc_now_iso(),
+                **dict(metadata or {}),
+            },
         )
         relations.append(relation)
         self.repository.save_relations(workspace_id, relations)
@@ -632,6 +641,32 @@ class CanvasService:
             status="created",
         )
         return {"workspace_id": workspace_id, "relation": relation.to_dict()}
+
+    def delete_relation(self, workspace_id: str, relation_id: str) -> Dict[str, Any]:
+        """删除一条已有卡片关系，允许用户修正错误连接并重新收敛证据链。"""
+
+        self.get_workspace(workspace_id)
+        relations = self.repository.load_relations(workspace_id)
+        remaining_relations = [relation for relation in relations if relation.relation_id != relation_id]
+        if len(remaining_relations) == len(relations):
+            raise CanvasRelationNotFoundError(relation_id)
+
+        self.repository.save_relations(workspace_id, remaining_relations)
+        self._touch_workspace(self.get_workspace(workspace_id))
+        self._publish_event(
+            workspace_id,
+            "canvas.relation.deleted",
+            {
+                "workspace_id": workspace_id,
+                "relation_id": relation_id,
+            },
+            status="deleted",
+        )
+        return {
+            "workspace_id": workspace_id,
+            "relation_id": relation_id,
+            "deleted": True,
+        }
 
     def move_card(self, workspace_id: str, card_id: str, stage: str, reason: str = "") -> Dict[str, Any]:
         """在合法阶段带之间迁移卡片，避免把主画布退化为自由白板。"""

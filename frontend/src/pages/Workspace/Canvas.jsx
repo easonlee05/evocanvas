@@ -3,7 +3,18 @@ import './Canvas.css';
 import { ListTodo, MoreHorizontal, ChevronRight, ChevronDown, ChevronUp, Paperclip, HelpCircle, Scale, AlertTriangle, Sparkles, X, Pin, MousePointer, Square, MoveUpRight, Type } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 import { apiPost, apiDelete, apiUrl } from '../../api';
-import { collectCanvasArrows, getArrowKey, getArrowPresentation, getFocusedRelationColors, getRelatedCardIds } from './canvasRelations.js';
+import {
+  applyConnectionToSections,
+  buildConnectionPortMap,
+  collectCanvasArrows,
+  findRelationId,
+  getArrowKey,
+  getArrowPresentation,
+  getFocusedRelationColors,
+  getRelatedCardIds,
+  removeConnectionFromSections,
+  syncSectionConnectionsFromRelations,
+} from './canvasRelations.js';
 import {
   createInitialCanvasSections,
   describeCanvasMove,
@@ -17,6 +28,11 @@ import {
   getCanvasViewStateStorageKey,
   readStoredCanvasViewState,
 } from './workspaceSession';
+import {
+  CARD_PORTS,
+  getPortPosition,
+  routeEdge,
+} from './edgeRouter.js';
 
 const LANE_DEFINITIONS = [
   { sectionKey: 'clarify', laneTitle: '待澄清项', clusterTitle: '问题与不确定性' },
@@ -26,6 +42,47 @@ const LANE_DEFINITIONS = [
   { sectionKey: 'problems', laneTitle: '焦点问题', clusterTitle: '问题定义' },
   { sectionKey: 'planning', laneTitle: '落地交接', clusterTitle: '结构化交接物' },
 ];
+
+const CONNECT_SNAP_RADIUS = 64;
+const EXPLICIT_PORT_SNAP_RADIUS = 20;
+
+function getCanvasRect(rect, containerRect, scale, id = null) {
+  return {
+    id,
+    left: (rect.left - containerRect.left) / scale,
+    right: (rect.right - containerRect.left) / scale,
+    top: (rect.top - containerRect.top) / scale,
+    bottom: (rect.bottom - containerRect.top) / scale,
+  };
+}
+
+function getElementCanvasRect(element, container, scale) {
+  return getCanvasRect(
+    element.getBoundingClientRect(),
+    container.getBoundingClientRect(),
+    scale,
+    element.id,
+  );
+}
+
+function getCardPorts(rect) {
+  return {
+    top: getPortPosition(rect, 'top'),
+    right: getPortPosition(rect, 'right'),
+    bottom: getPortPosition(rect, 'bottom'),
+    left: getPortPosition(rect, 'left'),
+  };
+}
+
+function getPortPointByName(element, container, scale, port) {
+  return getPortPosition(getElementCanvasRect(element, container, scale), port || 'right');
+}
+
+function getCanvasCardObstacles(container, scale) {
+  return [...document.querySelectorAll('.canvas-card')]
+    .filter((cardElement) => cardElement.id)
+    .map((cardElement) => getElementCanvasRect(cardElement, container, scale));
+}
 
 function CustomArrow({
   start,
@@ -38,8 +95,12 @@ function CustomArrow({
   inIndex = 0,
   inCount = 1,
   onDelete,
+  canDelete = false,
+  startPort = null,
+  endPort = null,
 }) {
   const [path, setPath] = useState('');
+  const [arrowHead, setArrowHead] = useState('');
   const [midPoint, setMidPoint] = useState(null);
   const [isHovered, setIsHovered] = useState(false);
   
@@ -55,81 +116,43 @@ function CustomArrow({
       const cRect = container.getBoundingClientRect();
       
       const scale = transform.scale;
-      const sRight = (sRect.right - cRect.left) / scale;
-      const sTop = (sRect.top - cRect.top) / scale;
-      const sBottom = (sRect.bottom - cRect.top) / scale;
-      const eLeft = (eRect.left - cRect.left) / scale;
-      const eRight = (eRect.right - cRect.left) / scale;
-      const eTop = (eRect.top - cRect.top) / scale;
-      const eBottom = (eRect.bottom - cRect.top) / scale;
+      const sourceRect = getCanvasRect(sRect, cRect, scale, start);
+      const targetRect = getCanvasRect(eRect, cRect, scale, end);
+      const route = routeEdge({
+        sourceRect,
+        targetRect,
+        sourcePort: startPort,
+        targetPort: endPort,
+        sourceOffsetIndex: outIndex,
+        sourceOffsetTotal: outCount,
+        targetOffsetIndex: inIndex,
+        targetOffsetTotal: inCount,
+        obstacles: getCanvasCardObstacles(container, scale),
+      });
 
-      const isSameColumn = Math.abs(sRect.left - eRect.left) < 10;
-
-      const startX = sRight;
-      const endX = isSameColumn ? eRight : eLeft;
-      const startYBase = (sTop + sBottom) / 2;
-      const endYBase = (eTop + eBottom) / 2;
-      
-      const outOffset = outCount > 1 ? (outIndex - (outCount - 1) / 2) * 16 : 0;
-      const startY = startYBase + outOffset;
-      
-      const inOffset = inCount > 1 ? (inIndex - (inCount - 1) / 2) * 16 : 0;
-      const endY = endYBase + inOffset;
-
-      let midX = 0;
-      if (isSameColumn) {
-        midX = startX + 24 + outIndex * 12;
-      } else {
-        const midXBase = startX + (endX - startX) / 2;
-        const midOffset = (outIndex - inIndex) * 12;
-        midX = midXBase + midOffset;
-        
-        const minMidX = startX + 12;
-        const maxMidX = endX - 12;
-        if (minMidX < maxMidX) {
-          midX = Math.max(minMidX, Math.min(maxMidX, midX));
-        } else {
-          midX = midXBase;
-        }
-      }
-
-      setMidPoint({ x: midX, y: (startY + endY) / 2 });
-
-      const signY = endY > startY ? 1 : -1;
-      const r = Math.min(12, Math.abs(midX - startX), Math.abs(endX - midX), Math.abs(endY - startY) / 2);
-
-      if (r > 0 && Math.abs(endY - startY) > 2) {
-        setPath(
-          `M ${startX} ${startY} ` +
-          `L ${midX - r} ${startY} ` +
-          `Q ${midX} ${startY}, ${midX} ${startY + r * signY} ` +
-          `L ${midX} ${endY - r * signY} ` +
-          `Q ${midX} ${endY}, ${midX + r} ${endY} ` +
-          `L ${endX} ${endY}`
-        );
-      } else {
-        setPath(`M ${startX} ${startY} L ${endX} ${endY}`);
-      }
+      setMidPoint(route.midPoint);
+      setPath(route.path);
+      setArrowHead(route.arrowHead);
     };
 
     update();
     const interval = window.setInterval(update, 50);
     return () => window.clearInterval(interval);
-  }, [start, end, transform, outIndex, outCount, inIndex, inCount]);
+  }, [start, end, transform, outIndex, outCount, inIndex, inCount, startPort, endPort]);
 
   if (!path) return null;
 
   let opacity = 1;
   let strokeColor = '#94a3b8';
   let strokeWidth = 1.8;
-  const markerId = `arrowhead-${start}-${end}`;
+  const isHidden = visualState === 'hidden';
 
   if (visualState === 'active' || visualState === 'focused') {
     opacity = 1;
     strokeColor = accentColor || '#1f6fff';
     strokeWidth = 2.8;
   } else if (visualState === 'hidden') {
-    opacity = 0.18;
+    opacity = 0;
     strokeColor = '#cbd5e1';
     strokeWidth = 1.5;
   }
@@ -140,10 +163,11 @@ function CustomArrow({
         position: 'absolute',
         top: 0,
         left: 0,
-        width: 0,
-        height: 0,
+        width: '100%',
+        height: '100%',
         overflow: 'visible',
-        zIndex: 1
+        zIndex: 1,
+        pointerEvents: 'none',
       }}
     >
       <svg 
@@ -158,30 +182,33 @@ function CustomArrow({
           overflow: 'visible'
         }}
       >
-        <defs>
-          <marker id={markerId} markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
-            <polygon points="0 0, 6 2, 0 4" fill={strokeColor} />
-          </marker>
-        </defs>
         <path
           d={path}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           fill="none"
-          markerEnd={`url(#${markerId})`}
           style={{ opacity, transition: 'stroke 0.2s, stroke-width 0.2s, opacity 0.2s' }}
         />
+        {arrowHead && (
+          <polygon
+            points={arrowHead}
+            fill={strokeColor}
+            style={{ opacity, transition: 'fill 0.2s, opacity 0.2s' }}
+          />
+        )}
         <path
           d={path}
           stroke="transparent"
           strokeWidth="10"
           fill="none"
-          style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
-          onMouseEnter={() => setIsHovered(true)}
+          style={{ cursor: 'pointer', pointerEvents: isHidden ? 'none' : 'stroke' }}
+          onMouseEnter={() => {
+            if (!isHidden) setIsHovered(true);
+          }}
           onMouseLeave={() => setIsHovered(false)}
         />
       </svg>
-      {isHovered && midPoint && onDelete && (
+      {!isHidden && isHovered && midPoint && onDelete && canDelete && (
         <button
           style={{
             position: 'absolute',
@@ -294,6 +321,8 @@ function CanvasCard({
   setActiveCardMenuId,
   activeTool,
   onConnectStart,
+  isConnectorSource,
+  isConnectorTarget,
 }) {
   const primaryTag = data.tags?.[0];
   const secondaryTags = data.tags?.slice(1) || [];
@@ -302,19 +331,7 @@ function CanvasCard({
   const isEditingTitle = editingState?.cardId === data.id && editingState?.field === 'title';
   const isEditingDesc = editingState?.cardId === data.id && editingState?.field === 'desc';
 
-  const cardClassName = `canvas-card${isSelectedSelf ? ' selected-self' : ''}${isSelectedRelated && !isSelectedSelf ? ' selected-related' : ''}${isPreviewSelf ? ' preview-self' : ''}${isPreviewRelated && !isPreviewSelf && !isSelectedRelated ? ' preview-related' : ''}${isDimmed ? ' is-dimmed' : ''}`;
-
-  const anchorBaseStyle = {
-    position: 'absolute',
-    width: '10px',
-    height: '10px',
-    background: '#ffffff',
-    border: '2px solid #1f6fff',
-    borderRadius: '50%',
-    zIndex: 10,
-    cursor: 'crosshair',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  };
+  const cardClassName = `canvas-card${isSelectedSelf ? ' selected-self' : ''}${isSelectedRelated && !isSelectedSelf ? ' selected-related' : ''}${isPreviewSelf ? ' preview-self' : ''}${isPreviewRelated && !isPreviewSelf && !isSelectedRelated ? ' preview-related' : ''}${isDimmed ? ' is-dimmed' : ''}${isConnectorSource ? ' connector-source' : ''}${isConnectorTarget ? ' connector-target' : ''}`;
 
   return (
     <div 
@@ -479,24 +496,32 @@ function CanvasCard({
       {activeTool === 'connector' && onConnectStart && (
         <>
           <div 
-            style={{ ...anchorBaseStyle, top: '-5px', left: 'calc(50% - 5px)' }} 
+            className="connector-hitarea port-top"
+            style={{ top: 0, left: '50%' }}
             onPointerDown={(e) => { e.stopPropagation(); onConnectStart('top', e); }} 
             title="向上连线"
+            data-port="top"
           />
           <div 
-            style={{ ...anchorBaseStyle, bottom: '-5px', left: 'calc(50% - 5px)' }} 
+            className="connector-hitarea port-bottom"
+            style={{ top: '100%', left: '50%' }}
             onPointerDown={(e) => { e.stopPropagation(); onConnectStart('bottom', e); }} 
             title="向下连线"
+            data-port="bottom"
           />
           <div 
-            style={{ ...anchorBaseStyle, left: '-5px', top: 'calc(50% - 5px)' }} 
+            className="connector-hitarea port-left"
+            style={{ top: '50%', left: 0 }}
             onPointerDown={(e) => { e.stopPropagation(); onConnectStart('left', e); }} 
             title="向左连线"
+            data-port="left"
           />
           <div 
-            style={{ ...anchorBaseStyle, right: '-5px', top: 'calc(50% - 5px)' }} 
+            className="connector-hitarea port-right"
+            style={{ top: '50%', left: '100%' }}
             onPointerDown={(e) => { e.stopPropagation(); onConnectStart('right', e); }} 
             title="向右连线"
+            data-port="right"
           />
         </>
       )}
@@ -1126,6 +1151,7 @@ export default function Canvas({
   const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [hoveredCardId, setHoveredCardId] = useState(null);
+  const [connectorTarget, setConnectorTarget] = useState(null);
   const [editingState, setEditingState] = useState(null);
   const [draggingCardId, setDraggingCardId] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
@@ -1138,6 +1164,7 @@ export default function Canvas({
   const hasRestoredViewStateRef = useRef(false);
 
   const canvasViewStorageKey = getCanvasViewStateStorageKey(workspaceId);
+  const connectionPortMapRef = useRef({});
 
   function mapSectionToBackendStage(sectionKey) {
     if (sectionKey === 'evidence') return 'discovery';
@@ -1214,6 +1241,10 @@ export default function Canvas({
   }
 
   useEffect(() => {
+    connectionPortMapRef.current = buildConnectionPortMap(relations);
+  }, [relations]);
+
+  useEffect(() => {
     if (workspaceId === 'demo') {
       setCanvasSections({
         options: [],
@@ -1228,7 +1259,10 @@ export default function Canvas({
         const deletedCardIds = new Set(storedState.deletedCardIds || []);
         
         const filteredBackendCards = cards.filter(c => !deletedCardIds.has(c.id));
-        const backendSections = mapBackendCardsToSections(filteredBackendCards, relations);
+        const backendSections = syncSectionConnectionsFromRelations(
+          mapBackendCardsToSections(filteredBackendCards, relations),
+          relations,
+        );
 
         const allCurrentCards = Object.values(current).flat();
         if (allCurrentCards.length === 0) {
@@ -1239,7 +1273,7 @@ export default function Canvas({
         const newBackendCards = filteredBackendCards.filter(c => !localCardIds.has(c.id));
 
         if (newBackendCards.length === 0) {
-          return current;
+          return syncSectionConnectionsFromRelations(current, relations);
         }
 
         const nextSections = { ...current };
@@ -1249,7 +1283,7 @@ export default function Canvas({
           nextSections[key] = [...(nextSections[key] || []), ...newCards];
         });
 
-        return nextSections;
+        return syncSectionConnectionsFromRelations(nextSections, relations);
       });
     } else {
       setCanvasSections(current => {
@@ -1280,6 +1314,7 @@ export default function Canvas({
     setBacklogPos({ x: 1200, y: 300 });
     setTransform({ x: 0, y: 0, scale: 1 });
     setCanvasTexts([]);
+    setConnectorTarget(null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -1535,6 +1570,71 @@ export default function Canvas({
     hoveredCardIdRef.current = hoveredCardId;
   }, [hoveredCardId]);
 
+  const resolveConnectionTarget = (clientX, clientY, startCardId) => {
+    const lanesEl = document.querySelector('.canvas-lanes');
+    if (!lanesEl) return null;
+
+    const scale = transform.scale;
+    const containerRect = lanesEl.getBoundingClientRect();
+    const pointerX = (clientX - containerRect.left) / scale;
+    const pointerY = (clientY - containerRect.top) / scale;
+
+    let closestCardId = null;
+    let closestPort = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    let strongestExplicitMatch = null;
+
+    document.querySelectorAll('.canvas-card').forEach((cardElement) => {
+      const cardId = cardElement.id;
+      if (!cardId || cardId === startCardId) return;
+
+      const cardRect = cardElement.getBoundingClientRect();
+      const cardLeft = (cardRect.left - containerRect.left) / scale;
+      const cardRight = (cardRect.right - containerRect.left) / scale;
+      const cardTop = (cardRect.top - containerRect.top) / scale;
+      const cardBottom = (cardRect.bottom - containerRect.top) / scale;
+      const ports = getCardPorts(getCanvasRect(cardRect, containerRect, scale, cardId));
+
+      const edgeCandidates = [
+        { port: 'left', distance: Math.abs(pointerX - cardLeft), aligned: pointerY >= cardTop - CONNECT_SNAP_RADIUS && pointerY <= cardBottom + CONNECT_SNAP_RADIUS },
+        { port: 'right', distance: Math.abs(pointerX - cardRight), aligned: pointerY >= cardTop - CONNECT_SNAP_RADIUS && pointerY <= cardBottom + CONNECT_SNAP_RADIUS },
+        { port: 'top', distance: Math.abs(pointerY - cardTop), aligned: pointerX >= cardLeft - CONNECT_SNAP_RADIUS && pointerX <= cardRight + CONNECT_SNAP_RADIUS },
+        { port: 'bottom', distance: Math.abs(pointerY - cardBottom), aligned: pointerX >= cardLeft - CONNECT_SNAP_RADIUS && pointerX <= cardRight + CONNECT_SNAP_RADIUS },
+      ];
+
+      edgeCandidates.forEach((candidate) => {
+        if (!candidate.aligned || candidate.distance > EXPLICIT_PORT_SNAP_RADIUS) return;
+        if (!strongestExplicitMatch || candidate.distance < strongestExplicitMatch.distance) {
+          strongestExplicitMatch = { cardId, port: candidate.port, distance: candidate.distance };
+        }
+      });
+
+      CARD_PORTS.forEach((port) => {
+        const point = ports[port];
+        const distance = Math.hypot(pointerX - point.x, pointerY - point.y);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestCardId = cardId;
+          closestPort = port;
+        }
+      });
+    });
+
+    if (strongestExplicitMatch) {
+      return strongestExplicitMatch;
+    }
+
+    if (!closestCardId || !closestPort || closestDistance > CONNECT_SNAP_RADIUS) {
+      return null;
+    }
+
+    return {
+      cardId: closestCardId,
+      port: closestPort,
+      distance: closestDistance,
+    };
+  };
+
   useEffect(() => {
     const handleWindowPointerMove = (event) => {
       const session = dragSession.current;
@@ -1570,21 +1670,48 @@ export default function Canvas({
       } else if (session.type === 'connector') {
         const lanesEl = document.querySelector('.canvas-lanes');
         if (lanesEl) {
+          const resolvedTarget = resolveConnectionTarget(event.clientX, event.clientY, session.startCardId);
+          if (resolvedTarget?.cardId) {
+            setConnectorTarget(resolvedTarget);
+            const targetEl = document.getElementById(resolvedTarget.cardId);
+            if (targetEl) {
+              const snappedPoint = getPortPointByName(targetEl, lanesEl, transform.scale, resolvedTarget.port);
+              setActiveConnector(prev => prev ? {
+                ...prev,
+                endX: snappedPoint.x,
+                endY: snappedPoint.y,
+                endPort: resolvedTarget.port,
+              } : null);
+              return;
+            }
+          }
+
+          setConnectorTarget(null);
           const lanesRect = lanesEl.getBoundingClientRect();
           const endX = (event.clientX - lanesRect.left) / transform.scale;
           const endY = (event.clientY - lanesRect.top) / transform.scale;
-          setActiveConnector(prev => prev ? { ...prev, endX, endY } : null);
+          setActiveConnector(prev => prev ? { ...prev, endX, endY, endPort: null } : null);
         }
       }
     };
 
-    const handleWindowPointerUp = () => {
+    const handleWindowPointerUp = (event) => {
       const session = dragSession.current;
       if (session && session.type === 'connector') {
-        const targetId = hoveredCardIdRef.current;
-        if (targetId && targetId !== session.startCardId) {
-          handleAddConnection(session.startCardId, targetId);
+        const target = resolveConnectionTarget(
+          event.clientX,
+          event.clientY,
+          session.startCardId,
+        );
+        if (target && target.cardId !== session.startCardId) {
+          handleAddConnection({
+            startId: session.startCardId,
+            endId: target.cardId,
+            startPort: session.startPort,
+            endPort: target.port,
+          });
         }
+        setConnectorTarget(null);
         setActiveConnector(null);
         setActiveTool('select');
       }
@@ -1634,43 +1761,79 @@ export default function Canvas({
     }
   };
 
-  const handleAddConnection = (startId, endId) => {
-    setCanvasSections(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(key => {
-        next[key] = next[key].map(c => {
-          if (c.id === startId) {
-            const currentNext = Array.isArray(c.next) ? c.next : (c.next ? [c.next] : []);
-            if (!currentNext.includes(endId)) {
-              return {
-                ...c,
-                next: [...currentNext, endId]
-              };
-            }
-          }
-          return c;
-        });
-      });
-      return next;
-    });
+  const handleAddConnection = async ({ startId, endId, startPort, endPort }) => {
+    const existingRelationId = findRelationId(relations, startId, endId);
+    const edgeKey = getArrowKey({ start: startId, end: endId });
+
+    connectionPortMapRef.current = {
+      ...connectionPortMapRef.current,
+      [edgeKey]: { startPort, endPort },
+    };
+
+    setCanvasSections((prev) => applyConnectionToSections(prev, startId, endId));
+
+    if (workspaceId && workspaceId !== 'demo') {
+      if (existingRelationId) {
+        const deleted = await apiDelete(`/api/canvas/workspaces/${workspaceId}/relations/${existingRelationId}`, null);
+        if (!deleted?.deleted) {
+          delete connectionPortMapRef.current[edgeKey];
+          setMoveError('更新连线失败，请稍后重试');
+          return;
+        }
+      }
+
+      const created = await apiPost(`/api/canvas/workspaces/${workspaceId}/relations`, {
+        kind: 'supports',
+        from_card_id: startId,
+        to_card_id: endId,
+        note: '',
+        metadata: {
+          start_port: startPort,
+          end_port: endPort,
+        },
+      }, null);
+
+      if (!created?.relation) {
+        delete connectionPortMapRef.current[edgeKey];
+        setCanvasSections((prev) => removeConnectionFromSections(prev, startId, endId));
+        setMoveError('新增连线失败，请稍后重试');
+        return;
+      }
+
+      if (onRefresh) onRefresh();
+    }
   };
 
-  const handleDeleteConnection = (startId, endId) => {
-    setCanvasSections(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(key => {
-        next[key] = next[key].map(c => {
-          if (c.id === startId && c.next) {
-            return {
-              ...c,
-              next: (Array.isArray(c.next) ? c.next : [c.next]).filter(id => id !== endId)
-            };
-          }
-          return c;
-        });
-      });
-      return next;
-    });
+  const handleDeleteConnection = async (startId, endId) => {
+    const edgeKey = getArrowKey({ start: startId, end: endId });
+
+    if (workspaceId && workspaceId !== 'demo') {
+      const relationId = findRelationId(relations, startId, endId);
+      if (!relationId) {
+        setMoveError('未找到这条连线对应的关系记录，请刷新后再试');
+        return;
+      }
+
+      delete connectionPortMapRef.current[edgeKey];
+      setCanvasSections((prev) => removeConnectionFromSections(prev, startId, endId));
+      const deleted = await apiDelete(`/api/canvas/workspaces/${workspaceId}/relations/${relationId}`, null);
+      if (!deleted?.deleted) {
+        const persistedPortMap = buildConnectionPortMap(relations);
+        connectionPortMapRef.current = {
+          ...connectionPortMapRef.current,
+          ...(persistedPortMap[edgeKey] ? { [edgeKey]: persistedPortMap[edgeKey] } : {}),
+        };
+        setCanvasSections((prev) => applyConnectionToSections(prev, startId, endId));
+        setMoveError('删除连线失败，请稍后重试');
+        return;
+      }
+
+      if (onRefresh) onRefresh();
+      return;
+    }
+
+    delete connectionPortMapRef.current[edgeKey];
+    setCanvasSections((prev) => removeConnectionFromSections(prev, startId, endId));
   };
 
   const handleConnectStart = (cardId, port, event) => {
@@ -1688,6 +1851,7 @@ export default function Canvas({
       startPort: port,
       endX: currentX,
       endY: currentY,
+      endPort: null,
     });
 
     dragSession.current = {
@@ -1803,36 +1967,32 @@ export default function Canvas({
   };
 
   const checkCardActiveState = (cardId) => {
-    const activeId = selectedCardId || hoveredCardId;
-    if (!activeId) {
-      return { isSelectedSelf: false, isSelectedRelated: false, isPreviewSelf: false, isPreviewRelated: false };
-    }
-
-    const allArrows = collectCanvasArrows(canvasSections);
+    const allArrows = collectCanvasArrows(canvasSections, connectionPortMapRef.current);
     const selectedRelatedCardIds = getRelatedCardIds(selectedCardId, allArrows);
-    const previewRelatedCardIds = getRelatedCardIds(hoveredCardId, allArrows);
+    const previewRelatedCardIds = selectedCardId ? new Set() : getRelatedCardIds(hoveredCardId, allArrows);
 
     const isSelectedSelf = selectedCardId === cardId;
-    const isSelectedRelated = selectedRelatedCardIds.has(cardId);
-    const isPreviewSelf = hoveredCardId === cardId;
-    const isPreviewRelated = previewRelatedCardIds.has(cardId);
+    const isSelectedRelated = Boolean(selectedCardId) && selectedRelatedCardIds.has(cardId);
+    const isPreviewSelf = !selectedCardId && hoveredCardId === cardId;
+    const isPreviewRelated = !selectedCardId && previewRelatedCardIds.has(cardId);
 
     return { isSelectedSelf, isSelectedRelated, isPreviewSelf, isPreviewRelated };
   };
 
   const getCardRelationAccent = (cardId) => {
-    const activeId = selectedCardId || hoveredCardId;
+    const activeId = selectedCardId || (!selectedCardId ? hoveredCardId : null);
     if (!activeId || activeId === cardId) return null;
 
-    const allArrows = collectCanvasArrows(canvasSections);
+    const allArrows = collectCanvasArrows(canvasSections, connectionPortMapRef.current);
     const activeRelationColors = getFocusedRelationColors(allArrows, activeId);
     return activeRelationColors[cardId] || null;
   };
 
-  const focusedCardId = selectedCardId;
-  const allArrows = collectCanvasArrows(canvasSections);
+  const focusedCardId = selectedCardId || (!selectedCardId ? hoveredCardId : null);
+  const shouldRevealArrows = activeTool === 'connector' || Boolean(focusedCardId);
+  const allArrows = collectCanvasArrows(canvasSections, connectionPortMapRef.current);
   const selectedRelatedCardIds = getRelatedCardIds(selectedCardId, allArrows);
-  const previewRelatedCardIds = new Set();
+  const previewRelatedCardIds = selectedCardId ? new Set() : getRelatedCardIds(hoveredCardId, allArrows);
   const relationColors = getFocusedRelationColors(allArrows, focusedCardId);
 
   const renderCard = (card) => {
@@ -1873,7 +2033,9 @@ export default function Canvas({
           activeCardMenuId={activeCardMenuId}
           setActiveCardMenuId={setActiveCardMenuId}
           activeTool={activeTool}
-          onConnectStart={handleConnectStart}
+          onConnectStart={(port, event) => handleConnectStart(card.id, port, event)}
+          isConnectorSource={activeConnector?.startCardId === card.id}
+          isConnectorTarget={connectorTarget?.cardId === card.id}
         />
       </div>
     );
@@ -1989,8 +2151,6 @@ export default function Canvas({
 
           {/* 渲染所有关系连线 */}
           {allArrows.map((arr, i) => {
-            if (!selectedCardId) return null;
-
             const allCards = Object.values(canvasSections).flat();
             const startCard = allCards.find(c => c.id === arr.start);
             const endCard = allCards.find(c => c.id === arr.end);
@@ -2008,7 +2168,7 @@ export default function Canvas({
               } else if (viewMode === 'handoff') {
                 arrowIsDimmed = startCard.kind !== 'handoff' || endCard.kind !== 'handoff';
               } else if (selectedCardId || hoveredCardId) {
-                const activeId = selectedCardId || hoveredCardId;
+                const activeId = selectedCardId || (!selectedCardId ? hoveredCardId : null);
                 const isStartRelated = activeId === arr.start || selectedRelatedCardIds.has(arr.start) || previewRelatedCardIds.has(arr.start);
                 const isEndRelated = activeId === arr.end || selectedRelatedCardIds.has(arr.end) || previewRelatedCardIds.has(arr.end);
                 arrowIsDimmed = (viewMode !== 'convergence') && (!isStartRelated || !isEndRelated);
@@ -2023,13 +2183,24 @@ export default function Canvas({
                 start={arr.start}
                 end={arr.end}
                 transform={transform}
-                visualState={arrowIsDimmed ? 'hidden' : getArrowPresentation(arr, focusedCardId).visualState}
+                visualState={
+                  !shouldRevealArrows
+                    ? 'hidden'
+                    : arrowIsDimmed
+                      ? 'hidden'
+                      : activeTool === 'connector' && !focusedCardId
+                        ? 'muted'
+                        : getArrowPresentation(arr, focusedCardId).visualState
+                }
                 accentColor={relationColors[getArrowKey(arr)]}
                 outIndex={arr.startOffsetIndex}
                 outCount={arr.startOffsetTotal}
                 inIndex={arr.endOffsetIndex}
                 inCount={arr.endOffsetTotal}
+                startPort={arr.startPort}
+                endPort={arr.endPort}
                 onDelete={handleDeleteConnection}
+                canDelete={activeTool === 'connector'}
               />
             );
           })}
@@ -2038,8 +2209,10 @@ export default function Canvas({
             <TempConnectionLine
               startCardId={activeConnector.startCardId}
               startPort={activeConnector.startPort}
+              targetCardId={connectorTarget?.cardId || null}
               endX={activeConnector.endX}
               endY={activeConnector.endY}
+              endPort={activeConnector.endPort}
               transform={transform}
             />
           )}
@@ -2261,39 +2434,33 @@ function CardCreatorBubble({ x, y, stage, onClose, onSubmit }) {
   );
 }
 
-function TempConnectionLine({ startCardId, startPort, endX, endY, transform }) {
-  const [startPos, setStartPos] = useState(null);
+function TempConnectionLine({ startCardId, startPort, targetCardId, endX, endY, endPort, transform }) {
+  const [routePath, setRoutePath] = useState('');
+  const [arrowHead, setArrowHead] = useState('');
 
   useEffect(() => {
     const el = document.getElementById(startCardId);
     const container = document.querySelector('.canvas-lanes');
     if (!el || !container) return;
 
-    const sRect = el.getBoundingClientRect();
-    const cRect = container.getBoundingClientRect();
+    const targetEl = targetCardId ? document.getElementById(targetCardId) : null;
     const scale = transform.scale;
+    const sourceRect = getElementCanvasRect(el, container, scale);
+    const targetRect = targetEl ? getElementCanvasRect(targetEl, container, scale) : null;
+    const route = routeEdge({
+      sourceRect,
+      targetRect,
+      targetPoint: { x: endX, y: endY },
+      sourcePort: startPort,
+      targetPort: endPort,
+      obstacles: getCanvasCardObstacles(container, scale),
+    });
 
-    let x = (sRect.left + sRect.right) / 2 - cRect.left;
-    let y = (sRect.top + sRect.bottom) / 2 - cRect.top;
+    setRoutePath(route.path);
+    setArrowHead(route.arrowHead);
+  }, [startCardId, startPort, targetCardId, endX, endY, endPort, transform.scale]);
 
-    if (startPort === 'top') {
-      x = (sRect.left + sRect.right) / 2 - cRect.left;
-      y = sRect.top - cRect.top;
-    } else if (startPort === 'bottom') {
-      x = (sRect.left + sRect.right) / 2 - cRect.left;
-      y = sRect.bottom - cRect.top;
-    } else if (startPort === 'left') {
-      x = sRect.left - cRect.left;
-      y = (sRect.top + sRect.bottom) / 2 - cRect.top;
-    } else if (startPort === 'right') {
-      x = sRect.right - cRect.left;
-      y = (sRect.top + sRect.bottom) / 2 - cRect.top;
-    }
-
-    setStartPos({ x: x / scale, y: y / scale });
-  }, [startCardId, startPort, transform]);
-
-  if (!startPos) return null;
+  if (!routePath) return null;
 
   return (
     <svg 
@@ -2308,21 +2475,14 @@ function TempConnectionLine({ startCardId, startPort, endX, endY, transform }) {
         overflow: 'visible'
       }}
     >
-      <defs>
-        <marker id="temp-arrowhead" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
-          <polygon points="0 0, 6 2, 0 4" fill="#1f6fff" />
-        </marker>
-      </defs>
-      <line 
-        x1={startPos.x} 
-        y1={startPos.y} 
-        x2={endX} 
-        y2={endY} 
-        stroke="#1f6fff" 
-        strokeWidth="2" 
+      <path
+        d={routePath}
+        stroke="#1f6fff"
+        strokeWidth="2"
         strokeDasharray="4 4"
-        markerEnd="url(#temp-arrowhead)"
+        fill="none"
       />
+      {arrowHead && <polygon points={arrowHead} fill="#1f6fff" />}
     </svg>
   );
 }

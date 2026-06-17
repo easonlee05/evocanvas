@@ -232,6 +232,17 @@
   box-shadow: 0 4px 14px rgba(0, 122, 255, 0.04) !important;
 }
 
+.canvas-card.connector-source {
+  border-color: rgba(31, 111, 255, 0.55) !important;
+  box-shadow: 0 10px 26px rgba(31, 111, 255, 0.14) !important;
+}
+
+.canvas-card.connector-target {
+  border-color: rgba(15, 118, 110, 0.45) !important;
+  box-shadow: 0 10px 26px rgba(16, 185, 129, 0.14) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+}
+
 .canvas-card.preview-self {
   border-color: rgba(0, 122, 255, 0.42) !important;
   box-shadow: 0 4px 18px rgba(0, 122, 255, 0.08) !important;
@@ -1078,33 +1089,41 @@
 }
 
 /* ── 连线工具锚点 ── */
-.connector-dot {
+.connector-hitarea {
   position: absolute;
-  width: 8px;
-  height: 8px;
-  background: rgba(0, 122, 255, 0.5);
-  border: 2px solid white;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  border: none;
   border-radius: 50%;
   z-index: 30;
-  display: none;
   cursor: crosshair;
-  transition: transform 0.2s, background-color 0.2s;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.canvas-card-slot:hover .connector-dot {
-  display: block;
+.connector-hitarea::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(31, 111, 255, 0.92);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 10px rgba(31, 111, 255, 0.28);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 
-.connector-dot:hover {
-  transform: scale(1.4);
-  background: #007aff;
+.connector-hitarea:hover::after {
+  transform: scale(1.22);
+  box-shadow: 0 4px 14px rgba(31, 111, 255, 0.36);
 }
 
-.connector-dot.top { top: -4px; left: 50%; transform: translateX(-50%); }
-.connector-dot.bottom { bottom: -4px; left: 50%; transform: translateX(-50%); }
-.connector-dot.left { left: -4px; top: 50%; transform: translateY(-50%); }
-.connector-dot.right { right: -4px; top: 50%; transform: translateY(-50%); }
+.connector-hitarea.port-top { top: 0; left: 50%; }
+.connector-hitarea.port-bottom { top: 100%; left: 50%; }
+.connector-hitarea.port-left { top: 50%; left: 0; }
+.connector-hitarea.port-right { top: 50%; left: 100%; }
 
 /* ── 连线中点删除气泡 ── */
 .arrow-delete-badge {

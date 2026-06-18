@@ -19,6 +19,15 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 - 结论是否有来源
 - 高风险动作是否经过治理
 
+验证也必须清楚区分：
+
+- 对话流
+- 结构化对象
+- 卡片回显
+- handoff（结构化交接包）
+
+其中，卡片只是界面映射，不是事实来源；handoff 是聚合性交付物，不是原始依据。
+
 ## 3. V 层设计原则
 
 ### 3.1 生成与验证必须分离
@@ -67,6 +76,13 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 - 是否存在 evidence chain（证据链）
 - 是否存在未处理冲突
 - 是否能解释为什么进入当前状态
+
+对于来源片段（source fragment）与解释对象（interpretation），还应额外验证：
+
+- 来源片段是否只是标准化摘录，而非语义重写
+- 解释对象是否能回指一个或多个明确来源片段
+- 解释对象是否只承载一个核心判断
+- 低置信解释是否被误当成正式结论
 
 ### 4.3 流程验证
 
@@ -133,6 +149,13 @@ clarification（待澄清项）不能只是“多问几个问题”，而要验�
 - 问题是否指向真实缺口
 - 是否与已有 evidence（证据）或 conflict（冲突）有关联
 - 是否能推动后续 constraint / decision（约束 / 决策）
+- 是否说明了为什么要问
+- 是否说明了不回答会阻塞或污染什么
+
+对于低置信解释（low-confidence interpretation），验证还应检查：
+
+- 是否真的影响后续约束、决策或交接包质量
+- 若不影响推进，是否被错误升级为澄清
 
 ## 8. 失败策略
 
@@ -174,6 +197,8 @@ clarification（待澄清项）不能只是“多问几个问题”，而要验�
 - 把冲突压缩成模糊中间说法
 - 在没有足够 evidence（证据）时形成 decision candidate（待决策候选）
 - 在 unresolved clarification（未解决待澄清项）过多时直接生成看似完整的 handoff（交接物）
+- 把解释对象（interpretation）直接越级写成 confirmed decision（已确认决策）
+- 把偏好（preference）误写成约束（constraint）
 
 验证动作应包括：
 
@@ -222,3 +247,11 @@ EvoCanvas 1.0 的 V 层至少应具备：
 - 高风险动作的用户确认 validation（校验）
 - handoff（交接物）的专门 validation（校验）
 - 发散过度与收敛过早的附加 validation（校验）
+
+此外，至少应补充以下对象级校验：
+
+- source fragment（来源片段）的标准化摘录校验
+- interpretation（解释对象）的单核心判断校验
+- clarification（待澄清项）的“问题 / 原因 / 后果”完整性校验
+- constraint（约束）的“内容 / 依据 / 影响范围”完整性校验
+- decision candidate（待决策）的“选项 / 推荐 / 影响”完整性校验

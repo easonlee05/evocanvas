@@ -1,6 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './Canvas.css';
-import { MoreHorizontal, ChevronRight, Sparkles, X, MousePointer, Square, MoveUpRight, Type } from 'lucide-react';
+import {
+  Archive,
+  ChevronRight,
+  Clock3,
+  ListTodo,
+  MousePointer,
+  MoveUpRight,
+  MoreHorizontal,
+  Shapes,
+  Sparkles,
+  Square,
+  StickyNote,
+  Timer,
+  Type,
+} from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS } from './demoScenario.js';
 import { apiPost, apiDelete, apiUrl } from '../../api';
 import {
@@ -37,7 +51,11 @@ import {
 import { CARD_PORTS } from './edgeRouter.js';
 import {
   ActiveBacklogPanel,
+  ClockWidget,
   CardCreatorBubble,
+  FocusTimerWidget,
+  ParkingLotWidget,
+  StickyNoteWidget,
   TimelineScrubber,
 } from './CanvasOverlays.jsx';
 import CanvasTextLayer from './CanvasTextLayer.jsx';
@@ -60,6 +78,69 @@ const LANE_DEFINITIONS = [
 
 const CONNECT_SNAP_RADIUS = 64;
 const EXPLICIT_PORT_SNAP_RADIUS = 20;
+const NOTE_THEMES = ['sun', 'mint', 'sky', 'rose'];
+const COLLAPSED_WIDGET_HEIGHT = 36;
+const SCREEN_WIDGET_PADDING = 16;
+const WIDGET_LAYOUT_TRANSITION = 'left 0.26s cubic-bezier(0.2, 0, 0, 1), top 0.26s cubic-bezier(0.2, 0, 0, 1), width 0.26s cubic-bezier(0.2, 0, 0, 1), height 0.26s cubic-bezier(0.2, 0, 0, 1)';
+
+const getCollapsedWidgetWidthByTitle = (title = '') => {
+  const textWidth = Array.from(title).reduce((width, char) => {
+    if (/[\u4e00-\u9fff]/.test(char)) return width + 12.5;
+    if (/\s/.test(char)) return width + 4;
+    return width + 7;
+  }, 0);
+
+  // 左右 padding + 图标 + 两处间距 + 展开箭头，保留与 Canvas AI 相近的紧凑胶囊。
+  return Math.ceil(Math.max(96, textWidth + 78));
+};
+
+const getSystemWidgetCollapsedWidth = (type) =>
+  getCollapsedWidgetWidthByTitle(type === 'backlog' ? '活跃缺口' : '项目时间轴');
+
+const WIDGET_LIBRARY = [
+  {
+    type: 'timeline',
+    icon: Sparkles,
+    name: '项目时间轴',
+    description: '看当前主题大致推进到哪里。',
+    scope: 'system',
+  },
+  {
+    type: 'backlog',
+    icon: ListTodo,
+    name: '活跃缺口',
+    description: '聚焦当前最阻塞推进的缺口。',
+    scope: 'system',
+  },
+  {
+    type: 'stickyNote',
+    icon: StickyNote,
+    name: '便签',
+    description: '记一句临时判断、提醒或灵感。',
+    scope: 'personal',
+  },
+  {
+    type: 'parkingLot',
+    icon: Archive,
+    name: '停车区',
+    description: '暂存不在当前主线展开的事项。',
+    scope: 'personal',
+  },
+  {
+    type: 'clock',
+    icon: Clock3,
+    name: '时钟',
+    description: '提供轻量时间感知和第二时区。',
+    scope: 'personal',
+  },
+  {
+    type: 'focusTimer',
+    icon: Timer,
+    name: '专注计时器',
+    description: '给收敛、整理和交接一个短时节奏。',
+    scope: 'personal',
+  },
+];
 
 function CardPersonaRow({ meta }) {
   if (!meta) return null;
@@ -363,13 +444,18 @@ export default function Canvas({
   const [creatorState, setCreatorState] = useState(null); // { x, y, canvasX, canvasY, stage }
   const [isBacklogOpen, setIsBacklogOpen] = useState(true);
   const [cardOffsets, setCardOffsets] = useState({});
+  const [isTimelineOpen, setIsTimelineOpen] = useState(true);
   const [isPinned, setIsPinned] = useState(true);
   const [isTimelineCollapsed, setIsTimelineCollapsed] = useState(true);
   const [timelinePos, setTimelinePos] = useState({ x: 80, y: 800 });
+  const [timelinePinnedPos, setTimelinePinnedPos] = useState({ x: 24, y: 720 });
   const [isBacklogPinned, setIsBacklogPinned] = useState(true);
   const [isBacklogCollapsed, setIsBacklogCollapsed] = useState(false);
   const [backlogPos, setBacklogPos] = useState({ x: 1200, y: 300 });
+  const [backlogPinnedPos, setBacklogPinnedPos] = useState({ x: 940, y: 24 });
+  const [personalWidgets, setPersonalWidgets] = useState([]);
   const [activeCardMenuId, setActiveCardMenuId] = useState(null);
+  const [isWidgetPanelOpen, setIsWidgetPanelOpen] = useState(false);
 
   const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -416,6 +502,83 @@ export default function Canvas({
     }
 
     updateCanvasText(textId, { text: nextValue, isEditing: false });
+  };
+
+  const updatePersonalWidget = (widgetId, updates) => {
+    setPersonalWidgets((current) => current.map((widget) => (
+      widget.id === widgetId
+        ? {
+            ...widget,
+            ...(typeof updates === 'function' ? updates(widget) : updates),
+          }
+        : widget
+    )));
+  };
+
+  const removePersonalWidget = (widgetId) => {
+    setPersonalWidgets((current) => current.filter((widget) => widget.id !== widgetId));
+  };
+
+  const getViewportWidgetPosition = (slot = 0) => {
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect) {
+      return { x: 980 + slot * 32, y: 140 + slot * 26 };
+    }
+
+    const viewportX = containerRect.width * 0.68;
+    const viewportY = 112 + slot * 28;
+    return {
+      x: (viewportX - transform.x) / transform.scale,
+      y: (viewportY - transform.y) / transform.scale,
+    };
+  };
+
+  const buildPersonalWidget = (type) => {
+    const createdAt = Date.now();
+    const currentCount = personalWidgets.filter((widget) => widget.type === type).length;
+    const position = getViewportWidgetPosition(currentCount);
+    const baseWidget = {
+      id: `${type}-${createdAt}`,
+      type,
+      x: position.x,
+      y: position.y,
+      isPinned: false,
+      isCollapsed: false,
+      createdAt,
+    };
+
+    if (type === 'stickyNote') {
+      return {
+        ...baseWidget,
+        title: '',
+        content: '',
+        theme: NOTE_THEMES[currentCount % NOTE_THEMES.length],
+      };
+    }
+
+    if (type === 'parkingLot') {
+      return {
+        ...baseWidget,
+        items: [],
+      };
+    }
+
+    if (type === 'clock') {
+      return {
+        ...baseWidget,
+        is24Hour: true,
+        secondaryTimezone: 'UTC',
+      };
+    }
+
+    return {
+      ...baseWidget,
+      durationMinutes: 20,
+      remainingSeconds: 20 * 60,
+      isRunning: false,
+      isCompleted: false,
+      mode: '收敛',
+    };
   };
 
   function mapSectionToBackendStage(sectionKey) {
@@ -559,16 +722,21 @@ export default function Canvas({
     hasRestoredViewStateRef.current = false;
     setHasHydratedCanvasView(false);
     setIsBacklogOpen(true);
+    setIsTimelineOpen(true);
     setCardOffsets({});
     setIsPinned(true);
     setIsTimelineCollapsed(true);
     setTimelinePos({ x: 80, y: 800 });
+    setTimelinePinnedPos({ x: 24, y: 720 });
     setIsBacklogPinned(true);
     setIsBacklogCollapsed(false);
     setBacklogPos({ x: 1200, y: 300 });
+    setBacklogPinnedPos({ x: 940, y: 24 });
     setTransform({ x: 0, y: 0, scale: 1 });
     setCanvasTexts([]);
+    setPersonalWidgets([]);
     setConnectorTarget(null);
+    setIsWidgetPanelOpen(false);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -583,6 +751,10 @@ export default function Canvas({
 
     if (typeof storedState.isBacklogOpen === 'boolean') {
       setIsBacklogOpen(storedState.isBacklogOpen);
+    }
+
+    if (typeof storedState.isTimelineOpen === 'boolean') {
+      setIsTimelineOpen(storedState.isTimelineOpen);
     }
 
     if (
@@ -609,6 +781,14 @@ export default function Canvas({
       setTimelinePos(storedState.timelinePos);
     }
 
+    if (
+      storedState.timelinePinnedPos &&
+      typeof storedState.timelinePinnedPos.x === 'number' &&
+      typeof storedState.timelinePinnedPos.y === 'number'
+    ) {
+      setTimelinePinnedPos(storedState.timelinePinnedPos);
+    }
+
     if (typeof storedState.isBacklogPinned === 'boolean') {
       setIsBacklogPinned(storedState.isBacklogPinned);
     }
@@ -623,6 +803,14 @@ export default function Canvas({
       typeof storedState.backlogPos.y === 'number'
     ) {
       setBacklogPos(storedState.backlogPos);
+    }
+
+    if (
+      storedState.backlogPinnedPos &&
+      typeof storedState.backlogPinnedPos.x === 'number' &&
+      typeof storedState.backlogPinnedPos.y === 'number'
+    ) {
+      setBacklogPinnedPos(storedState.backlogPinnedPos);
     }
 
     if (
@@ -648,6 +836,12 @@ export default function Canvas({
       setCanvasTexts([]);
     }
 
+    if (Array.isArray(storedState.personalWidgets)) {
+      setPersonalWidgets(storedState.personalWidgets);
+    } else {
+      setPersonalWidgets([]);
+    }
+
     hasRestoredViewStateRef.current = true;
     setHasHydratedCanvasView(true);
   }, [canvasViewStorageKey]);
@@ -659,19 +853,23 @@ export default function Canvas({
     const nextState = {
       ...currentState,
       isBacklogOpen,
+      isTimelineOpen,
       cardOffsets,
       isPinned,
       isTimelineCollapsed,
       timelinePos,
+      timelinePinnedPos,
       isBacklogPinned,
       isBacklogCollapsed,
       backlogPos,
+      backlogPinnedPos,
       transform,
       canvasSections,
       canvasTexts,
+      personalWidgets,
     };
     localStorage.setItem(canvasViewStorageKey, JSON.stringify(nextState));
-  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, cardOffsets, isPinned, isTimelineCollapsed, timelinePos, isBacklogPinned, isBacklogCollapsed, backlogPos, transform, canvasSections, canvasTexts]);
+  }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, isTimelineOpen, cardOffsets, isPinned, isTimelineCollapsed, timelinePos, timelinePinnedPos, isBacklogPinned, isBacklogCollapsed, backlogPos, backlogPinnedPos, transform, canvasSections, canvasTexts, personalWidgets]);
 
   useEffect(() => {
     if (!pendingTextFocusIdRef.current) return;
@@ -684,11 +882,107 @@ export default function Canvas({
     pendingTextFocusIdRef.current = null;
   }, [canvasTexts]);
 
+  useEffect(() => {
+    const hasRunningTimer = personalWidgets.some((widget) => widget.type === 'focusTimer' && widget.isRunning);
+    if (!hasRunningTimer) return;
+
+    const intervalId = window.setInterval(() => {
+      setPersonalWidgets((current) => current.map((widget) => {
+        if (widget.type !== 'focusTimer' || !widget.isRunning) return widget;
+        if (widget.remainingSeconds <= 1) {
+          return {
+            ...widget,
+            remainingSeconds: 0,
+            isRunning: false,
+            isCompleted: true,
+          };
+        }
+        return {
+          ...widget,
+          remainingSeconds: widget.remainingSeconds - 1,
+        };
+      }));
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [personalWidgets]);
+
   const handleAutoLayout = () => {
     setCardOffsets({});
     setTimelinePos({ x: 80, y: 800 });
+    setTimelinePinnedPos({ x: 24, y: 720 });
     setBacklogPos({ x: 1200, y: 300 });
+    setBacklogPinnedPos({ x: 940, y: 24 });
     setTransform({ x: 0, y: 0, scale: 1 });
+  };
+
+  const addWidgetToCanvas = (type) => {
+    if (type === 'timeline') {
+      setIsTimelineOpen(true);
+      setIsPinned(true);
+      setIsTimelineCollapsed(false);
+      return;
+    }
+
+    if (type === 'backlog') {
+      setIsBacklogOpen(true);
+      setIsBacklogPinned(true);
+      setIsBacklogCollapsed(false);
+      return;
+    }
+
+    const existingWidget = personalWidgets.find((widget) => widget.type === type);
+    if (existingWidget) {
+      updatePersonalWidget(existingWidget.id, {
+        isCollapsed: false,
+        ...(existingWidget.isPinned ? {} : getViewportWidgetPosition(0)),
+      });
+      return;
+    }
+
+    setPersonalWidgets((current) => [...current, buildPersonalWidget(type)]);
+  };
+
+  const isWidgetEnabled = (type) => {
+    if (type === 'timeline') return isTimelineOpen;
+    if (type === 'backlog') return isBacklogOpen;
+    return personalWidgets.some((widget) => widget.type === type);
+  };
+
+  const toggleWidgetEnabled = (type) => {
+    if (type === 'timeline') {
+      if (isTimelineOpen) {
+        setIsTimelineOpen(false);
+      } else {
+        setIsTimelineOpen(true);
+        setIsPinned(true);
+        setIsTimelineCollapsed(false);
+      }
+      setIsWidgetPanelOpen(false);
+      return;
+    }
+
+    if (type === 'backlog') {
+      if (isBacklogOpen) {
+        setIsBacklogOpen(false);
+      } else {
+        setIsBacklogOpen(true);
+        setIsBacklogPinned(true);
+        setIsBacklogCollapsed(false);
+      }
+      setIsWidgetPanelOpen(false);
+      return;
+    }
+
+    const existingWidget = personalWidgets.find((widget) => widget.type === type);
+    if (existingWidget) {
+      removePersonalWidget(existingWidget.id);
+      setIsWidgetPanelOpen(false);
+      return;
+    }
+
+    addWidgetToCanvas(type);
+    setIsWidgetPanelOpen(false);
   };
 
   const containerRef = useRef(null);
@@ -697,6 +991,10 @@ export default function Canvas({
     if (!container) return;
 
     const handleWheel = (event) => {
+      if (event.target.closest?.('[data-canvas-wheel-region="true"]')) {
+        return;
+      }
+
       event.preventDefault();
       
       const rect = container.getBoundingClientRect();
@@ -728,6 +1026,11 @@ export default function Canvas({
 
   const handlePointerDown = (event) => {
     setActiveCardMenuId(null);
+    if (event.target.closest?.('.figma-toolbar')) {
+      return;
+    }
+
+    setIsWidgetPanelOpen(false);
     if (event.button !== 0) return;
     if (draggingCardId) return;
 
@@ -781,7 +1084,17 @@ export default function Canvas({
     
     let target = event.target;
     while (target && target !== containerRef.current) {
-      if (target.className?.includes?.('canvas-card') || target.className?.includes?.('timeline-scrubber') || target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.className?.includes?.('canvas-text-label')) {
+      if (
+        target.className?.includes?.('canvas-card') ||
+        target.className?.includes?.('timeline-scrubber') ||
+        target.className?.includes?.('workspace-widget') ||
+        target.closest?.('.workspace-widget') ||
+        target.tagName === 'BUTTON' ||
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.className?.includes?.('canvas-text-label')
+      ) {
         return;
       }
       target = target.parentNode;
@@ -822,12 +1135,44 @@ export default function Canvas({
     if (type === 'card') setDraggingCardId(id);
 
     let source;
+    let coordinateSpace = 'canvas';
     if (type === 'card') {
       source = cardOffsets[id] || { x: 0, y: 0 };
     } else if (type === 'timeline') {
-      source = timelinePos;
+      if (isPinned) {
+        coordinateSpace = 'screen';
+        source = timelinePinnedPos;
+      } else {
+        source = timelinePos;
+      }
     } else if (type === 'backlog') {
-      source = backlogPos;
+      if (isBacklogPinned) {
+        coordinateSpace = 'screen';
+        source = backlogPinnedPos;
+      } else {
+        source = backlogPos;
+      }
+    } else if (type === 'widget') {
+      const targetWidget = personalWidgets.find((widget) => widget.id === id);
+      if (targetWidget?.isPinned) {
+        const containerRect = containerRef.current?.getBoundingClientRect();
+        const widgetRect = event.currentTarget
+          ?.closest?.('.workspace-widget')
+          ?.getBoundingClientRect?.();
+
+        coordinateSpace = 'screen';
+        source = widgetRect && containerRect
+          ? {
+              x: widgetRect.left - containerRect.left,
+              y: widgetRect.top - containerRect.top,
+            }
+          : {
+              x: targetWidget.pinnedScreenX ?? 0,
+              y: targetWidget.pinnedScreenY ?? 0,
+            };
+      } else {
+        source = targetWidget ? { x: targetWidget.x, y: targetWidget.y } : { x: 0, y: 0 };
+      }
     } else if (type === 'text') {
       const textItem = canvasTexts.find(t => t.id === id);
       source = textItem ? { x: textItem.x, y: textItem.y } : { x: 0, y: 0 };
@@ -840,6 +1185,7 @@ export default function Canvas({
       pointerY: event.clientY,
       startX: source.x,
       startY: source.y,
+      coordinateSpace,
     };
   };
 
@@ -918,8 +1264,13 @@ export default function Canvas({
       const session = dragSession.current;
       if (!session) return;
 
-      const deltaX = (event.clientX - session.pointerX) / transform.scale;
-      const deltaY = (event.clientY - session.pointerY) / transform.scale;
+      const usesScreenSpace = session.coordinateSpace === 'screen';
+      const deltaX = usesScreenSpace
+        ? event.clientX - session.pointerX
+        : (event.clientX - session.pointerX) / transform.scale;
+      const deltaY = usesScreenSpace
+        ? event.clientY - session.pointerY
+        : (event.clientY - session.pointerY) / transform.scale;
 
       if (session.type === 'card') {
         setCardOffsets((current) => ({
@@ -930,15 +1281,46 @@ export default function Canvas({
           },
         }));
       } else if (session.type === 'timeline') {
-        setTimelinePos({
-          x: session.startX + deltaX,
-          y: session.startY + deltaY,
-        });
+        if (session.coordinateSpace === 'screen') {
+          setTimelinePinnedPos({
+            x: session.startX + deltaX,
+            y: session.startY + deltaY,
+          });
+        } else {
+          setTimelinePos({
+            x: session.startX + deltaX,
+            y: session.startY + deltaY,
+          });
+        }
       } else if (session.type === 'backlog') {
-        setBacklogPos({
-          x: session.startX + deltaX,
-          y: session.startY + deltaY,
-        });
+        if (session.coordinateSpace === 'screen') {
+          setBacklogPinnedPos({
+            x: session.startX + deltaX,
+            y: session.startY + deltaY,
+          });
+        } else {
+          setBacklogPos({
+            x: session.startX + deltaX,
+            y: session.startY + deltaY,
+          });
+        }
+      } else if (session.type === 'widget') {
+        setPersonalWidgets((current) => current.map((widget) => (
+          widget.id === session.id
+            ? {
+                ...widget,
+                ...(session.coordinateSpace === 'screen'
+                  ? {
+                      pinnedScreenX: session.startX + deltaX,
+                      pinnedScreenY: session.startY + deltaY,
+                    }
+                  : {
+                      x: session.startX + deltaX,
+                      y: session.startY + deltaY,
+                    }),
+              }
+            : widget
+        )));
       } else if (session.type === 'text') {
         setCanvasTexts((current) => current.map(t => t.id === session.id ? {
           ...t,
@@ -1004,7 +1386,7 @@ export default function Canvas({
       window.removeEventListener('pointermove', handleWindowPointerMove);
       window.removeEventListener('pointerup', handleWindowPointerUp);
     };
-  }, [transform.scale, cardOffsets, timelinePos, canvasTexts]);
+  }, [transform.scale, cardOffsets, timelinePos, timelinePinnedPos, backlogPos, backlogPinnedPos, personalWidgets, canvasTexts, isPinned, isBacklogPinned]);
 
   const startEdit = (cardId, field, currentValue) => {
     setEditingState({ cardId, field, value: currentValue });
@@ -1273,6 +1655,211 @@ export default function Canvas({
   const previewRelatedCardIds = selectedCardId ? new Set() : getRelatedCardIds(hoveredCardId, allArrows);
   const relationColors = getFocusedRelationColors(allArrows, focusedCardId);
 
+  const getPersonalWidgetCollapsedTitle = (widget) => {
+    if (widget.type === 'stickyNote') return widget.title?.trim() || '便签';
+    if (widget.type === 'parkingLot') return '停车区';
+    if (widget.type === 'clock') return '时钟';
+    if (widget.type === 'focusTimer') return '专注计时器';
+    return '挂件';
+  };
+
+  const getPersonalWidgetCollapsedWidth = (widget) =>
+    getCollapsedWidgetWidthByTitle(getPersonalWidgetCollapsedTitle(widget));
+
+  const getPersonalWidgetWidth = (widget) => {
+    if (widget.isCollapsed) return getPersonalWidgetCollapsedWidth(widget);
+    if (widget.type === 'parkingLot') return 320;
+    if (widget.type === 'clock') return 232;
+    if (widget.type === 'focusTimer') return 312;
+    return 240;
+  };
+
+  const getPersonalWidgetExpandedHeight = (widget) => {
+    if (widget.type === 'parkingLot') return 286;
+    if (widget.type === 'clock') return 188;
+    if (widget.type === 'focusTimer') return 404;
+    return 246;
+  };
+
+  const getScreenBounds = () => {
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    return {
+      width: containerRect?.width ?? window.innerWidth,
+      height: containerRect?.height ?? window.innerHeight,
+    };
+  };
+
+  const clampScreenValue = (value, min, max) => Math.max(min, Math.min(value, max));
+
+  const resolveScreenWidgetLayout = ({
+    anchorX,
+    anchorY,
+    collapsedWidth = getCollapsedWidgetWidthByTitle('挂件'),
+    collapsedHeight = COLLAPSED_WIDGET_HEIGHT,
+    expandedWidth,
+    expandedHeight,
+  }) => {
+    const bounds = getScreenBounds();
+    const collapsedLeft = clampScreenValue(
+      anchorX,
+      SCREEN_WIDGET_PADDING,
+      Math.max(SCREEN_WIDGET_PADDING, bounds.width - collapsedWidth - SCREEN_WIDGET_PADDING),
+    );
+    const collapsedTop = clampScreenValue(
+      anchorY,
+      SCREEN_WIDGET_PADDING,
+      Math.max(SCREEN_WIDGET_PADDING, bounds.height - collapsedHeight - SCREEN_WIDGET_PADDING),
+    );
+
+    const opensRight = collapsedLeft + collapsedWidth / 2 < bounds.width / 2;
+    const opensDown = collapsedTop + collapsedHeight / 2 < bounds.height / 2;
+
+    const expandedLeft = clampScreenValue(
+      opensRight ? collapsedLeft : collapsedLeft + collapsedWidth - expandedWidth,
+      SCREEN_WIDGET_PADDING,
+      Math.max(SCREEN_WIDGET_PADDING, bounds.width - expandedWidth - SCREEN_WIDGET_PADDING),
+    );
+    const expandedTop = clampScreenValue(
+      opensDown ? collapsedTop : collapsedTop + collapsedHeight - expandedHeight,
+      SCREEN_WIDGET_PADDING,
+      Math.max(SCREEN_WIDGET_PADDING, bounds.height - expandedHeight - SCREEN_WIDGET_PADDING),
+    );
+
+    return {
+      collapsed: {
+        left: collapsedLeft,
+        top: collapsedTop,
+        width: collapsedWidth,
+        height: collapsedHeight,
+      },
+      expanded: {
+        left: expandedLeft,
+        top: expandedTop,
+        width: expandedWidth,
+        height: expandedHeight,
+      },
+    };
+  };
+
+  const getPinnedWidgetStyle = (widget) => {
+    const containerBounds = getScreenBounds();
+    if (
+      typeof widget.pinnedScreenX === 'number' &&
+      typeof widget.pinnedScreenY === 'number'
+    ) {
+      const collapsedWidth = getPersonalWidgetCollapsedWidth(widget);
+      const layout = resolveScreenWidgetLayout({
+        anchorX: widget.pinnedScreenX,
+        anchorY: widget.pinnedScreenY,
+        collapsedWidth,
+        expandedWidth: getPersonalWidgetWidth({ ...widget, isCollapsed: false }),
+        expandedHeight: getPersonalWidgetExpandedHeight(widget),
+      });
+      return {
+        position: 'absolute',
+        ...(widget.isCollapsed ? layout.collapsed : layout.expanded),
+        zIndex: 92,
+        transition: WIDGET_LAYOUT_TRANSITION,
+      };
+    }
+
+    const rightBase = isChatOpen ? 452 : 156;
+    const pinnedNoteIndex = personalWidgets.filter(
+      (entry) => entry.type === 'stickyNote' && entry.isPinned,
+    ).findIndex((entry) => entry.id === widget.id);
+
+    if (widget.type === 'parkingLot') {
+      const collapsedWidth = getPersonalWidgetCollapsedWidth(widget);
+      const layout = resolveScreenWidgetLayout({
+        anchorX: 24,
+        anchorY: 88,
+        collapsedWidth,
+        expandedWidth: 320,
+        expandedHeight: getPersonalWidgetExpandedHeight(widget),
+      });
+      return {
+        position: 'absolute',
+        ...(widget.isCollapsed ? layout.collapsed : layout.expanded),
+        zIndex: 92,
+        transition: WIDGET_LAYOUT_TRANSITION,
+      };
+    }
+
+    if (widget.type === 'clock') {
+      const collapsedWidth = getPersonalWidgetCollapsedWidth(widget);
+      const layout = resolveScreenWidgetLayout({
+        anchorX: containerBounds.width - rightBase - collapsedWidth,
+        anchorY: containerBounds.height - 92 - COLLAPSED_WIDGET_HEIGHT,
+        collapsedWidth,
+        expandedWidth: 232,
+        expandedHeight: getPersonalWidgetExpandedHeight(widget),
+      });
+      return {
+        position: 'absolute',
+        ...(widget.isCollapsed ? layout.collapsed : layout.expanded),
+        zIndex: 92,
+        transition: WIDGET_LAYOUT_TRANSITION,
+      };
+    }
+
+    if (widget.type === 'focusTimer') {
+      const collapsedWidth = getPersonalWidgetCollapsedWidth(widget);
+      const layout = resolveScreenWidgetLayout({
+        anchorX: containerBounds.width - rightBase - 326 - collapsedWidth,
+        anchorY: containerBounds.height - 92 - COLLAPSED_WIDGET_HEIGHT,
+        collapsedWidth,
+        expandedWidth: 312,
+        expandedHeight: getPersonalWidgetExpandedHeight(widget),
+      });
+      return {
+        position: 'absolute',
+        ...(widget.isCollapsed ? layout.collapsed : layout.expanded),
+        zIndex: 92,
+        transition: WIDGET_LAYOUT_TRANSITION,
+      };
+    }
+
+    const collapsedWidth = getPersonalWidgetCollapsedWidth(widget);
+    const stickyAnchorX = containerBounds.width - rightBase - collapsedWidth;
+    const stickyAnchorY = 568 + Math.max(pinnedNoteIndex, 0) * 148;
+    const layout = resolveScreenWidgetLayout({
+      anchorX: stickyAnchorX,
+      anchorY: stickyAnchorY,
+      collapsedWidth,
+      expandedWidth: 240,
+      expandedHeight: getPersonalWidgetExpandedHeight(widget),
+    });
+    return {
+      position: 'absolute',
+      ...(widget.isCollapsed ? layout.collapsed : layout.expanded),
+      zIndex: 92,
+      transition: WIDGET_LAYOUT_TRANSITION,
+    };
+  };
+
+  const renderPersonalWidget = (widget) => {
+    const sharedProps = {
+      widget,
+      onUpdate: (updates) => updatePersonalWidget(widget.id, updates),
+      onPinToggle: () => updatePersonalWidget(widget.id, { isPinned: !widget.isPinned }),
+      onDragStart: (event) => beginFreeDrag('widget', widget.id, event),
+    };
+
+    if (widget.type === 'stickyNote') {
+      return <StickyNoteWidget {...sharedProps} />;
+    }
+
+    if (widget.type === 'parkingLot') {
+      return <ParkingLotWidget {...sharedProps} />;
+    }
+
+    if (widget.type === 'clock') {
+      return <ClockWidget {...sharedProps} />;
+    }
+
+    return <FocusTimerWidget {...sharedProps} />;
+  };
+
   const renderCard = (card) => {
     const { isSelectedSelf, isSelectedRelated, isPreviewSelf, isPreviewRelated } = checkCardActiveState(card.id);
     const offset = cardOffsets[card.id] || { x: 0, y: 0 };
@@ -1319,6 +1906,45 @@ export default function Canvas({
     );
   };
 
+  const focusCardOnCanvas = (cardId) => {
+    setSelectedCardId(cardId);
+
+    window.requestAnimationFrame(() => {
+      const container = containerRef.current;
+      const cardEl = document.getElementById(cardId);
+      if (!container || !cardEl) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const cardRect = cardEl.getBoundingClientRect();
+      const containerCenterX = containerRect.width * 0.52;
+      const containerCenterY = containerRect.height * 0.36;
+      const cardCenterX = cardRect.left - containerRect.left + cardRect.width / 2;
+      const cardCenterY = cardRect.top - containerRect.top + cardRect.height / 2;
+
+      setTransform((current) => ({
+        ...current,
+        x: current.x + (containerCenterX - cardCenterX),
+        y: current.y + (containerCenterY - cardCenterY),
+      }));
+    });
+  };
+
+  const timelinePinnedLayout = resolveScreenWidgetLayout({
+    anchorX: timelinePinnedPos.x,
+    anchorY: timelinePinnedPos.y,
+    collapsedWidth: getSystemWidgetCollapsedWidth('timeline'),
+    expandedWidth: 720,
+    expandedHeight: 160,
+  });
+
+  const backlogPinnedLayout = resolveScreenWidgetLayout({
+    anchorX: backlogPinnedPos.x,
+    anchorY: backlogPinnedPos.y,
+    collapsedWidth: getSystemWidgetCollapsedWidth('backlog'),
+    expandedWidth: 320,
+    expandedHeight: 520,
+  });
+
   return (
     <div 
       className="canvas-container" 
@@ -1357,7 +1983,11 @@ export default function Canvas({
       )}
 
       {/* 底部悬浮工具栏 */}
-      <div className="figma-toolbar" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="figma-toolbar"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
         <button
           className={`figma-toolbar-btn${activeTool === 'select' ? ' active' : ''}`}
           title="选择与拖拽 (V)"
@@ -1399,6 +2029,52 @@ export default function Canvas({
         >
           <Sparkles size={16} />
         </button>
+
+        <div className="figma-toolbar-divider" />
+
+        <div className="widget-toolbar-entry">
+          <button
+            className={`figma-toolbar-btn figma-toolbar-widget-btn${isWidgetPanelOpen ? ' active' : ''}`}
+            title="添加挂件"
+            onClick={() => setIsWidgetPanelOpen((current) => !current)}
+          >
+            <Shapes size={16} />
+          </button>
+
+          {isWidgetPanelOpen && (
+            <div className="widget-toolbar-panel" onClick={(event) => event.stopPropagation()}>
+              <div className="widget-toolbar-panel-header">
+                <span className="widget-toolbar-panel-title">添加挂件</span>
+                <span className="widget-toolbar-panel-desc">先加进工作台，运行态操作都在组件本身完成。</span>
+              </div>
+
+              <div className="widget-toolbar-list">
+                {WIDGET_LIBRARY.map((widgetItem) => {
+                  const Icon = widgetItem.icon;
+                  const isEnabled = isWidgetEnabled(widgetItem.type);
+                  return (
+                    <div key={widgetItem.type} className="widget-toolbar-item">
+                      <div className="widget-toolbar-item-icon">
+                        <Icon size={15} />
+                      </div>
+                      <div className="widget-toolbar-item-copy">
+                        <span className="widget-toolbar-item-name">{widgetItem.name}</span>
+                        <span className="widget-toolbar-item-desc">{widgetItem.description}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="widget-toolbar-add-btn"
+                        onClick={() => toggleWidgetEnabled(widgetItem.type)}
+                      >
+                        {isEnabled ? '停用' : '启用'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
 
@@ -1505,23 +2181,43 @@ export default function Canvas({
               updateCanvasText(textId, { isEditing: true });
             }}
           />
+
+          {personalWidgets.filter((widget) => !widget.isPinned).map((widget) => (
+            <div
+              key={widget.id}
+              style={{
+                position: 'absolute',
+                left: widget.x,
+                top: widget.y,
+                width: getPersonalWidgetWidth(widget),
+                zIndex: 18,
+                transition: WIDGET_LAYOUT_TRANSITION,
+              }}
+            >
+              {renderPersonalWidget(widget)}
+            </div>
+          ))}
+
           {/* 画布内漂移时间轴 */}
-          {!isPinned && (
+          {isTimelineOpen && !isPinned && (
             <div 
               style={{
                 position: 'absolute',
                 left: timelinePos.x,
                 top: timelinePos.y,
-                width: '720px',
+                width: isTimelineCollapsed ? getSystemWidgetCollapsedWidth('timeline') : '720px',
                 zIndex: 10,
+                transition: 'width 0.26s cubic-bezier(0.2, 0, 0, 1)',
               }}
             >
               <TimelineScrubber 
                 isPinned={false}
-                isCollapsed={false}
+                isCollapsed={isTimelineCollapsed}
                 onPinToggle={() => setIsPinned(true)}
                 onDragStart={(event) => beginFreeDrag('timeline', 'timeline', event)}
                 onCollapsedChange={setIsTimelineCollapsed}
+                canvasSections={canvasSections}
+                onFocusCard={focusCardOnCanvas}
               />
             </div>
           )}
@@ -1533,7 +2229,7 @@ export default function Canvas({
                 position: 'absolute',
                 left: backlogPos.x,
                 top: backlogPos.y,
-                width: '280px',
+                width: isBacklogCollapsed ? getSystemWidgetCollapsedWidth('backlog') : '320px',
                 zIndex: 10,
               }}
             >
@@ -1541,12 +2237,13 @@ export default function Canvas({
                 isChatOpen={isChatOpen}
                 isPinned={false}
                 onPinToggle={() => setIsBacklogPinned(true)}
-                isCollapsed={false}
+                isCollapsed={isBacklogCollapsed}
                 onCollapsedChange={setIsBacklogCollapsed}
                 onDragStart={(event) => beginFreeDrag('backlog', 'backlog', event)}
                 canvasSections={canvasSections}
                 selectedCardId={selectedCardId}
                 setSelectedCardId={setSelectedCardId}
+                onFocusCard={focusCardOnCanvas}
                 uploadedMaterials={uploadedMaterials}
               />
             </div>
@@ -1567,13 +2264,27 @@ export default function Canvas({
       )}
 
       {moveError && <div className="canvas-move-toast">{moveError}</div>}
+
+      {personalWidgets.filter((widget) => widget.isPinned).map((widget) => (
+        <div key={widget.id} style={getPinnedWidgetStyle(widget)}>
+          {renderPersonalWidget(widget)}
+        </div>
+      ))}
+
       {/* 底部时间轴 (钉住状态下固定在屏幕左下角偏极边缘) */}
-      {isPinned && (
-        <TimelineScrubber 
+      {isTimelineOpen && isPinned && (
+        <TimelineScrubber
           isPinned={true}
           isCollapsed={isTimelineCollapsed}
           onCollapsedChange={setIsTimelineCollapsed}
           onPinToggle={() => setIsPinned(false)}
+          onDragStart={(event) => beginFreeDrag('timeline', 'timeline', event)}
+          canvasSections={canvasSections}
+          onFocusCard={focusCardOnCanvas}
+          style={{
+            ...(isTimelineCollapsed ? timelinePinnedLayout.collapsed : timelinePinnedLayout.expanded),
+            bottom: 'auto',
+          }}
         />
       )}
 
@@ -1585,10 +2296,16 @@ export default function Canvas({
           isCollapsed={isBacklogCollapsed}
           onCollapsedChange={setIsBacklogCollapsed}
           onPinToggle={() => setIsBacklogPinned(false)}
+          onDragStart={(event) => beginFreeDrag('backlog', 'backlog', event)}
           canvasSections={canvasSections}
           selectedCardId={selectedCardId}
           setSelectedCardId={setSelectedCardId}
+          onFocusCard={focusCardOnCanvas}
           uploadedMaterials={uploadedMaterials}
+          style={{
+            ...(isBacklogCollapsed ? backlogPinnedLayout.collapsed : backlogPinnedLayout.expanded),
+            right: 'auto',
+          }}
         />
       )}
     </div>

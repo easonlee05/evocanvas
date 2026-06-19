@@ -1445,12 +1445,12 @@
 
 .workspace-timer-dial {
   --timer-progress: 0.08;
-  --timer-dial-size: 196px;
-  --timer-dial-top: 38px;
-  --timer-dial-radius: 98px;
+  --timer-dial-size: 160px;
+  --timer-dial-top: 24px;
+  --timer-dial-radius: 80px;
   position: relative;
   width: 100%;
-  padding: 24px 22px 18px;
+  padding: 16px 20px 10px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -1488,14 +1488,14 @@
 
 .workspace-timer-dial-head {
   position: absolute;
-  top: calc(var(--timer-dial-top) + 6px);
+  top: calc(var(--timer-dial-top) + 5px);
   left: 50%;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #2f7cff;
-  border: 3px solid #ffffff;
-  box-shadow: 0 4px 12px rgba(47, 124, 255, 0.24);
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 3px 10px rgba(47, 124, 255, 0.24);
   transform: translateX(-50%) rotate(calc(var(--timer-progress) * 360deg)) translateY(calc(var(--timer-dial-radius) * -1));
   transform-origin: center var(--timer-dial-radius);
 }
@@ -1503,16 +1503,16 @@
 .workspace-timer-dial-core {
   position: relative;
   z-index: 1;
-  min-height: 220px;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .workspace-timer-display {
-  font-size: 48px;
+  font-size: 40px;
   line-height: 1;
   font-weight: 720;
   letter-spacing: -0.04em;
@@ -1520,17 +1520,48 @@
   text-align: center;
 }
 
+.workspace-timer-display.editable {
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 2px 8px;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.workspace-timer-display.editable:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.workspace-timer-display.editable:active {
+  transform: scale(0.98);
+}
+
+.workspace-timer-display-input {
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 720;
+  letter-spacing: -0.04em;
+  color: #475569;
+  text-align: center;
+  border: none;
+  background: rgba(148, 163, 184, 0.08);
+  border-radius: 8px;
+  width: 120px;
+  outline: none;
+  padding: 2px 4px;
+  box-sizing: border-box;
+}
+
 .workspace-timer-mode-select {
   border: none;
   background: transparent;
   color: #475569;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  padding: 0 18px 0 0;
+  padding: 0 16px 0 0;
   appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, #64748b 50%), linear-gradient(135deg, #64748b 50%, transparent 50%);
-  background-position: calc(100% - 10px) calc(50% - 1px), calc(100% - 5px) calc(50% - 1px);
-  background-size: 5px 5px, 5px 5px;
+  background-position: calc(100% - 8px) calc(50% - 1px), calc(100% - 3px) calc(50% - 1px);
+  background-size: 4px 4px, 4px 4px;
   background-repeat: no-repeat;
   outline: none;
   cursor: pointer;
@@ -1541,25 +1572,25 @@
   grid-template-columns: 1fr auto 1fr auto 1fr;
   align-items: center;
   gap: 0;
-  padding: 0 32px 18px;
+  padding: 0 32px 12px;
 }
 
 .workspace-timer-preset-divider {
   width: 1px;
-  height: 42px;
+  height: 28px;
   background: rgba(226, 232, 240, 0.92);
   justify-self: center;
 }
 
 .workspace-timer-preset {
-  height: 44px;
-  width: 44px;
+  height: 36px;
+  width: 36px;
   justify-self: center;
   border: 1px solid transparent;
   border-radius: 50%;
   background: transparent;
   color: #475569;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 500;
   cursor: pointer;
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
@@ -1572,11 +1603,11 @@
 }
 
 .workspace-timer-action-row {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: start;
-  gap: 12px;
-  padding: 18px 24px 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 32px;
+  padding: 12px 20px 14px;
   border-top: 1px solid rgba(226, 232, 240, 0.86);
 }
 
@@ -1588,23 +1619,19 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 6px;
   color: #64748b;
   cursor: pointer;
   padding: 0;
 }
 
 .workspace-timer-side-action {
-  padding-top: 10px;
-}
-
-.workspace-timer-side-action:last-child {
-  justify-self: end;
+  width: 60px;
 }
 
 .workspace-timer-side-icon {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1614,15 +1641,15 @@
 }
 
 .workspace-timer-side-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #64748b;
   text-align: center;
 }
 
 .workspace-timer-primary-circle {
-  width: 66px;
-  height: 66px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   border: 2px solid #2f7cff;
   color: #2f7cff;
@@ -1630,11 +1657,11 @@
   align-items: center;
   justify-content: center;
   background: rgba(47, 124, 255, 0.04);
-  box-shadow: 0 8px 20px rgba(47, 124, 255, 0.08);
+  box-shadow: 0 6px 16px rgba(47, 124, 255, 0.08);
 }
 
 .workspace-timer-primary-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #2f7cff;
   text-align: center;

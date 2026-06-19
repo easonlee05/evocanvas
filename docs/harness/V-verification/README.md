@@ -1,5 +1,8 @@
 # V 层宪法：验证（Verification）
 
+> 当前成熟度层级：`L2 对象与流程定义层`
+> 编码门槛：`未达到 L3，不应直接作为稳定实现规格；需继续把治理规则压成可执行校验项`
+
 ## 1. 这一层回答什么问题
 
 V 层回答：
@@ -24,7 +27,7 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 - 对话流
 - 结构化对象
 - 卡片回显
-- handoff（结构化交接包）
+- 交接物（handoff）
 
 其中，卡片只是界面映射，不是事实来源；handoff 是聚合性交付物，不是原始依据。
 
@@ -32,11 +35,11 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 
 ### 3.1 生成与验证必须分离
 
-提出 proposal（提案）的组件，不能是唯一的裁判者。
+提出提案（proposal）的组件，不能是唯一的裁判者。
 
 ### 3.2 验证先于生效
 
-重要对象在进入 confirmed truth 之前，必须先经过验证。
+重要对象在进入已确认事实（confirmed truth）之前，必须先经过验证。
 
 ### 3.3 验证以确定性规则为基础
 
@@ -44,7 +47,7 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 
 首先应用确定性规则检查：
 
-- schema（结构模式）
+- 结构模式（schema）
 - 状态迁移
 - 来源完整性
 - 策略约束
@@ -72,8 +75,8 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 
 包括：
 
-- 是否存在 source refs（来源引用）
-- 是否存在 evidence chain（证据链）
+- 是否存在来源引用（source refs）
+- 是否存在证据链（evidence chain）
 - 是否存在未处理冲突
 - 是否能解释为什么进入当前状态
 
@@ -90,9 +93,9 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 
 包括：
 
-- 是否在明显缺口存在时跳过 clarification（待澄清阶段）
+- 是否在明显缺口存在时跳过待澄清阶段（clarification）
 - 是否在无确认时固化高风险结论
-- 是否把 handoff（交接物）当作自由生成总结
+- 是否把交接物（handoff）当作自由生成总结
 
 ### 4.4 独立评估
 
@@ -101,7 +104,7 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 可采用：
 
 - 规则引擎
-- 独立 evaluator（评估者）
+- 独立评估者（evaluator）
 - 用户确认
 
 对 EvoCanvas 1.0，推荐从“规则引擎 + 用户确认”起步。
@@ -110,26 +113,26 @@ V 层是 EvoCanvas 从“会生成”走向“可交付”的关键层。
 
 以下对象必须进入强验证范围：
 
-- confirmed constraint（已确认约束）
-- confirmed decision（已确认决策）
-- resolved clarification（已解决待澄清项）
-- formal handoff（正式交接物）
-- 对外引用的 snapshot（快照）
+- 已确认约束（confirmed constraint）
+- 已确认决策（confirmed decision）
+- 已解决待澄清项（resolved clarification）
+- 正式交接物（formal handoff）
+- 对外引用的快照（snapshot）
 
-## 6. Handoff（交接物）验证规则
+## 6. 交接物（Handoff）验证规则
 
-handoff（交接物）是 1.0 的核心交付物，因此需要单独规则。
+交接物（handoff）是 1.0 的核心交付物，因此需要单独规则。
 
-draft handoff（交接草稿）至少应验证：
+交接草稿（draft handoff）至少应验证：
 
 - 是否明确当前主题
-- 是否包含 open questions（开放问题）
-- 是否包含 constraints（约束）
-- 是否包含 decisions（决策）或待决策说明
+- 是否包含开放问题（open questions）
+- 是否包含约束（constraints）
+- 是否包含决策（decisions）或待决策候选说明
 - 是否能回指上游结构化对象
 - 是否对已确认内容、高置信但未确认内容、未决问题 / 待拍板事项做出清晰分层
 
-formal handoff（正式交接物）在此基础上还应验证：
+正式交接物（formal handoff）在此基础上还应验证：
 
 - 是否经过确认流程
 - 是否不存在关键未披露冲突
@@ -142,13 +145,13 @@ handoff 的补充验证规则包括：
 - 每条主体内容是否只承载一个核心判断
 - 是否存在把多个不同下游动作的判断混写进同一条的情况
 
-## 7. Clarification（待澄清项）验证规则
+## 7. 待澄清项（Clarification）验证规则
 
-clarification（待澄清项）不能只是“多问几个问题”，而要验证：
+待澄清项（clarification）不能只是“多问几个问题”，而要验证：
 
 - 问题是否指向真实缺口
-- 是否与已有 evidence（证据）或 conflict（冲突）有关联
-- 是否能推动后续 constraint / decision（约束 / 决策）
+- 是否与已有证据（evidence）或冲突（conflict）有关联
+- 是否能推动后续约束 / 决策（constraint / decision）
 - 是否说明了为什么要问
 - 是否说明了不回答会阻塞或污染什么
 
@@ -161,8 +164,8 @@ clarification（待澄清项）不能只是“多问几个问题”，而要验�
 
 验证失败时，系统不应继续硬生成，而应明确进入以下之一：
 
-- 降级为 proposal（提案）
-- 回退为 clarification（待澄清项）
+- 降级为提案（proposal）
+- 回退为待澄清项（clarification）
 - 请求补充信息
 - 中断等待确认
 
@@ -178,7 +181,7 @@ clarification（待澄清项）不能只是“多问几个问题”，而要验�
 以下情况应被视为发散质量不足或发散过度：
 
 - 提出的问题与当前主题无关
-- 重复提出等价 clarification（待澄清项）
+- 重复提出等价待澄清项（clarification）
 - 无来源支撑地制造新冲突
 - 打开大量低价值分支，妨碍推进
 
@@ -195,17 +198,17 @@ clarification（待澄清项）不能只是“多问几个问题”，而要验�
 
 - 在明显缺口存在时形成稳定约束
 - 把冲突压缩成模糊中间说法
-- 在没有足够 evidence（证据）时形成 decision candidate（待决策候选）
-- 在 unresolved clarification（未解决待澄清项）过多时直接生成看似完整的 handoff（交接物）
-- 把解释对象（interpretation）直接越级写成 confirmed decision（已确认决策）
+- 在没有足够证据（evidence）时形成待决策候选（decision candidate）
+- 在未解决待澄清项（unresolved clarification）过多时直接生成看似完整的交接物（handoff）
+- 把解释对象（interpretation）直接越级写成已确认决策（confirmed decision）
 - 把偏好（preference）误写成约束（constraint）
 
 验证动作应包括：
 
-- clarification completeness check（待澄清完整性检查）
-- conflict preservation check（冲突保留检查）
-- evidence sufficiency check（证据充分性检查）
-- handoff completeness check（交接物完整性检查）
+- 待澄清完整性检查（clarification completeness check）
+- 冲突保留检查（conflict preservation check）
+- 证据充分性检查（evidence sufficiency check）
+- 交接物完整性检查（handoff completeness check）
 
 ### 9.3 裁判结果也需要被验证
 
@@ -225,7 +228,7 @@ clarification（待澄清项）不能只是“多问几个问题”，而要验�
 1. 验证发散结果的相关性和来源性
 2. 验证收敛结果的结构性和非跳步性
 3. 验证裁判结果的规则依据
-4. 验证最终 proposal（提案）是否满足进入治理流的最低条件
+4. 验证最终提案（proposal）是否满足进入治理流的最低条件
 
 ## 10. 设计禁令
 
@@ -240,13 +243,13 @@ clarification（待澄清项）不能只是“多问几个问题”，而要验�
 
 EvoCanvas 1.0 的 V 层至少应具备：
 
-- schema validation（结构模式校验）
-- 状态迁移 validation（校验）
-- 来源链 validation（校验）
-- 流程规则 validation（校验）
-- 高风险动作的用户确认 validation（校验）
-- handoff（交接物）的专门 validation（校验）
-- 发散过度与收敛过早的附加 validation（校验）
+- 结构模式校验（schema validation）
+- 状态迁移校验（validation）
+- 来源链校验（validation）
+- 流程规则校验（validation）
+- 高风险动作的用户确认校验（validation）
+- 交接物（handoff）的专门校验（validation）
+- 发散过度与收敛过早的附加校验（validation）
 
 此外，至少应补充以下对象级校验：
 
@@ -254,4 +257,4 @@ EvoCanvas 1.0 的 V 层至少应具备：
 - interpretation（解释对象）的单核心判断校验
 - clarification（待澄清项）的“问题 / 原因 / 后果”完整性校验
 - constraint（约束）的“内容 / 依据 / 影响范围”完整性校验
-- decision candidate（待决策）的“选项 / 推荐 / 影响”完整性校验
+- decision candidate（待决策候选）的“选项 / 推荐 / 影响”完整性校验

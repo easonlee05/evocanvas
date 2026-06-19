@@ -1,5 +1,8 @@
 # O 层宪法：可观测性（Observability）
 
+> 当前成熟度层级：`L2 对象与流程定义层`
+> 编码门槛：`未达到 L3，不应直接作为稳定实现规格；需继续补齐日志字段与回放口径`
+
 ## 1. 这一层回答什么问题
 
 O 层回答：
@@ -24,22 +27,22 @@ EvoCanvas 的用户需要看到的不是模型内部思考，而是：
 
 ## 3. O 层设计原则
 
-### 3.1 以 turn（回合）为主观察单元
+### 3.1 以回合（turn）为主观察单元
 
 系统至少要能解释每一轮发生了什么。
 
-### 3.2 以 proposal 为主诊断单元
+### 3.2 以提案（proposal）为主诊断单元
 
-当系统出错时，首先应检查 proposal 和治理痕迹，而不是只看最终页面结果。
+当系统出错时，首先应检查提案（proposal）和治理痕迹，而不是只看最终页面结果。
 
 ### 3.3 以来源链作为责任链
 
 重要结论必须能回到：
 
-- 哪条 source（来源）
-- 哪个 evidence（证据）
+- 哪条来源（source）
+- 哪个证据（evidence）
 - 哪次确认
-- 哪个 handoff（交接物）
+- 哪个交接物（handoff）
 
 ### 3.4 可观测性服务于用户判断
 
@@ -48,40 +51,40 @@ O 层的目标不是帮助工程师自嗨，而是帮助用户和团队判断：
 - 当前工作面是否可信
 - 哪些地方仍需人参与
 
-## 4. 五类核心 trace（追踪）
+## 4. 五类核心追踪（trace）
 
-### 4.1 Turn Trace（回合追踪）
+### 4.1 回合追踪（Turn Trace）
 
 记录每轮的基础推进轨迹。
 
 至少包括：
 
-- turn id（回合 ID）
-- workspace id（工作区 ID）
+- 回合 ID（turn id）
+- 工作区 ID（workspace id）
 - input summary
 - current stage
 - selected objects
 - outcome
 
-### 4.2 Proposal Trace（提案追踪）
+### 4.2 提案追踪（Proposal Trace）
 
 记录 AI 本轮提出了什么结构化变更。
 
 至少包括：
 
-- proposal id
+- 提案 ID（proposal id）
 - affected objects
 - proposal types
 - linked sources
 - risk classification input
 
-### 4.3 Governance Trace（治理追踪）
+### 4.3 治理追踪（Governance Trace）
 
-记录系统如何判定 proposal 的风险与处理方式。
+记录系统如何判定提案（proposal）的风险与处理方式。
 
 至少包括：
 
-- risk level
+- 风险等级（risk level）
 - triggered policy
 - required confirmation
 - approval / rejection result
@@ -94,25 +97,25 @@ O 层的目标不是帮助工程师自嗨，而是帮助用户和团队判断：
 
 - created objects
 - updated objects
-- resolved clarifications（已解决待澄清项）
-- promoted constraints（被提升的约束）
-- decision state changes（决策状态变化）
-- handoff updates（交接物更新）
+- 已解决待澄清项（resolved clarifications）
+- 被提升的约束（promoted constraints）
+- 决策状态变化（decision state changes）
+- 交接物更新（handoff updates）
 
-### 4.5 Provenance Trace
+### 4.5 来源链追踪（Provenance Trace）
 
 记录关键对象的上游来源链。
 
 至少包括：
 
-- source refs（来源引用）
-- evidence refs（证据引用）
+- 来源引用（source refs）
+- 证据引用（evidence refs）
 - dependent objects
 - confirmation refs
 
 ## 5. 面向用户的回执
 
-EvoCanvas 需要一个统一的 change receipt（变更回执）概念。
+EvoCanvas 需要一个统一的变更回执（change receipt）概念。
 
 每轮执行结束后，建议都产出一份用户可读回执，回答以下问题：
 
@@ -126,14 +129,14 @@ EvoCanvas 需要一个统一的 change receipt（变更回执）概念。
 
 ## 6. 关键指标
 
-虽然 1.0 不需要复杂 BI，但 O 层至少应预留以下指标口径：
+虽然 1.0 不需要复杂商业智能（BI），但 O 层至少应预留以下指标口径：
 
-- turn success rate（回合成功率）
-- turn interruption rate（回合中断率）
-- clarification surfaced rate（待澄清显影率）
-- high-risk confirmation rate
-- handoff readiness rate（交接物就绪率）
-- evidence-backed object ratio（有证据支撑的对象占比）
+- 回合成功率（turn success rate）
+- 回合中断率（turn interruption rate）
+- 待澄清显影率（clarification surfaced rate）
+- 高风险确认率（high-risk confirmation rate）
+- 交接物就绪率（handoff readiness rate）
+- 有证据支撑的对象占比（evidence-backed object ratio）
 
 这些指标不是为了 KPI，而是为了判断 Harness 是否真的降低了失真。
 
@@ -151,15 +154,15 @@ EvoCanvas 需要一个统一的 change receipt（变更回执）概念。
 
 - 不允许只有最终结果，没有过程痕迹
 - 不允许只有工程日志，没有用户可读回执
-- 不允许关键结论没有 provenance
-- 不允许高风险动作缺失治理 trace（追踪痕迹）
+- 不允许关键结论没有来源（provenance）
+- 不允许高风险动作缺失治理追踪（trace）
 
 ## 9. 1.0 最小落地要求
 
 EvoCanvas 1.0 的 O 层至少应具备：
 
-- turn trace（回合追踪）
-- proposal trace（提案追踪）
-- governance trace（治理追踪）
-- state diff receipt（状态差异回执）
-- 关键对象 provenance trace（来源链追踪）
+- 回合追踪（turn trace）
+- 提案追踪（proposal trace）
+- 治理追踪（governance trace）
+- 状态差异回执（state diff receipt）
+- 关键对象来源链追踪（provenance trace）

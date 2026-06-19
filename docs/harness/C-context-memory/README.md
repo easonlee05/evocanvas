@@ -1,5 +1,8 @@
 # C 层宪法：上下文与记忆（Context & Memory）
 
+> 当前成熟度层级：`L2 对象与流程定义层`
+> 编码门槛：`未达到 L3，不应直接作为稳定实现规格；需继续补齐上下文装配与复水规则`
+
 ## 1. 这一层回答什么问题
 
 C 层回答：
@@ -12,12 +15,12 @@ EvoCanvas 的 C 层不是“对话历史管理”，而是“结构化工作记�
 
 ## 2. EvoCanvas 的上下文立场
 
-EvoCanvas 的上下文核心单位不是 message（消息），而是 object（对象）。
+EvoCanvas 的上下文核心单位不是消息（message），而是对象（object）。
 
 这意味着：
 
 - 长聊天记录不是系统事实层
-- 卡片、关系、约束、待决策、handoff（交接物）、snapshot（快照）才是主要工作记忆
+- 卡片、关系、约束、待决策、交接物（handoff）、快照（snapshot）才是主要工作记忆
 - 原始材料默认不直接进入每轮上下文，而是在需要时被引用或复水
 
 ## 3. C 层设计原则
@@ -63,12 +66,12 @@ EvoCanvas 的上下文核心单位不是 message（消息），而是 object（�
 
 包括：
 
-- evidence（证据对象）
-- problem framing（问题框定）
-- clarification（待澄清项）
-- constraint candidate（约束候选）
-- decision candidate（待决策候选）
-- relation（关系）
+- 证据对象（evidence）
+- 问题框定（problem framing）
+- 待澄清项（clarification）
+- 约束候选（constraint candidate）
+- 待决策候选（decision candidate）
+- 关系（relation）
 
 这是模型最主要的工作上下文层。
 
@@ -78,10 +81,10 @@ EvoCanvas 的上下文核心单位不是 message（消息），而是 object（�
 
 包括：
 
-- confirmed constraints（已确认约束）
-- confirmed decisions（已确认决策）
-- approved scope boundaries（已批准范围边界）
-- published handoff（已发布交接物）
+- 已确认约束（confirmed constraints）
+- 已确认决策（confirmed decisions）
+- 已批准范围边界（approved scope boundaries）
+- 已发布交接物（published handoff）
 
 特点：
 
@@ -91,7 +94,7 @@ EvoCanvas 的上下文核心单位不是 message（消息），而是 object（�
 
 ### 4.4 冷历史层
 
-保存历史 proposal（提案）、旧 snapshot（快照）、被替代对象、旧版本 handoff（交接物）等。
+保存历史提案（proposal）、旧快照（snapshot）、被替代对象、旧版本交接物（handoff）等。
 
 特点：
 
@@ -105,9 +108,9 @@ EvoCanvas 的上下文核心单位不是 message（消息），而是 object（�
 - 当前用户输入
 - 当前选中对象
 - 当前主题最相关的证据与问题
-- 当前未解决的 clarification（待澄清项）
-- 当前已确认的 constraints / decisions（约束 / 决策）
-- 当前阶段允许看到的 handoff（交接物）摘要
+- 当前未解决的待澄清项（clarification）
+- 当前已确认的约束 / 决策（constraints / decisions）
+- 当前阶段允许看到的交接物（handoff）摘要
 
 不应默认拼入：
 
@@ -134,49 +137,49 @@ EvoCanvas 的上下文核心单位不是 message（消息），而是 object（�
 
 需要补充信息时，按以下顺序复水：
 
-1. 当前对象直接引用的 source（来源）
-2. 当前对象的上游 evidence（证据）
-3. 与当前冲突相关的 rival evidence（相对证据）
-4. 最近相关 snapshot（快照）
-5. 必要的历史 turn receipt（回合回执）
+1. 当前对象直接引用的来源（source）
+2. 当前对象的上游证据（evidence）
+3. 与当前冲突相关的相对证据（rival evidence）
+4. 最近相关快照（snapshot）
+5. 必要的历史回合回执（turn receipt）
 
 不建议直接按时间顺序全文回放。
 
-## 8. Handoff（交接物）与 Snapshot（快照）的角色
+## 8. 交接物（Handoff）与快照（Snapshot）的角色
 
-### 8.1 Handoff（交接物）
+### 8.1 交接物（Handoff）
 
-handoff（交接物）不是“导出文档”，而是结构化上下文切换机制。
+交接物（handoff）不是“导出文档”，而是结构化上下文切换机制。
 
 其作用是：
 
-- 用较少 token 保持当前主题主要脉络
+- 用较少标记（token）保持当前主题主要脉络
 - 让下游人或 AI 接手时不丢失事实边界
 - 保留已知 / 未知 / 已决 / 未决的分界
 
-### 8.2 Snapshot（快照）
+### 8.2 快照（Snapshot）
 
-snapshot（快照）不是简单备份，而是工作记忆冻结点。
+快照（snapshot）不是简单备份，而是工作记忆冻结点。
 
 其作用是：
 
 - 记录某个时点的收敛状态
 - 支持回看和回滚判断
-- 作为冲突分析或 handoff（交接物）生成的历史锚点
+- 作为冲突分析或交接物（handoff）生成的历史锚点
 
 ## 9. 设计禁令
 
 - 不允许把聊天历史当作主要事实层
 - 不允许把所有原始材料全文默认塞进模型上下文
-- 不允许为了省事省掉 unresolved questions 的记忆表示
-- 不允许 handoff（交接物）只保留已确认内容而抹掉未决部分
+- 不允许为了省事省掉未解决问题（unresolved questions）的记忆表示
+- 不允许交接物（handoff）只保留已确认内容而抹掉未决部分
 
 ## 10. 1.0 最小落地要求
 
 EvoCanvas 1.0 的 C 层至少应具备：
 
-- source / evidence / working truth / cold history（来源 / 证据 / 工作事实 / 冷历史）四层记忆分工
+- 来源 / 证据 / 工作事实 / 冷历史（source / evidence / working truth / cold history）四层记忆分工
 - 基于对象的上下文装配
-- unresolved clarifications（未解决待澄清项）的显式记忆表示
-- handoff（交接物）作为结构化上下文切换
-- snapshot（快照）作为冻结点，而不是只做备份
+- 未解决待澄清项（unresolved clarifications）的显式记忆表示
+- 交接物（handoff）作为结构化上下文切换
+- 快照（snapshot）作为冻结点，而不是只做备份

@@ -1102,19 +1102,19 @@
 }
 
 .workspace-widget.note-tone-sun {
-  background: linear-gradient(180deg, rgba(255, 248, 214, 0.98), rgba(255, 241, 188, 0.92));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 250, 250, 0.96));
 }
 
 .workspace-widget.note-tone-mint {
-  background: linear-gradient(180deg, rgba(224, 255, 240, 0.98), rgba(204, 251, 231, 0.92));
+  background: linear-gradient(180deg, rgba(238, 247, 242, 0.98), rgba(216, 238, 225, 0.94));
 }
 
 .workspace-widget.note-tone-sky {
-  background: linear-gradient(180deg, rgba(232, 244, 255, 0.98), rgba(219, 234, 254, 0.92));
+  background: linear-gradient(180deg, rgba(236, 244, 249, 0.98), rgba(212, 230, 242, 0.94));
 }
 
 .workspace-widget.note-tone-rose {
-  background: linear-gradient(180deg, rgba(255, 238, 243, 0.98), rgba(255, 228, 230, 0.92));
+  background: linear-gradient(180deg, rgba(251, 241, 243, 0.98), rgba(240, 216, 221, 0.94));
 }
 
 .workspace-widget.parking-widget,
@@ -1227,6 +1227,8 @@
 }
 
 .workspace-widget-body {
+  flex: 1;
+  min-height: 0;
   padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
@@ -1279,7 +1281,37 @@
 }
 
 .note-body {
-  min-height: 142px;
+  min-height: 0;
+}
+
+/* 便签挂件无缝定制样式 */
+.workspace-widget[class*="note-tone-"] .workspace-widget-header {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.04);
+}
+
+.workspace-widget[class*="note-tone-"] .workspace-widget-body {
+  padding-top: 4px;
+}
+
+.workspace-widget[class*="note-tone-"] .note-body {
+  border: none;
+  background: transparent;
+  padding: 0 4px;
+  flex: 1;
+  min-height: 0;
+  color: #1e293b;
+  line-height: 1.6;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.workspace-widget[class*="note-tone-"] .note-body::placeholder {
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.workspace-widget[class*="note-tone-"] .note-body:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 .workspace-widget-inline-form {

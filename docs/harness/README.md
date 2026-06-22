@@ -39,7 +39,7 @@
 1. `docs/harness/00-system-view/`
 2. `docs/harness/G-governance/00 Governance（治理）.md`
 3. `docs/harness/V-verification/`
-4. `docs/harness/L-lifecycle-orchestration/`
+4. `docs/harness/L-lifecycle-orchestration/00 Lifecycle Orchestration（生命周期与编排）.md`
 5. `docs/harness/C-context-memory/`
 6. `docs/harness/T-tool-interfaces/`
 7. `docs/harness/O-observability/`
@@ -57,8 +57,16 @@
   - T 层：工具接口，定义输入接入协议、外部能力接入协议和工具使用边界。
 - `docs/harness/C-context-memory/`
   - C 层：上下文与记忆，定义上下文分层、复水策略、稳定记忆与冷历史。
-- `docs/harness/L-lifecycle-orchestration/`
-  - L 层：生命周期与编排，定义收敛状态机、中断点、阶段推进与角色分工。
+- `docs/harness/L-lifecycle-orchestration/00 Lifecycle Orchestration（生命周期与编排）.md`
+  - L 层主文档：生命周期与编排框架、四个一级模块、主阶段骨架与展开入口。
+- `docs/harness/L-lifecycle-orchestration/01 Stage Progression（阶段推进）.md`
+  - 阶段推进器、五段主流程、检查点、停留规则与重判闭环。
+- `docs/harness/L-lifecycle-orchestration/02 Gate Adjudication（门禁裁决）.md`
+  - 高影响动作、事实边界门禁、确认请求与确认后顺序。
+- `docs/harness/L-lifecycle-orchestration/03 State Ledger（状态账本）.md`
+  - 状态账本最小记录范围、关键未决、非阻塞提醒与尾项摘要。
+- `docs/harness/L-lifecycle-orchestration/04 Handoff Orchestration（交接编排）.md`
+  - 结构化交接物（structured handoff）的编排规则、条目治理与草稿 / 正式边界。
 - `docs/harness/O-observability/`
   - O 层：可观测性，定义回合追踪（turn trace）、提案追踪（proposal trace）、治理痕迹与来源追溯。
 - `docs/harness/V-verification/`

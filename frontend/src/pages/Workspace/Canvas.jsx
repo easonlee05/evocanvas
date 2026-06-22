@@ -931,7 +931,7 @@ export default function Canvas({
       return;
     }
 
-    const existingWidget = personalWidgets.find((widget) => widget.type === type);
+    const existingWidget = type === 'stickyNote' ? null : personalWidgets.find((widget) => widget.type === type);
     if (existingWidget) {
       updatePersonalWidget(existingWidget.id, {
         isCollapsed: false,
@@ -970,6 +970,12 @@ export default function Canvas({
         setIsBacklogPinned(true);
         setIsBacklogCollapsed(false);
       }
+      setIsWidgetPanelOpen(false);
+      return;
+    }
+
+    if (type === 'stickyNote') {
+      addWidgetToCanvas(type);
       setIsWidgetPanelOpen(false);
       return;
     }
@@ -1843,6 +1849,7 @@ export default function Canvas({
       onUpdate: (updates) => updatePersonalWidget(widget.id, updates),
       onPinToggle: () => updatePersonalWidget(widget.id, { isPinned: !widget.isPinned }),
       onDragStart: (event) => beginFreeDrag('widget', widget.id, event),
+      onDelete: () => removePersonalWidget(widget.id),
     };
 
     if (widget.type === 'stickyNote') {
@@ -2066,7 +2073,7 @@ export default function Canvas({
                         className="widget-toolbar-add-btn"
                         onClick={() => toggleWidgetEnabled(widgetItem.type)}
                       >
-                        {isEnabled ? '停用' : '启用'}
+                        {widgetItem.type === 'stickyNote' ? '添加' : isEnabled ? '停用' : '启用'}
                       </button>
                     </div>
                   );

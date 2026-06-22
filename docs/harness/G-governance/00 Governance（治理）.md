@@ -75,6 +75,63 @@ EvoCanvas 1.0 默认透明优先，不抢先下结论。
 
 这些对象不是平级替代关系，而是逐步收敛关系。
 
+```mermaid
+graph TD
+    %% 阶段背景分栏
+    subgraph RawInput["1. 原始输入层 (Raw Input)"]
+        Raw["用户原始输入 / 会话流 / 截图等"]
+        SF["来源片段 (Source Fragment)<br/>(标准化摘录)"]
+    end
+
+    subgraph Proposal["2. 提案层 (Proposal)"]
+        Inter["解释对象 (Interpretation)<br/>(可挑战的中间理解)"]
+        Clar["待澄清项 (Clarification)<br/>(关键信息缺口)"]
+        ConstCand["约束候选<br/>(Constraint Candidate)"]
+        DecCand["待决策候选<br/>(Decision Candidate)"]
+    end
+
+    subgraph WorkingTruth["3. 已确认工作事实层 (Confirmed Working Truth)"]
+        Const["已生效约束 (Constraint)<br/>(已成立的事实边界)"]
+        Dec["已确认决策 (Confirmed Decision)<br/>(已拍板的选择)"]
+    end
+
+    subgraph PublishedHandoff["4. 已发布交接物层 (Published Handoff)"]
+        Handoff["结构化交接包 (Handoff Package)<br/>(下游可依赖的上下文)"]
+    end
+
+    %% 关系流转
+    Raw -->|映射与标准化摘录| SF
+    SF -->|提炼理解| Inter
+    
+    Inter -->|发现关键不确定性/缺口| Clar
+    Clar -->|用户回答回流| Inter
+    Clar -->|条件满足时有限直升| ConstCand
+    Clar -->|条件满足时有限直升| DecCand
+    
+    Inter -->|事实性边界分流| ConstCand
+    Inter -->|多方案选择分流| DecCand
+    
+    ConstCand -->|通过验证与确认| Const
+    DecCand -->|用户/角色裁决拍板| Dec
+    
+    Const -->|上位边界约束| Dec
+    
+    Const -->|对象编排映射| Handoff
+    Dec -->|对象编排映射| Handoff
+
+    %% 样式微调
+    style Raw fill:#f9f9f9,stroke:#ccc,stroke-dasharray: 5 5
+    style SF fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style Inter fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style Clar fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5
+    style ConstCand fill:#fff3e0,stroke:#f57c00
+    style DecCand fill:#fff3e0,stroke:#f57c00
+    style Const fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style Dec fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style Handoff fill:#ede7f6,stroke:#673ab7,stroke-width:3px
+```
+
+
 来源片段（source fragment）提供依据边界。它可以被标准化摘录，但不能被偷偷解释。
 
 解释对象（interpretation）承接 AI 对来源的中间理解。它可以被挑战，可以低置信存在，但不能冒充正式事实。

@@ -211,6 +211,35 @@
 - 只有在回答内容单义（unambiguous）、低冲突（low conflict）、低风险（low risk）、且不会改变多个下游依据时，才允许有限直升（limited promotion）
 - 有限直升的上限默认是约束（constraint）或待决策（decision candidate），不直接形成已确认决策（confirmed decision）
 
+```mermaid
+flowchart TD
+    Start(["收到待澄清项 Clarification 的回答"]) --> Q_Unambiguous{"1. 是否单义 ?"}
+    
+    Q_Unambiguous -->|否| FlowBack["强制回流至<br/>解释对象 Interpretation 层"]
+    Q_Unambiguous -->|是| Q_LowConflict{"2. 是否低冲突 ?"}
+    
+    Q_LowConflict -->|否| FlowBack
+    Q_LowConflict -->|是| Q_LowRisk{"3. 是否低风险 ?"}
+    
+    Q_LowRisk -->|否| FlowBack
+    Q_LowRisk -->|是| Q_FanOut{"4. 依据扇出 <= 1 ?<br/>(不改变多个下游依据)"}
+    
+    Q_FanOut -->|否| FlowBack
+    Q_FanOut -->|是| Promo["触发有限直升 Limited Promotion"]
+    
+    Promo --> Target{"直升目标对象"}
+    Target -->|事实性边界| Const["约束 Constraint"]
+    Target -->|待选决策方案| DecCand["待决策候选 Decision Candidate"]
+    Target -.->|越级禁用!| Dec["已确认决策 Confirmed Decision"]
+
+    style Start fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px
+    style FlowBack fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Promo fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style Const fill:#e8f5e9,stroke:#2e7d32
+    style DecCand fill:#e8f5e9,stroke:#2e7d32
+    style Dec fill:#cfd8dc,stroke:#90a4ae,stroke-dasharray: 5 5
+```
+
 其中：
 
 - “单义（unambiguous）”采用更严格口径：语义上基本只有一种合理解释，指向唯一主下游对象，且不会顺带重写已有边界或引出新的核心歧义
@@ -229,6 +258,7 @@
 - 如果一个回答同时影响多个解释对象（interpretation），只有在它们共享同一语义核且不会分叉出不同下游路径时，才允许条件并行更新
 - 如果旧待澄清项（clarification）可以关闭，但又自然暴露出下一层新的待澄清项（clarification），允许条件闭环；若新项其实说明旧项并未真正解决，则旧项不应关闭
 - 如果一个回答只解决了旧待澄清项的一部分，应优先判断旧项是否本来混入了多个缺口；若是，则拆分处理；若不是，则不关闭，只更新进度或置信状态
+
 
 #### 解释对象升级为约束的治理门槛摘要
 
@@ -479,6 +509,38 @@
 - 默认由约束（constraint）提供上位边界
 - 当已确认决策（confirmed decision）明确是在该边界内完成的具体拍板时，下游可优先引用决策对象
 - 但不得脱离其上位约束语境单独使用
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as "用户/授权角色"
+    participant Engine as "系统治理层"
+    participant OldConst as "旧约束 (Constraint)"
+    participant NewDec as "新确认决策 (Decision)"
+    participant Review as "待复核队列"
+
+    NewDec->>Engine: 1. 尝试进入稳定事实层
+    Engine->>OldConst: 2. 冲突检测 (同一主题/判断)
+    Note over Engine, OldConst: 发现显性冲突！
+    
+    Engine->>NewDec: 3. 拦截生效并标为「冲突提案」
+    Engine->>Review: 4. 挂起冲突对 (New Dec vs Old Const)
+    
+    Note over OldConst, Engine: 冲突复核期间：<br/>默认优先保护旧约束生效地位，下游只能引用旧约束
+    
+    User->>Review: 5. 介入并完成事实裁决
+    
+    alt 裁决路径 A: 确认新决策推翻旧约束 (替代)
+        User->>Engine: 批准替代方案
+        Engine->>OldConst: 标记为「已失效 (失效留痕)」
+        Engine->>NewDec: 标记为「已确认」并接管当前生效位
+        Engine->>Engine: 建立「新决策/约束 ──替代──> 旧约束」追溯指针
+    else 裁决路径 B: 维持旧约束 (拒绝新决策)
+        User->>Engine: 拒绝替代方案
+        Engine->>NewDec: 降级回退到待决策候选/解释对象层
+        Engine->>Review: 移出队列并关闭提案
+    end
+```
 
 其中：
 

@@ -17,6 +17,7 @@ import {
   Sparkles,
   StickyNote,
   Timer,
+  Trash2,
 } from 'lucide-react';
 
 const SECTION_LABEL_MAP = {
@@ -312,6 +313,7 @@ export function WidgetFrame({
   onPinToggle,
   onDragStart,
   onCollapsedChange,
+  onDelete,
   children,
   footer,
   className = '',
@@ -335,6 +337,17 @@ export function WidgetFrame({
           <span>{title}</span>
         </div>
         <div className="workspace-widget-actions">
+          {onDelete && (
+            <WidgetActionButton
+              title="删除挂件"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete();
+              }}
+            >
+              <Trash2 size={13} />
+            </WidgetActionButton>
+          )}
           <WidgetActionButton
             title={widget.isPinned ? '取消固定，移回画布' : '固定到工作台'}
             onClick={(event) => {

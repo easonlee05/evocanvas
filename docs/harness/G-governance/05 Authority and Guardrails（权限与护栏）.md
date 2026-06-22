@@ -31,6 +31,35 @@ G 层中的确认不是礼貌性交互，而是事实门禁。
 
 当 EvoCanvas 启用发散者-收敛者-裁判者模式时，治理层必须进一步约束三者权限。
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Div as "发散者 (Diverger)"
+    participant Conv as "收敛者 (Converger)"
+    participant Judge as "裁判者 (Judge)"
+    participant Gov as "系统治理层 (Gov Engine)"
+    participant User as "用户 (User)"
+
+    Div->>Conv: 1. 暴露冲突 / 提交候选分支 / 提报信息缺口
+    Conv->>Judge: 2. 整合归并，提交结构化提案 (Proposal)
+    Note over Conv: 不得直接升为稳定事实<br/>不得抹除关键冲突
+    
+    Judge->>Gov: 3. 发起流转动作 (分类 / 关闭待澄清 / 提案通过)
+    Note over Judge: 不得增写事实内容<br/>不得替代生成对象
+    
+    Gov->>Gov: 4. 运行事实与风险门禁校验
+    
+    alt 校验结果: 低/中风险动作
+        Gov->>Gov: 自动应用并记录追踪 Trace
+    else 校验结果: 高风险动作 (如关闭关键澄清 / 标记约束生效 / 决策确认)
+        Gov->>User: 5. 拦截流转，发起显式确认请求 (附治理回执)
+        User->>Gov: 6. 裁决批准
+        Gov->>Gov: 7. 执行生效 (并发布交接物)
+    end
+```
+
+
+
 ### 发散者的治理边界
 
 发散者可以：

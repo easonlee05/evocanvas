@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Timer, RotateCcw, Pause, Play, ChevronsRight } from 'lucide-react';
 import { WidgetFrame, formatDuration } from '../../CanvasOverlays.jsx';
 
-export function FocusTimerWidget({ widget, onUpdate, onPinToggle, onDragStart }) {
+export function FocusTimerWidget({ widget, onUpdate, onPinToggle, onDragStart, onDelete }) {
   const modes = ['收敛', '整理', '交接'];
   const presetMinutes = widget.durationMinutes || 20;
   const preview = '';
@@ -80,6 +80,7 @@ export function FocusTimerWidget({ widget, onUpdate, onPinToggle, onDragStart })
       preview={preview}
       onPinToggle={onPinToggle}
       onDragStart={onDragStart}
+      onDelete={onDelete}
       onCollapsedChange={(nextCollapsed) => onUpdate({ isCollapsed: nextCollapsed })}
       className="timer-widget"
     >

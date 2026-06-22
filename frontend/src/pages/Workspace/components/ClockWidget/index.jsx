@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Clock3 } from 'lucide-react';
 import { WidgetFrame, formatClock } from '../../CanvasOverlays.jsx';
 
-export function ClockWidget({ widget, onUpdate, onPinToggle, onDragStart }) {
+export function ClockWidget({ widget, onUpdate, onPinToggle, onDragStart, onDelete }) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -28,6 +28,7 @@ export function ClockWidget({ widget, onUpdate, onPinToggle, onDragStart }) {
       preview={`${formatClock(now, { timeZone: 'Asia/Shanghai', hour12 })} · ${widget.is24Hour ? '24h' : '12h'}`}
       onPinToggle={onPinToggle}
       onDragStart={onDragStart}
+      onDelete={onDelete}
       onCollapsedChange={(nextCollapsed) => onUpdate({ isCollapsed: nextCollapsed })}
       className="clock-widget"
     >

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Archive } from 'lucide-react';
 import { WidgetFrame } from '../../CanvasOverlays.jsx';
 
-export function ParkingLotWidget({ widget, onUpdate, onPinToggle, onDragStart }) {
+export function ParkingLotWidget({ widget, onUpdate, onPinToggle, onDragStart, onDelete }) {
   const [draft, setDraft] = useState('');
   const preview = widget.items?.length ? `${widget.items.length} 条暂缓事项` : '当前无暂缓事项';
 
@@ -40,6 +40,7 @@ export function ParkingLotWidget({ widget, onUpdate, onPinToggle, onDragStart })
       preview={preview}
       onPinToggle={onPinToggle}
       onDragStart={onDragStart}
+      onDelete={onDelete}
       onCollapsedChange={(nextCollapsed) => onUpdate({ isCollapsed: nextCollapsed })}
       className="parking-widget"
     >

@@ -75,61 +75,7 @@ EvoCanvas 1.0 默认透明优先，不抢先下结论。
 
 这些对象不是平级替代关系，而是逐步收敛关系。
 
-```mermaid
-graph TD
-    %% 阶段背景分栏
-    subgraph RawInput["1. 原始输入层 (Raw Input)"]
-        Raw["用户原始输入 / 会话流 / 截图等"]
-        SF["来源片段 (Source Fragment)<br/>(标准化摘录)"]
-    end
-
-    subgraph Proposal["2. 提案层 (Proposal)"]
-        Inter["解释对象 (Interpretation)<br/>(可挑战的中间理解)"]
-        Clar["待澄清项 (Clarification)<br/>(关键信息缺口)"]
-        ConstCand["约束候选<br/>(Constraint Candidate)"]
-        DecCand["待决策候选<br/>(Decision Candidate)"]
-    end
-
-    subgraph WorkingTruth["3. 已确认工作事实层 (Confirmed Working Truth)"]
-        Const["已生效约束 (Constraint)<br/>(已成立的事实边界)"]
-        Dec["已确认决策 (Confirmed Decision)<br/>(已拍板的选择)"]
-    end
-
-    subgraph PublishedHandoff["4. 已发布交接物层 (Published Handoff)"]
-        Handoff["结构化交接包 (Handoff Package)<br/>(下游可依赖的上下文)"]
-    end
-
-    %% 关系流转
-    Raw -->|映射与标准化摘录| SF
-    SF -->|提炼理解| Inter
-    
-    Inter -->|发现关键不确定性/缺口| Clar
-    Clar -->|用户回答回流| Inter
-    Clar -->|条件满足时有限直升| ConstCand
-    Clar -->|条件满足时有限直升| DecCand
-    
-    Inter -->|事实性边界分流| ConstCand
-    Inter -->|多方案选择分流| DecCand
-    
-    ConstCand -->|通过验证与确认| Const
-    DecCand -->|用户/角色裁决拍板| Dec
-    
-    Const -->|上位边界约束| Dec
-    
-    Const -->|对象编排映射| Handoff
-    Dec -->|对象编排映射| Handoff
-
-    %% 样式微调
-    style Raw fill:#f9f9f9,stroke:#ccc,stroke-dasharray: 5 5
-    style SF fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
-    style Inter fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    style Clar fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5
-    style ConstCand fill:#fff3e0,stroke:#f57c00
-    style DecCand fill:#fff3e0,stroke:#f57c00
-    style Const fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style Dec fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style Handoff fill:#ede7f6,stroke:#673ab7,stroke-width:3px
-```
+![治理层核心对象地图](./assets/00-governance-core-object-map.png)
 
 
 来源片段（source fragment）提供依据边界。它可以被标准化摘录，但不能被偷偷解释。
@@ -146,28 +92,35 @@ graph TD
 
 结构化交接包（handoff package）把阶段性上下文交给下一位人或下一轮 AI，回答“接下来可以基于什么继续推进”。
 
-## 4. 治理层的主运行链
+## 4. 治理层与运行链的关系
 
-治理层运行时不应把所有规则一次性展开。默认主链只保留六步：
+G 层不定义阶段推进主链，也不定义“先做什么、后做什么、卡住后回哪一段”。
 
-1. 先检查是否存在会污染推进的不确定性、冲突或关键缺口。
-2. 再检查准备继续推进的内容是否有足够依据。
-3. 然后完成对象归类，明确内容属于哪个结构化对象层级。
-4. 进入判断收敛时，区分它是“已成立边界”还是“仍待选择”。
-5. 完成分流后，判断它当前处于已确认、高置信未确认，还是未决。
-6. 准备进入正式事实层或交接层前，检查它是否与已有稳定对象冲突。
+这些都属于 L 层。
 
-这条主链的重点不是“把所有东西都判完”，而是防止系统跳步。
+G 层在运行时只提供两类东西：
 
-尤其要防止三种跳步：
+- 治理检查口径：系统在准备继续推进、准备升格对象、准备发布交接物时，必须检查什么
+- 越级与异常禁令：哪些状态变化、对象升级或发布动作不允许静默发生
+
+当前与 L 层交界处，G 层只保留以下最小判断：
+
+- 不确定性、冲突和关键缺口是否已经被显性化到足以继续推进
+- 准备继续推进的内容是否具备足够依据
+- 当前内容应归入哪个结构化对象层级
+- 当前收敛结果属于“已成立边界”还是“仍待选择”
+- 当前对象处于已确认、高置信未确认，还是未决
+- 准备进入正式事实层或交接层前，是否与已有稳定对象冲突
+
+当前至少保留以下三类越级禁令：
 
 - 从来源片段（source fragment）直接跳到约束（constraint）或已确认决策（confirmed decision）
 - 从待澄清项（clarification）的回答直接跳到正式事实层
 - 从高置信解释直接写进正式交接物（formal handoff）
 
-当系统无法完成某一步时，默认不硬凑结论，而是保留在更保守层级，或显式生成待澄清项。
+至于这些检查在主链哪个检查点触发、未通过时停留还是回流、以及在哪一段重判，统一由 L 层定义。
 
-运行主链、最小运行规则集和异常切出点的展开见 [01 Runtime Baseline（运行基线）.md](</Users/apple/Desktop/evocanvas/docs/harness/G-governance/01 Runtime Baseline（运行基线）.md>)。
+治理检查口径、异常结果与最小规则集的展开见 [01 Runtime Baseline（运行基线）.md](</Users/apple/Desktop/evocanvas/docs/harness/G-governance/01 Runtime Baseline（运行基线）.md>)。
 
 ## 5. 事实层与风险层
 
@@ -209,7 +162,7 @@ graph TD
 
 解释对象（interpretation）要转入待决策候选（decision candidate），重点看它是否表达“仍需选择”。如果核心问题仍然是“要不要选 A、B 或其他方案”，就不应伪装成约束。
 
-待澄清项（clarification）被回答后，默认先回流解释对象（interpretation），再判断是否升级。只有在回答单义、低冲突、低风险、且不会改变多个下游依据时，才允许有限直升。
+待澄清项（clarification）被回答后，G 层只约束它是否满足有限直升条件，不定义它在主链上的回流顺序、重判位置与推进段位。这些由 L 层定义。
 
 有限直升的上限是：
 
@@ -238,32 +191,21 @@ graph TD
 
 ## 8. 交接物在治理层的位置
 
-交接物（handoff）不是聊天总结，也不是原话拼装包。
+交接物（handoff）不是原始事实来源，也不能绕过治理层成为事实发布通道。
 
-它是面向下一位人或下一轮 AI 的结构化上下文包，先服务于继续推进，再服务于快速读懂。
+G 层不定义交接物（handoff）的上游编排、条目结构、主对象选择或拆条规则。这些属于 L 层。
 
-交接物（handoff）的主要上游不是原始对话，而是已经形成的结构化对象：
+G 层只定义交接物（handoff）的生效边界：
 
-- 解释对象（interpretation）
-- 约束（constraint）
-- 待决策候选（decision candidate）
-- 已确认决策（confirmed decision）
-
-来源片段（source fragment）主要作为追溯依据，不是交接物的主要写作单位。
-
-交接物默认采用三层内容结构：
-
-- 已确认内容
-- 高置信但未确认内容
-- 未决问题 / 待拍板事项
+- 交接草稿（draft handoff）可以保持中间态
+- 正式交接物（formal handoff）不能掩盖关键未决问题
+- 已确认内容不得混入未完成确认的判断
+- 高置信但未确认内容必须与已确认内容显式分层
+- 高置信但未确认内容占比过高时，不得提升为正式交接物
 
 高置信但未确认内容不是猜测，而是对推进有价值但未满足正式确认门槛的准稳定内容。它进入交接物时必须说明为什么高置信、为什么仍未确认。
 
-高置信但未确认内容占比默认不应超过主体内容三分之一。超过时，交接物只能是草稿，不能升级为正式交接物（formal handoff）。
-
-每条交接物条目只允许承载一个核心判断。出现第二主判断、第二主对象或独立下游动作时，必须拆条。
-
-结构化交接包的条目编排、状态分层、主对象唯一和拆条规则见 [04 Handoff Governance（交接物治理）.md](</Users/apple/Desktop/evocanvas/docs/harness/G-governance/04 Handoff Governance（交接物治理）.md>)。
+交接物（handoff）的编排位置、上游对象、条目结构和拆条规则由 L 层定义；正式交接物的治理门槛见 [04 Handoff Governance（交接物治理）.md](</Users/apple/Desktop/evocanvas/docs/harness/G-governance/04 Handoff Governance（交接物治理）.md>)。
 
 ## 9. 异常治理
 

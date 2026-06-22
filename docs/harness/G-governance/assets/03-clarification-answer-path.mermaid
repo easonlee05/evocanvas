@@ -1,0 +1,26 @@
+flowchart TD
+    Start(["收到待澄清项 Clarification 的回答"]) --> Q_Unambiguous{"1. 是否单义 ?"}
+    
+    Q_Unambiguous -->|否| FlowBack["强制回流至<br/>解释对象 Interpretation 层"]
+    Q_Unambiguous -->|是| Q_LowConflict{"2. 是否低冲突 ?"}
+    
+    Q_LowConflict -->|否| FlowBack
+    Q_LowConflict -->|是| Q_LowRisk{"3. 是否低风险 ?"}
+    
+    Q_LowRisk -->|否| FlowBack
+    Q_LowRisk -->|是| Q_FanOut{"4. 依据扇出 <= 1 ?<br/>(不改变多个下游依据)"}
+    
+    Q_FanOut -->|否| FlowBack
+    Q_FanOut -->|是| Promo["触发有限直升 Limited Promotion"]
+    
+    Promo --> Target{"直升目标对象"}
+    Target -->|事实性边界| Const["约束 Constraint"]
+    Target -->|待选决策方案| DecCand["待决策候选 Decision Candidate"]
+    Target -.->|越级禁用!| Dec["已确认决策 Confirmed Decision"]
+
+    style Start fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px
+    style FlowBack fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Promo fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style Const fill:#e8f5e9,stroke:#2e7d32
+    style DecCand fill:#e8f5e9,stroke:#2e7d32
+    style Dec fill:#cfd8dc,stroke:#90a4ae,stroke-dasharray: 5 5

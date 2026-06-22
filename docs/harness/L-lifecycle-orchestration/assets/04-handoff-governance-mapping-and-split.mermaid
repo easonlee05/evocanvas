@@ -1,0 +1,39 @@
+flowchart TD
+    %% 数据输入与主对象判定
+    Input(["多源上游对象输入"]) --> Step1["1. 判定唯一主对象 Main Object"]
+    
+    Step1 --> Q_Downstream{"下游作用优先:<br/>哪一个对象决定下游去向?"}
+    Q_Downstream -->|单一显著| SetMain["设为主对象"]
+    Q_Downstream -->|无法区分| Q_Stability{"状态稳定性校正:<br/>哪一个状态更确认/稳定?"}
+    
+    Q_Stability -->|单一稳定| SetMain
+    Q_Stability -->|均等| Q_Type{"对象类型兜底:<br/>按预设类型权重兜底"}
+    Q_Type --> SetMain
+
+    %% 条目结构组装
+    SetMain --> Assembler["2. 条目字段装配"]
+    Assembler -->|主对象| MainItem["主判断 Main Judgment"]
+    Assembler -->|其它非主对象| SubItems["非主对象附着<br/>(作为 依据/边界/风险/未决 支撑)"]
+
+    %% 拆条检测
+    MainItem & SubItems --> CheckSplit{"3. 拆条规则检测"}
+    
+    %% 硬触发
+    CheckSplit --> Q_Hard{"硬触发判定:<br/>1. 出现第二主判断?<br/>2. 出现第二主对象?<br/>3. 产生独立下游动作?"}
+    Q_Hard -->|是| SplitAction["必须拆条! (拆为多条独立 Handoff Item)"]
+    
+    %% 软触发与未确认触发
+    Q_Hard -->|否| Q_Unconfirmed{"未确认部分是否触发独立下游动作?"}
+    Q_Unconfirmed -->|是| SplitAction
+    
+    Q_Unconfirmed -->|否| Q_Soft{"软触发判定:<br/>条目过载/状态过杂/阅读负担重?"}
+    Q_Soft -->|是| SplitAction
+    
+    %% 封装
+    Q_Soft -->|否| Pack["封装为单一交接条目 Handoff Item"]
+
+    %% 样式微调
+    style Input fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px
+    style SplitAction fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Pack fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style SetMain fill:#fffde7,stroke:#fbc02d

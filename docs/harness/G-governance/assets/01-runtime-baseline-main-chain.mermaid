@@ -1,0 +1,36 @@
+flowchart TD
+    %% 主链步骤定义
+    Start([开始运行主链]) --> S1["1. 不确定性与冲突检查"]
+    S1 --> S2["2. 依据检查"]
+    S2 --> S3["3. 对象归类"]
+    S3 --> S4["4. 边界 / 选择分流"]
+    S4 --> S5["5. 稳定等级判断"]
+    S5 --> S6["6. 冲突检测与发布"]
+    S6 --> End([主链发布完成])
+
+    %% 异常切出判定点
+    S1 -.->|发现显性冲突| ExConflict1[("冲突分支:<br/>进入待复核 / 待裁决")]
+    S2 -.->|依据不足但被写为稳定| ExOverstep[("越级分支:<br/>回退到应有层级")]
+    S5 -.->|稳定对象被新信息动摇| ExReview[("待复核分支:<br/>降为待复核状态")]
+    
+    S6 -.->|存在稳定冲突| ExConflict2[("冲突分支:<br/>挂起提案进入复核")]
+    ExConflict2 -->|复核确认替代| ExReplace[("替代分支:<br/>旧对象失效留痕<br/>新对象接管生效位")]
+    
+    S6 -.->|对象成立但交接会误导下游| ExHandoffDowngrade[("交接降格分支:<br/>降为草稿或限制交接")]
+
+    %% 样式微调
+    style Start fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px
+    style End fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style S1 fill:#fffde7,stroke:#fbc02d
+    style S2 fill:#fffde7,stroke:#fbc02d
+    style S3 fill:#fffde7,stroke:#fbc02d
+    style S4 fill:#fffde7,stroke:#fbc02d
+    style S5 fill:#fffde7,stroke:#fbc02d
+    style S6 fill:#fffde7,stroke:#fbc02d
+
+    style ExConflict1 fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5
+    style ExConflict2 fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5
+    style ExOverstep fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5
+    style ExReview fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5
+    style ExReplace fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5
+    style ExHandoffDowngrade fill:#ffebee,stroke:#c62828,stroke-dasharray: 5 5

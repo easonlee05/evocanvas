@@ -1,0 +1,29 @@
+sequenceDiagram
+    autonumber
+    actor User as "用户/授权角色"
+    participant Engine as "系统治理层"
+    participant OldConst as "旧约束 (Constraint)"
+    participant NewDec as "新确认决策 (Decision)"
+    participant Review as "待复核队列"
+
+    NewDec->>Engine: 1. 尝试进入稳定事实层
+    Engine->>OldConst: 2. 冲突检测 (同一主题/判断)
+    Note over Engine, OldConst: 发现显性冲突！
+    
+    Engine->>NewDec: 3. 拦截生效并标为「冲突提案」
+    Engine->>Review: 4. 挂起冲突对 (New Dec vs Old Const)
+    
+    Note over OldConst, Engine: 冲突复核期间：<br/>默认优先保护旧约束生效地位，下游只能引用旧约束
+    
+    User->>Review: 5. 介入并完成事实裁决
+    
+    alt 裁决路径 A: 确认新决策推翻旧约束 (替代)
+        User->>Engine: 批准替代方案
+        Engine->>OldConst: 标记为「已失效 (失效留痕)」
+        Engine->>NewDec: 标记为「已确认」并接管当前生效位
+        Engine->>Engine: 建立「新决策/约束 ──替代──> 旧约束」追溯指针
+    else 裁决路径 B: 维持旧约束 (拒绝新决策)
+        User->>Engine: 拒绝替代方案
+        Engine->>NewDec: 降级回退到待决策候选/解释对象层
+        Engine->>Review: 移出队列并关闭提案
+    end

@@ -149,7 +149,7 @@
 
 只要满足其中之一，就应提升为关键待澄清项。
 
-当待澄清项（clarification）被回答后，默认不直接越级进入正式事实层，而应先回流更新解释对象（interpretation）。
+当待澄清项（clarification）被回答后，G 层只判断它是否满足有限直升（limited promotion）的治理条件，不定义它在主链中的回流顺序、重判位置或阶段推进方式。
 
 只有在以下条件同时满足时，才允许有限直升：
 
@@ -179,7 +179,7 @@
 因此：
 
 - 即使表面上只更新一个对象，只要这个对象会反过来重写多条核心判断的依据链，也应视为“改变多个下游依据”
-- 这类情况不应走有限直升，而应先回流解释对象（interpretation）层，再重新判断后续升级路径
+- 这类情况不应走有限直升；至于回到解释对象（interpretation）层后的重判顺序，由 L 层定义
 
 这里所说的“低风险回答”，默认不按内容类型粗略判定，而按是否改变事实边界与下游依据来判定。
 
@@ -203,42 +203,12 @@
 
 系统不应只看净效果来粗略判定风险，也不应因为存在收敛收益，就自动放松对新边界的治理要求。
 
-#### 待澄清项回答后的治理路径摘要
+#### 待澄清项回答后的有限直升门槛摘要
 
-为便于实现与后续引用，待澄清项（clarification）被回答后的治理路径可先概括为以下基线：
+为便于实现与后续引用，G 层只保留待澄清项（clarification）回答后的有限直升门槛：
 
-- 默认先回流解释对象（interpretation）层，而不是直接越级进入正式事实层
 - 只有在回答内容单义（unambiguous）、低冲突（low conflict）、低风险（low risk）、且不会改变多个下游依据时，才允许有限直升（limited promotion）
 - 有限直升的上限默认是约束（constraint）或待决策（decision candidate），不直接形成已确认决策（confirmed decision）
-
-```mermaid
-flowchart TD
-    Start(["收到待澄清项 Clarification 的回答"]) --> Q_Unambiguous{"1. 是否单义 ?"}
-    
-    Q_Unambiguous -->|否| FlowBack["强制回流至<br/>解释对象 Interpretation 层"]
-    Q_Unambiguous -->|是| Q_LowConflict{"2. 是否低冲突 ?"}
-    
-    Q_LowConflict -->|否| FlowBack
-    Q_LowConflict -->|是| Q_LowRisk{"3. 是否低风险 ?"}
-    
-    Q_LowRisk -->|否| FlowBack
-    Q_LowRisk -->|是| Q_FanOut{"4. 依据扇出 <= 1 ?<br/>(不改变多个下游依据)"}
-    
-    Q_FanOut -->|否| FlowBack
-    Q_FanOut -->|是| Promo["触发有限直升 Limited Promotion"]
-    
-    Promo --> Target{"直升目标对象"}
-    Target -->|事实性边界| Const["约束 Constraint"]
-    Target -->|待选决策方案| DecCand["待决策候选 Decision Candidate"]
-    Target -.->|越级禁用!| Dec["已确认决策 Confirmed Decision"]
-
-    style Start fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px
-    style FlowBack fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style Promo fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style Const fill:#e8f5e9,stroke:#2e7d32
-    style DecCand fill:#e8f5e9,stroke:#2e7d32
-    style Dec fill:#cfd8dc,stroke:#90a4ae,stroke-dasharray: 5 5
-```
 
 其中：
 
@@ -253,11 +223,7 @@ flowchart TD
 - 如果只是把模糊说法压成更精确表达，只有在不改变事实边界与下游依据时，才可视为低风险精化
 - 如果某个解释对象（interpretation）从低置信变成高置信，但仍未形成正式边界，可以条件参与下游推进；一旦足以触发高风险对象生效，仍需补治理或确认动作
 
-对于对象流转与关闭动作，默认还应遵守以下规则：
-
-- 如果一个回答同时影响多个解释对象（interpretation），只有在它们共享同一语义核且不会分叉出不同下游路径时，才允许条件并行更新
-- 如果旧待澄清项（clarification）可以关闭，但又自然暴露出下一层新的待澄清项（clarification），允许条件闭环；若新项其实说明旧项并未真正解决，则旧项不应关闭
-- 如果一个回答只解决了旧待澄清项的一部分，应优先判断旧项是否本来混入了多个缺口；若是，则拆分处理；若不是，则不关闭，只更新进度或置信状态
+对象流转、闭环、拆分与重判顺序属于 L 层。G 层只要求：这些动作不得绕过有限直升门槛，也不得把未满足门槛的回答包装成稳定事实。
 
 
 #### 解释对象升级为约束的治理门槛摘要
@@ -463,13 +429,13 @@ flowchart TD
     - 待复核
   - “带复核保留的继续使用”不并入对象状态，而作为待复核下的一种使用模式单独表达
 
-#### 已确认决策的回退与待复核基线
+#### 已确认决策的待复核与替代基线
 
 为便于实现与后续引用，已确认决策（confirmed decision）在被后续信息动摇时，可先采用以下基线：
 
 - 已确认决策（confirmed decision）默认稳定，不因一般新信息自动回退
-- 只有在出现更强依据、更高优先级边界，或用户明确推翻时，才进入回退评估
-- 默认先回退到待复核状态，而不是立刻退回待决策候选（decision candidate）
+- 只有在出现更强依据、更高优先级边界，或用户明确推翻时，才进入待复核评估
+- 待复核是治理状态，不等于直接退回待决策候选（decision candidate）
 
 其中：
 
@@ -479,12 +445,8 @@ flowchart TD
   - 而是综合看它是否更贴近原始边界、更明确、更少解释跳跃、且更能直接改写当前决策成立的依据链
 
 - 待复核状态默认采用条件显式：
-  - 默认先作为治理层状态存在
-  - 但只要已经影响下游是否还能继续使用该已确认决策（confirmed decision），就必须显式暴露出来
-
-- 待复核后的生效方式默认采用条件降级：
-  - 如果复核触及核心边界或核心依据，默认暂停它作为稳定前提继续使用
-  - 如果只触及外围说明或局部影响，可以保留有限生效，但必须带待复核标记
+  - 若复核只触及外围说明或局部影响，可以保留原已确认决策（confirmed decision）身份，但必须带待复核标记
+  - 若复核触及决策对象本身、核心适用范围或核心依据，则不得继续作为完全稳定事实使用
 
 - “外围说明或局部影响”默认采用条件外围：
   - 不能只看主结论字面是否没变
@@ -493,60 +455,22 @@ flowchart TD
     - 适用范围
     - 下游主要动作
 
-- 如果用户在待复核期间明确要求“先按原结论继续推进”，默认采用条件继续：
-  - 可以继续推进
-  - 但必须明确这是“带复核保留的继续使用”
-  - 不能重新伪装成完全稳定的已确认决策（confirmed decision）
-
 - 如果复核完成后只需局部修订，默认采用条件修订：
   - 如果只是外围说明、适用范围微调或非核心影响修订，可以保留原已确认决策（confirmed decision）身份并记录修订
   - 但只要已经改写决策对象本身、核心适用范围或下游主要动作，就应生成新的已确认决策（confirmed decision）
+
+待复核期间是否允许带保留继续推进、如何在下游引用该决策，由 L 层定义。
 
 #### 约束与已确认决策的并存、冲突与替代基线
 
 为便于实现与后续引用，当约束（constraint）与已确认决策（confirmed decision）围绕同一主题同时存在时，当前可先采用以下最小治理基线：
 
 - 默认由约束（constraint）提供上位边界
-- 当已确认决策（confirmed decision）明确是在该边界内完成的具体拍板时，下游可优先引用决策对象
 - 但不得脱离其上位约束语境单独使用
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as "用户/授权角色"
-    participant Engine as "系统治理层"
-    participant OldConst as "旧约束 (Constraint)"
-    participant NewDec as "新确认决策 (Decision)"
-    participant Review as "待复核队列"
-
-    NewDec->>Engine: 1. 尝试进入稳定事实层
-    Engine->>OldConst: 2. 冲突检测 (同一主题/判断)
-    Note over Engine, OldConst: 发现显性冲突！
-    
-    Engine->>NewDec: 3. 拦截生效并标为「冲突提案」
-    Engine->>Review: 4. 挂起冲突对 (New Dec vs Old Const)
-    
-    Note over OldConst, Engine: 冲突复核期间：<br/>默认优先保护旧约束生效地位，下游只能引用旧约束
-    
-    User->>Review: 5. 介入并完成事实裁决
-    
-    alt 裁决路径 A: 确认新决策推翻旧约束 (替代)
-        User->>Engine: 批准替代方案
-        Engine->>OldConst: 标记为「已失效 (失效留痕)」
-        Engine->>NewDec: 标记为「已确认」并接管当前生效位
-        Engine->>Engine: 建立「新决策/约束 ──替代──> 旧约束」追溯指针
-    else 裁决路径 B: 维持旧约束 (拒绝新决策)
-        User->>Engine: 拒绝替代方案
-        Engine->>NewDec: 降级回退到待决策候选/解释对象层
-        Engine->>Review: 移出队列并关闭提案
-    end
-```
+![新决策与旧约束的冲突裁决路径](./assets/03-decision-vs-constraint-conflict-review.png)
 
 其中：
-
-- 对“谁是下游主前提”，默认采用条件主前提：
-  - 如果当前真正要被下游执行的是某个具体选择，且该选择并未改写上位边界，则可优先引用已确认决策（confirmed decision）
-  - 如果当前真正要交代的是边界本身，或该边界正在决定下游可否继续推进，则应优先引用约束（constraint）
 
 - 对“新决策与旧约束看起来冲突”，默认采用异常冲突：
   - 不得静默认为新决策自动推翻旧约束
@@ -563,12 +487,4 @@ sequenceDiagram
   - 保留其历史记录并标记为失效
   - 再由新的约束（constraint）或新的已确认决策（confirmed decision）接管当前生效位
 
-- 对“新约束与新已确认决策谁接主位”，默认采用核心判断优先：
-  - 不按对象类型机械抢位
-  - 由当前真正要被下游执行的核心判断接主位
-  - 另一方作为其上位边界或配套结果保留
-
-- 对“替代关系是否需要对下游可见”，默认采用主视图轻显式：
-  - 主视图默认先展示当前生效结果
-  - 但必须保留清楚的“由谁替代谁”的可见追溯入口
-  - 若属于高风险场景，可前置显示替代提示
+新约束与新已确认决策谁作为下游主前提、替代关系如何对下游可见，由 L 层定义；G 层只要求替代关系必须可追溯。

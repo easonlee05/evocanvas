@@ -183,8 +183,10 @@
       "bases:新建数据库": false
     }
   },
-  "active": "ea0fde8077189231",
+  "active": "59cf6e6f56bb2396",
   "lastOpenFiles": [
+    "harness/L-lifecycle-orchestration/assets/06-lifecycle-state-machine.png",
+    "harness/L-lifecycle-orchestration/assets/06-lifecycle-state-machine.mermaid",
     "harness/L-lifecycle-orchestration/assets/05-authority-and-guardrails-sequence.mermaid",
     "harness/L-lifecycle-orchestration/assets/04-handoff-governance-mapping-and-split.mermaid",
     "harness/L-lifecycle-orchestration/assets/03-clarification-answer-path.mermaid",
@@ -194,12 +196,10 @@
     "harness/G-governance/assets/03-decision-vs-constraint-conflict-review.mermaid",
     "harness/G-governance/assets/03-clarification-answer-path.mermaid",
     "harness/G-governance/assets/01-runtime-baseline-main-chain.mermaid",
-    "harness/G-governance/assets/00-governance-core-object-map.mermaid",
     "harness/L-lifecycle-orchestration/assets/01-runtime-baseline-main-chain.png",
     "harness/L-lifecycle-orchestration/assets/05-authority-and-guardrails-sequence.png",
     "harness/L-lifecycle-orchestration/assets/04-handoff-governance-mapping-and-split.png",
     "harness/L-lifecycle-orchestration/assets/03-clarification-answer-path.png",
-    "harness/L-lifecycle-orchestration/assets",
     "harness/G-governance/assets/03-decision-vs-constraint-conflict-review.png",
     "harness/G-governance/assets/05-authority-and-guardrails-sequence.png",
     "harness/G-governance/assets/04-handoff-governance-mapping-and-split.png",

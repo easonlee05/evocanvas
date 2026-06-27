@@ -227,7 +227,9 @@ class CanvasService:
             )
             proposal.metadata["intent"] = plan.intent
             proposal.metadata["roles"] = list(plan.roles)
-            proposal.metadata["verification_receipt"] = verify_mutation_proposal(proposal, intent=plan.intent)
+            proposal.metadata["verification_receipt"] = verify_mutation_proposal(
+                proposal, intent=plan.intent, existing_cards=existing_cards
+            )
             self._publish_event(
                 workspace_id,
                 "canvas.mutation.proposed",
@@ -242,12 +244,13 @@ class CanvasService:
                 ),
                 status="proposed",
             )
-            outcome = self.governance.classify(proposal)
+            outcome = self.governance.classify(proposal, existing_cards=existing_cards)
             apply_turn_runtime_state(
                 workspace,
                 intent=plan.intent,
                 proposal=proposal,
                 result_action=outcome.action,
+                cards=existing_cards,
                 pending_gate_ids=[proposal.proposal_id] if outcome.action == "pending_confirmation" else [],
                 unresolved_issue_ids=unresolved_issue_ids_from_cards(existing_cards),
             )
@@ -256,12 +259,34 @@ class CanvasService:
 
             if outcome.action == "auto_apply":
                 self._apply_proposal(workspace, proposal)
-            else:
+                # 应用提案后，重新加载最新的卡片并再次更新运行时元数据以同步状态账本
+                updated_cards = self.repository.load_cards(workspace_id)
+                apply_turn_runtime_state(
+                    workspace,
+                    intent=plan.intent,
+                    proposal=proposal,
+                    result_action=outcome.action,
+                    cards=updated_cards,
+                    pending_gate_ids=[],
+                    unresolved_issue_ids=unresolved_issue_ids_from_cards(updated_cards),
+                )
+                self.repository.save_workspace(workspace)
+            elif outcome.action == "pending_confirmation":
                 self._mark_turn_awaiting_confirmation(workspace_id, turn_id)
+            else:
+                # 验证失败情况 (downgrade_to_proposal 或 awaiting_clarification)
+                # 不应用提案，也不用挂起，回合由于错误直接结束
+                pass
+
+            event_type = "canvas.mutation.applied"
+            if outcome.action == "pending_confirmation":
+                event_type = "canvas.confirmation.requested"
+            elif outcome.action in {"downgrade_to_proposal", "awaiting_clarification"}:
+                event_type = "canvas.mutation.failed"
 
             self._publish_event(
                 workspace_id,
-                "canvas.confirmation.requested" if outcome.action == "pending_confirmation" else "canvas.mutation.applied",
+                event_type,
                 self._proposal_event_payload(
                     workspace_id=workspace_id,
                     turn_id=turn_id,
@@ -273,7 +298,7 @@ class CanvasService:
                 ),
                 status=proposal.status.value,
             )
-            if outcome.action == "auto_apply":
+            if outcome.action != "pending_confirmation":
                 self._finish_turn(workspace_id, turn_id)
                 self._publish_event(
                     workspace_id,
@@ -346,13 +371,15 @@ class CanvasService:
                 "confirmation_state": "confirmed",
             }
             self._touch_workspace(workspace)
+        updated_cards = self.repository.load_cards(workspace_id)
         apply_turn_runtime_state(
             workspace,
             intent=str(approved.metadata.get("intent", "")),
             proposal=approved,
             result_action="approved",
+            cards=updated_cards,
             pending_gate_ids=[],
-            unresolved_issue_ids=unresolved_issue_ids_from_cards(self.repository.load_cards(workspace_id)),
+            unresolved_issue_ids=unresolved_issue_ids_from_cards(updated_cards),
         )
         self.repository.save_workspace(workspace)
         self.repository.save_confirmation_queue(workspace_id, remaining)
@@ -1183,6 +1210,7 @@ class CanvasService:
         )
 
     def _apply_proposal(self, workspace: CanvasWorkspace, proposal: CanvasMutationProposal) -> None:
+        from app.canvas.domain.relations import CanvasRelation, CanvasRelationKind
         cards = self.repository.load_cards(workspace.workspace_id)
         relations = self.repository.load_relations(workspace.workspace_id)
         handoff = self.repository.load_handoff(workspace.workspace_id)
@@ -1198,27 +1226,103 @@ class CanvasService:
                 "create_decision_request",
                 "refresh_handoff_card",
             }:
+                from app.canvas.domain.cards import CanvasCardKind
                 card = CanvasCard.from_dict(mutation.payload["card"])
+                
+                # 水合 G层 最小治理与验证基线字段
+                receipt = dict(proposal.metadata.get("verification_receipt", {}))
+                card.metadata["governance_state"] = "proposal"
+                card.metadata["verification_state"] = receipt.get("result", "passed")
+                card.metadata["source_summary"] = card.summary[:100] if card.summary else ""
+                
+                if card.kind == CanvasCardKind.CONSTRAINT:
+                    card.metadata.setdefault("stability_source", "raw_compiler")
+                    card.metadata.setdefault("impact_scope", "general")
+                    card.metadata.setdefault("review_risk", False)
+                elif card.kind == CanvasCardKind.DECISION:
+                    card.metadata.setdefault("confirmation_source", "")
+                    card.metadata.setdefault("current_stable_status", "proposal")
+
                 card_index[card.card_id] = card
                 latest_card_id = card.card_id
             elif mutation.target == CanvasMutationTarget.CARD and mutation.action == CanvasMutationAction.UPDATE:
                 card = card_index.get(mutation.target_id)
                 if card is None:
                     continue
-                if "title" in mutation.payload:
-                    card.title = str(mutation.payload["title"])
-                if "summary" in mutation.payload:
-                    card.summary = str(mutation.payload["summary"])
-                if "stage" in mutation.payload:
-                    card.stage = str(mutation.payload["stage"])
-                if "status" in mutation.payload:
-                    card.status = str(mutation.payload["status"])
-                if "tags" in mutation.payload:
-                    card.tags = [str(tag) for tag in mutation.payload["tags"]]
-                if "metadata" in mutation.payload:
-                    card.metadata = {**card.metadata, **dict(mutation.payload["metadata"])}
-                card_index[card.card_id] = card
-                latest_card_id = card.card_id
+
+                # 检查是否修改了已确认的稳定事实卡片核心字段（冲突替代留痕）
+                title_changed = "title" in mutation.payload and mutation.payload["title"] is not None and str(mutation.payload["title"]).strip() != card.title.strip()
+                summary_changed = "summary" in mutation.payload and mutation.payload["summary"] is not None and str(mutation.payload["summary"]).strip() != card.summary.strip()
+                is_stable = card.status in {"confirmed", "effective", "resolved"}
+
+                if is_stable and (title_changed or summary_changed):
+                    import copy
+                    new_card_id = f"card_{uuid4().hex[:10]}"
+                    new_card = copy.deepcopy(card)
+                    new_card.card_id = new_card_id
+                    
+                    if "title" in mutation.payload:
+                        new_card.title = str(mutation.payload["title"])
+                    if "summary" in mutation.payload:
+                        new_card.summary = str(mutation.payload["summary"])
+                    if "stage" in mutation.payload:
+                        new_card.stage = str(mutation.payload["stage"])
+                    if "status" in mutation.payload:
+                        new_card.status = str(mutation.payload["status"])
+                    else:
+                        new_card.status = "confirmed"
+                    if "tags" in mutation.payload:
+                        new_card.tags = [str(tag) for tag in mutation.payload["tags"]]
+                    if "metadata" in mutation.payload:
+                        new_card.metadata = {**new_card.metadata, **dict(mutation.payload["metadata"])}
+                    
+                    # 记录相互替代关系与治理水合
+                    new_card.metadata["supersedes"] = card.card_id
+                    new_card.metadata["governance_state"] = "confirmed"
+                    new_card.metadata["verification_state"] = "passed"
+                    new_card.metadata["source_summary"] = new_card.summary[:100] if new_card.summary else ""
+                    
+                    card.status = "superseded"
+                    card.metadata["governance_state"] = "superseded"
+                    card.metadata["superseded_by"] = new_card_id
+
+                    card_index[card.card_id] = card
+                    card_index[new_card_id] = new_card
+                    latest_card_id = new_card_id
+
+                    # 建立 DERIVED_FROM 替代追溯关系
+                    supersede_relation = CanvasRelation(
+                        relation_id=f"rel_{uuid4().hex[:10]}",
+                        kind=CanvasRelationKind.DERIVED_FROM,
+                        from_card_id=card.card_id,
+                        to_card_id=new_card_id,
+                        metadata={"source_proposal_id": proposal.proposal_id, "relation_type": "supersede_tracking"}
+                    )
+                    relation_index[supersede_relation.relation_id] = supersede_relation
+                else:
+                    if "title" in mutation.payload:
+                        card.title = str(mutation.payload["title"])
+                    if "summary" in mutation.payload:
+                        card.summary = str(mutation.payload["summary"])
+                    if "stage" in mutation.payload:
+                        card.stage = str(mutation.payload["stage"])
+                    if "status" in mutation.payload:
+                        card.status = str(mutation.payload["status"])
+                    if "tags" in mutation.payload:
+                        card.tags = [str(tag) for tag in mutation.payload["tags"]]
+                    if "metadata" in mutation.payload:
+                        card.metadata = {**card.metadata, **dict(mutation.payload["metadata"])}
+                    
+                    # 水合治理状态
+                    if card.status in {"confirmed", "effective", "resolved"}:
+                        card.metadata["governance_state"] = "confirmed"
+                        card.metadata["verification_state"] = "passed"
+                    else:
+                        card.metadata["governance_state"] = "proposal"
+                    card.metadata["source_summary"] = card.summary[:100] if card.summary else ""
+
+                    card_index[card.card_id] = card
+                    latest_card_id = card.card_id
             elif mutation.target == CanvasMutationTarget.HANDOFF and mutation_type == "refresh_handoff_draft":
                 handoff = StructuredHandoff.from_dict(mutation.payload["handoff"])
             elif mutation.target == CanvasMutationTarget.SNAPSHOT and mutation_type == "create_snapshot":

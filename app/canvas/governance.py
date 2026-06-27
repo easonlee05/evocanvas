@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.canvas.domain.cards import CanvasCard
 from app.canvas.domain.mutations import CanvasMutationProposal, CanvasMutationStatus, CanvasMutationTarget, MutationRiskLevel
 
 
@@ -35,30 +36,107 @@ class MutationGovernance:
     def __init__(self, repository=None) -> None:
         self.repository = repository
 
-    def classify(self, proposal: CanvasMutationProposal) -> GovernanceOutcome:
+    MEDIUM_RISK_MUTATION_TYPES = {
+        "create_constraint_candidate",
+        "create_decision_candidate",
+        "merge_problems",
+        "refresh_handoff_draft",
+        "refresh_handoff_card",
+    }
+
+    def classify(
+        self,
+        proposal: CanvasMutationProposal,
+        existing_cards: list[CanvasCard] | None = None,
+    ) -> GovernanceOutcome:
         """返回提案处理方式，并同步标记提案风险等级。"""
 
-        if any(self._is_high_risk_mutation(mutation) for mutation in proposal.mutations):
+        from app.canvas.domain.cards import CanvasCardKind
+
+        # 1. 结合验证回执处理验证失败情况
+        receipt = proposal.metadata.get("verification_receipt", {})
+        if receipt.get("result") == "failed":
+            action = receipt.get("recommendation") or "downgrade_to_proposal"
+            rollback_hint = "compilation" if action == "downgrade_to_proposal" else "clarification"
+            proposal.status = CanvasMutationStatus.PROPOSED
             proposal.risk_level = MutationRiskLevel.HIGH
+            proposal.metadata["rollback_hint"] = rollback_hint
+            return GovernanceOutcome(action=action, risk_level=MutationRiskLevel.HIGH)
+
+        # 2. 精细化计算提案风险等级
+        max_risk = MutationRiskLevel.LOW
+        for mutation in proposal.mutations:
+            risk = self._evaluate_mutation_risk(mutation, existing_cards)
+            if risk == MutationRiskLevel.HIGH:
+                max_risk = MutationRiskLevel.HIGH
+                break
+            elif risk == MutationRiskLevel.MEDIUM:
+                max_risk = MutationRiskLevel.MEDIUM
+
+        proposal.risk_level = max_risk
+
+        # 3. 针对验证通过的分类动作决定
+        if max_risk == MutationRiskLevel.HIGH:
             proposal.status = CanvasMutationStatus.PENDING_CONFIRMATION
             proposal.metadata["gate_reason"] = self._gate_reason_for(proposal)
             self._enqueue_confirmation(proposal)
             return GovernanceOutcome(action="pending_confirmation", risk_level=MutationRiskLevel.HIGH)
 
-        proposal.risk_level = MutationRiskLevel.LOW
         proposal.status = CanvasMutationStatus.APPLIED
         proposal.metadata["gate_reason"] = ""
-        return GovernanceOutcome(action="auto_apply", risk_level=MutationRiskLevel.LOW)
+        return GovernanceOutcome(action="auto_apply", risk_level=max_risk)
 
-    def _is_high_risk_mutation(self, mutation) -> bool:
+    def _evaluate_mutation_risk(
+        self,
+        mutation,
+        existing_cards: list[CanvasCard] | None = None,
+    ) -> MutationRiskLevel:
+        """评估单条变更的风险级别。"""
+
+        from app.canvas.domain.cards import CanvasCardKind
+
+        # 检查高风险
         mutation_type = str(mutation.metadata.get("mutation_type", ""))
         status = str(mutation.payload.get("status", ""))
-        return bool(
+        card_payload = mutation.payload.get("card")
+        if card_payload is not None:
+            status = status or str(card_payload.get("status", ""))
+
+        is_high = bool(
             mutation.requires_confirmation
             or mutation.target in self.HIGH_RISK_TARGETS
             or mutation_type in self.HIGH_RISK_MUTATION_TYPES
             or status in self.HIGH_RISK_STATUSES
         )
+
+        # 检查是否修改了已确认卡片核心字段（高风险冲突）
+        if not is_high and existing_cards and mutation.target == CanvasMutationTarget.CARD and mutation.action.value == "update":
+            card_map = {c.card_id: c for c in existing_cards}
+            orig_card = card_map.get(mutation.target_id)
+            if orig_card and orig_card.status in {"confirmed", "effective", "resolved"}:
+                new_title = mutation.payload.get("title")
+                new_summary = mutation.payload.get("summary")
+                if (new_title is not None and new_title.strip() != orig_card.title.strip()) or \
+                   (new_summary is not None and new_summary.strip() != orig_card.summary.strip()):
+                    is_high = True
+
+        if is_high:
+            return MutationRiskLevel.HIGH
+
+        # 检查中风险
+        kind = None
+        if card_payload is not None:
+            kind = card_payload.get("kind")
+
+        is_medium = bool(
+            mutation_type in self.MEDIUM_RISK_MUTATION_TYPES
+            or (mutation.target == CanvasMutationTarget.CARD and mutation.action.value == "add" and kind in {CanvasCardKind.CONSTRAINT.value, CanvasCardKind.DECISION.value})
+            or (mutation.target == CanvasMutationTarget.CARD and mutation.action.value == "update" and mutation_type in {"update_constraint", "update_decision"})
+        )
+        if is_medium:
+            return MutationRiskLevel.MEDIUM
+
+        return MutationRiskLevel.LOW
 
     def _enqueue_confirmation(self, proposal: CanvasMutationProposal) -> None:
         if self.repository is None:

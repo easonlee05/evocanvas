@@ -22,6 +22,7 @@ def default_lifecycle_state() -> Dict[str, Any]:
         "checkpoint": "idle",
         "pending_gate_ids": [],
         "unresolved_issue_ids": [],
+        "transition_history": [],
     }
 
 
@@ -33,6 +34,99 @@ def default_verification_summary() -> Dict[str, Any]:
         "checks": {},
         "gate_reason": "",
         "proposal_id": "",
+    }
+
+
+def build_state_ledger(
+    workspace: CanvasWorkspace,
+    cards: Iterable[CanvasCard],
+    proposal: CanvasMutationProposal,
+    result_action: str,
+) -> Dict[str, Any]:
+    """生成工作区的最小状态账本。"""
+
+    card_list = list(cards)
+    blocked_by_card_ids: list[str] = []
+    non_blocking_reminders: list[dict[str, Any]] = []
+
+    # 1. 计算关键未决卡片 (blocked_by_card_ids) 和非阻塞提醒
+    for card in card_list:
+        if card.kind in {CanvasCardKind.CLARIFICATION, CanvasCardKind.DECISION} and card.status in {
+            "open",
+            "draft",
+            "pending",
+        }:
+            blocked_by_card_ids.append(card.card_id)
+        elif card.status == "superseded" or card.metadata.get("governance_state") == "under_review":
+            non_blocking_reminders.append({
+                "card_id": card.card_id,
+                "title": card.title,
+                "type": card.kind.value if hasattr(card.kind, "value") else str(card.kind),
+                "reason": "已失效被替代" if card.status == "superseded" else "处于复核状态",
+            })
+
+    # 2. 计算阶段结论 stage_conclusion (主判断)
+    stage_conclusion: dict[str, Any] = {}
+    leading_card = None
+
+    # 优先选取已确认的约束或决策卡片
+    for card in card_list:
+        if card.kind in {CanvasCardKind.CONSTRAINT, CanvasCardKind.DECISION} and card.status in {
+            "confirmed",
+            "effective",
+        }:
+            leading_card = card
+            break
+
+    # 若无，寻找未确认的候选约束或决策
+    if leading_card is None:
+        for card in card_list:
+            if card.kind in {CanvasCardKind.CONSTRAINT, CanvasCardKind.DECISION} and card.status not in {
+                "superseded",
+            }:
+                leading_card = card
+                break
+
+    if leading_card is not None:
+        stage_conclusion = {
+            "card_id": leading_card.card_id,
+            "title": leading_card.title,
+            "content_summary": leading_card.summary[:100] if leading_card.summary else "",
+            "is_confirmed": leading_card.status in {"confirmed", "effective"},
+            "lead_reason": "上位事实边界" if leading_card.kind == CanvasCardKind.CONSTRAINT else "已拍板决策",
+        }
+    else:
+        stage_conclusion = {
+            "card_id": None,
+            "title": workspace.title or "待收敛结论",
+            "content_summary": workspace.objective or "",
+            "is_confirmed": False,
+            "lead_reason": "初始目标",
+        }
+
+    # 3. 确定当前阶段和下一步推进 hint
+    current_stage = workspace.metadata.get("lifecycle", {}).get("stage_node", "compilation")
+    progression_map = {
+        "compilation": "clarification",
+        "clarification": "convergence",
+        "convergence": "handoff",
+        "handoff": "handoff",
+    }
+    next_hint = progression_map.get(current_stage, "handoff")
+
+    gate_reason = str(proposal.metadata.get("gate_reason", ""))
+    receipt = dict(proposal.metadata.get("verification_receipt", {}))
+    if receipt.get("result") == "failed":
+        gate_reason = "verification_failed"
+
+    return {
+        "stage_node": current_stage,
+        "checkpoint": workspace.metadata.get("lifecycle", {}).get("checkpoint", "idle"),
+        "next_progression_hint": next_hint,
+        "gate_reason": gate_reason,
+        "blocked_by_card_ids": blocked_by_card_ids,
+        "non_blocking_reminders": non_blocking_reminders,
+        "stage_conclusion": stage_conclusion,
     }
 
 
@@ -104,6 +198,7 @@ def build_handoff_metadata(
 
     card_list = list(cards)
     unresolved_count = 0
+    high_confidence_unconfirmed_count = 0
     generated_from_card_ids: list[str] = []
     for card in card_list:
         if card.kind == CanvasCardKind.HANDOFF:
@@ -115,6 +210,12 @@ def build_handoff_metadata(
             "pending",
         }:
             unresolved_count += 1
+        if card.kind in {CanvasCardKind.CONSTRAINT, CanvasCardKind.DECISION} and card.status not in {
+            "confirmed",
+            "resolved",
+            "superseded",
+        }:
+            high_confidence_unconfirmed_count += 1
 
     return {
         "confirmation_state": confirmation_state,
@@ -122,7 +223,7 @@ def build_handoff_metadata(
         "generated_from_card_ids": generated_from_card_ids,
         "generated_from_card_count": len(generated_from_card_ids),
         "unresolved_count": unresolved_count,
-        "high_confidence_unconfirmed_count": 0,
+        "high_confidence_unconfirmed_count": high_confidence_unconfirmed_count,
         "refreshed_by": refreshed_by,
         "refreshed_at": refreshed_at,
     }
@@ -154,6 +255,7 @@ def apply_turn_runtime_state(
     intent: str,
     proposal: CanvasMutationProposal,
     result_action: str,
+    cards: Iterable[CanvasCard] | None = None,
     pending_gate_ids: Optional[list[str]] = None,
     unresolved_issue_ids: Optional[list[str]] = None,
 ) -> CanvasWorkspace:
@@ -169,13 +271,87 @@ def apply_turn_runtime_state(
         "gate_reason": gate_reason,
         "proposal_id": proposal.proposal_id,
     }
+
+    # 确定初始阶段节点
+    stage_node = stage_node_for_intent(intent)
+    rollback_hint = proposal.metadata.get("rollback_hint")
+    if rollback_hint:
+        stage_node = rollback_hint
+
+    # 提取原阶段状态与跃迁历史
+    old_lifecycle = dict(metadata.get("lifecycle", default_lifecycle_state()))
+    from_stage = old_lifecycle.get("stage_node", "compilation")
+
+    # 相邻阶段回流校验保护算法
+    stages_order = ["compilation", "clarification", "convergence", "handoff"]
+    try:
+        from_idx = stages_order.index(from_stage)
+        to_idx = stages_order.index(stage_node)
+        # 如果试图向前回滚且步长超过相邻段（即回滚2段或以上）
+        if to_idx < from_idx - 1:
+            # 强行修正为相邻的前序阶段，防止跨级大回退
+            stage_node = stages_order[from_idx - 1]
+    except ValueError:
+        pass
+
+    # 映射处理结果到运行时的 checkpoint
+    checkpoint_map = {
+        "pending_confirmation": "awaiting_confirmation",
+        "downgrade_to_proposal": "fallback_to_proposal",
+        "awaiting_clarification": "awaiting_clarification",
+        "auto_apply": "applied",
+        "approved": "applied",
+    }
+    checkpoint = checkpoint_map.get(result_action, "applied")
+
+    # 记录跃迁历史
+    history = list(old_lifecycle.get("transition_history", []))
+    try:
+        f_idx = stages_order.index(from_stage)
+        t_idx = stages_order.index(stage_node)
+        if t_idx > f_idx:
+            action_type = "advance"
+        elif t_idx < f_idx:
+            action_type = "rollback"
+        else:
+            action_type = "stay"
+    except ValueError:
+        action_type = "stay"
+
+    reason_category = "auto_apply"
+    if result_action in {"downgrade_to_proposal", "awaiting_clarification"}:
+        reason_category = "verification_failed"
+    elif result_action == "pending_confirmation":
+        reason_category = "gate_intercept"
+
+    history.append({
+        "turn_id": proposal.turn_id,
+        "from_stage": from_stage,
+        "to_stage": stage_node,
+        "action_type": action_type,
+        "reason_category": reason_category,
+        "reason_details": f"意图: {intent}, 回合应用动作: {result_action}",
+    })
+    # 限制历史条数，防止元数据体积无限膨胀
+    if len(history) > 30:
+        history = history[-30:]
+
     metadata["lifecycle"] = {
-        "stage_node": stage_node_for_intent(intent),
-        "checkpoint": "awaiting_confirmation" if result_action == "pending_confirmation" else "applied",
+        "stage_node": stage_node,
+        "checkpoint": checkpoint,
         "pending_gate_ids": list(pending_gate_ids or []),
         "unresolved_issue_ids": list(unresolved_issue_ids or []),
+        "transition_history": history,
     }
     workspace.metadata = metadata
+
+    # 4. 生成状态账本并写入 metadata
+    actual_cards = cards if cards is not None else []
+    metadata["state_ledger"] = build_state_ledger(
+        workspace, actual_cards, proposal, result_action
+    )
+    workspace.metadata = metadata
+
     return workspace
 
 
@@ -196,6 +372,7 @@ def build_canvas_view_meta(
         "verification_summary": dict(
             workspace.metadata.get("verification_summary", default_verification_summary())
         ),
+        "state_ledger": dict(workspace.metadata.get("state_ledger", {})),
         "pending_confirmation_ids": list(pending_confirmation_ids),
         "handoff_state": build_handoff_state(workspace, handoff),
     }

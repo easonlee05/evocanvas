@@ -1,7 +1,7 @@
 # EvoCanvas Harness 宪法文档集
 
 > 当前整体判断：`文档集整体处于 L2 向 L3 过渡阶段`
-> 编码门槛：`仅 G 层、L 层已达到可直接指导第一批实现的 L3；其余层默认仍按未到 L3 处理`
+> 编码门槛：`G 层、L 层、V 层已达到可直接指导第一批实现的 L3；其余层默认仍按未到 L3 处理`
 
 这组文档不是对当前后端实现的解释，也不以现有代码结构作为事实来源。
 
@@ -38,7 +38,7 @@
 
 1. `docs/harness/00-system-view/`
 2. `docs/harness/G-governance/00 Governance（治理）.md`
-3. `docs/harness/V-verification/`
+3. `docs/harness/V-verification/00 Verification（验证）.md`
 4. `docs/harness/L-lifecycle-orchestration/00 Lifecycle Orchestration（生命周期与编排）.md`
 5. `docs/harness/C-context-memory/`
 6. `docs/harness/T-tool-interfaces/`
@@ -51,6 +51,8 @@
 
 - `docs/harness/00-system-view/`
   - 总体系统视角，定义 EvoCanvas 的 Harness 总目标、系统边界、主状态推进逻辑与分层关系。
+- `docs/harness/00-system-view/01 ETCLOVG Framework（ETCLOVG 模型总览）.md`
+  - 基于权威论文整理的 ETCLOVG 七层框架总览，只讲模型本身，不替代 EvoCanvas 各层设计规格。
 - `docs/harness/E-execution-environment/`
   - E 层：执行环境，定义受控运行单元、隔离边界、失败恢复和写入边界。
 - `docs/harness/T-tool-interfaces/`
@@ -66,11 +68,23 @@
 - `docs/harness/L-lifecycle-orchestration/03 State Ledger（状态账本）.md`
   - 状态账本最小记录范围、关键未决、非阻塞提醒与尾项摘要。
 - `docs/harness/L-lifecycle-orchestration/04 Handoff Orchestration（交接编排）.md`
-  - 结构化交接物（structured handoff）的编排规则、条目治理与草稿 / 正式边界。
+  - 结构化交接物（structured handoff）的编排规则、条目治理、包层骨架与草稿 / 正式边界。
+- `docs/harness/L-lifecycle-orchestration/05 Complex Turn Orchestration（复杂回合编排）.md`
+  - 三角编排的启用条件、默认顺序、角色边界与循环约束。
+- `docs/harness/L-lifecycle-orchestration/06 L3 Baseline（L3 基线）.md`
+  - L 层当前设计禁令、1.0 最小落地要求与可直接引用的 L3 主干摘要。
 - `docs/harness/O-observability/`
   - O 层：可观测性，定义回合追踪（turn trace）、提案追踪（proposal trace）、治理痕迹与来源追溯。
-- `docs/harness/V-verification/`
-  - V 层：验证，定义结构验证、策略验证、来源验证和独立评估职责。
+- `docs/harness/V-verification/00 Verification（验证）.md`
+  - V 层主文档：验证立场、与 L / G 的边界、四个一级模块、验证总闭环与设计禁令。
+- `docs/harness/V-verification/01 Structure Verification（结构验证）.md`
+  - 结构验证的最小规则、关键对象结构要求与默认挂载关系。
+- `docs/harness/V-verification/02 Source Verification（来源验证）.md`
+  - 来源引用、证据链、冲突披露与解释对象的依据约束。
+- `docs/harness/V-verification/03 Policy Verification（策略验证）.md`
+  - 待澄清、约束 / 待决策、高影响动作与结构化交接的策略跳步检查。
+- `docs/harness/V-verification/04 Independent Evaluation（独立评估）.md`
+  - 高价值输出的额外复核口径、启用条件与最小输出。
 - `docs/harness/G-governance/00 Governance（治理）.md`
   - G 层主文档：治理框架、主干关系与扩展文档导航。
 - `docs/harness/G-governance/01 Runtime Baseline（运行基线）.md`

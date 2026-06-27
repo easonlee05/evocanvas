@@ -295,6 +295,10 @@ EvoCanvas 的主状态机不是聊天状态机，而是收敛状态机。
 
 ## 8. ETCLOVG 在 EvoCanvas 中的职责分工
 
+如果需要先回到 `ETCLOVG` 模型本身，而不是直接看 EvoCanvas 的本地化分层解释，可先阅读：
+
+- [01 ETCLOVG Framework（ETCLOVG 模型总览）.md](</Users/apple/Desktop/evocanvas/docs/harness/00-system-view/01 ETCLOVG Framework（ETCLOVG 模型总览）.md>)
+
 ### 8.1 G：治理（Governance）
 
 定义什么能做、什么不能做、什么必须确认、什么才算事实生效。

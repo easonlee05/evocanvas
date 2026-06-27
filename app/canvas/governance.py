@@ -41,11 +41,13 @@ class MutationGovernance:
         if any(self._is_high_risk_mutation(mutation) for mutation in proposal.mutations):
             proposal.risk_level = MutationRiskLevel.HIGH
             proposal.status = CanvasMutationStatus.PENDING_CONFIRMATION
+            proposal.metadata["gate_reason"] = self._gate_reason_for(proposal)
             self._enqueue_confirmation(proposal)
             return GovernanceOutcome(action="pending_confirmation", risk_level=MutationRiskLevel.HIGH)
 
         proposal.risk_level = MutationRiskLevel.LOW
         proposal.status = CanvasMutationStatus.APPLIED
+        proposal.metadata["gate_reason"] = ""
         return GovernanceOutcome(action="auto_apply", risk_level=MutationRiskLevel.LOW)
 
     def _is_high_risk_mutation(self, mutation) -> bool:
@@ -65,3 +67,13 @@ class MutationGovernance:
         if not any(item.proposal_id == proposal.proposal_id for item in queue):
             queue.append(proposal)
         self.repository.save_confirmation_queue(proposal.workspace_id, queue)
+
+    @staticmethod
+    def _gate_reason_for(proposal: CanvasMutationProposal) -> str:
+        for mutation in proposal.mutations:
+            mutation_type = str(mutation.metadata.get("mutation_type", ""))
+            if mutation_type == "promote_formal_handoff":
+                return "handoff_publish"
+            if mutation.target == CanvasMutationTarget.SNAPSHOT or mutation_type == "create_snapshot":
+                return "snapshot_publish"
+        return "fact_boundary_change"

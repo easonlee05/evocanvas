@@ -185,6 +185,10 @@
   },
   "active": "59cf6e6f56bb2396",
   "lastOpenFiles": [
+    "technical-specs/02 Frontend Contract（前端工作台契约）.md",
+    "technical-specs/01 Runtime Mapping（运行时映射）.md",
+    "technical-specs/00 Technical Baseline（技术落地总览）.md",
+    "technical-specs",
     "harness/V-verification/04 Independent Evaluation（独立评估）.md",
     "harness/V-verification/03 Policy Verification（策略验证）.md",
     "harness/V-verification/02 Source Verification（来源验证）.md",
@@ -204,7 +208,6 @@
     "harness/G-governance/assets/04-handoff-governance-mapping-and-split.mermaid",
     "harness/G-governance/assets/03-decision-vs-constraint-conflict-review.mermaid",
     "harness/G-governance/assets/03-clarification-answer-path.mermaid",
-    "harness/G-governance/assets/01-runtime-baseline-main-chain.mermaid",
     "harness/L-lifecycle-orchestration/assets/01-runtime-baseline-main-chain.png",
     "harness/L-lifecycle-orchestration/assets/05-authority-and-guardrails-sequence.png",
     "harness/L-lifecycle-orchestration/assets/04-handoff-governance-mapping-and-split.png",

@@ -43,9 +43,18 @@ class CanvasTurnFlowTests(unittest.TestCase):
         self.assertEqual(payload["workspace_id"], "demo")
         self.assertEqual(payload["action"], "auto_apply")
 
+        history = self.canvas_service.repository.load_proposal_history("demo")
+        latest = history[-1]
+        receipt = latest.metadata.get("verification_receipt", {})
+        self.assertEqual(receipt.get("result"), "passed")
+        self.assertEqual(receipt.get("checks", {}).get("structure"), "passed")
+        self.assertEqual(receipt.get("checks", {}).get("policy"), "passed")
+
         canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
         self.assertEqual(len(canvas["cards"]), 1)
         self.assertEqual(canvas["cards"][0]["kind"], "clarification")
+        self.assertEqual(canvas["view_meta"]["lifecycle"]["stage_node"], "clarification")
+        self.assertEqual(canvas["view_meta"]["verification_summary"]["result"], "passed")
 
     def test_input_compilation_creates_evidence_problem_and_clarification_cards(self) -> None:
         response = self.client.post(
@@ -220,6 +229,9 @@ class CanvasTurnFlowTests(unittest.TestCase):
         self.assertIn("约束", handoff["handoff"]["constraints"][0])
         self.assertEqual(len(snapshots["items"]), 1)
         self.assertEqual(snapshots["items"][0]["handoff"]["summary"], handoff["content"])
+        self.assertEqual(handoff["handoff"]["metadata"]["confirmation_state"], "draft")
+        self.assertEqual(handoff["handoff"]["metadata"]["source_snapshot_id"], snapshots["items"][0]["snapshot_id"])
+        self.assertGreaterEqual(handoff["handoff"]["metadata"]["generated_from_card_count"], 1)
 
     def test_refresh_handoff_keeps_confirmed_decision_visible(self) -> None:
         decision_turn = self.client.post(
@@ -323,6 +335,13 @@ class CanvasTurnFlowTests(unittest.TestCase):
         )
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json()["action"], "pending_confirmation")
+
+        pending_canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
+        self.assertEqual(pending_canvas["view_meta"]["pending_confirmation_ids"], [first.json()["proposal_id"]])
+        self.assertEqual(
+            pending_canvas["view_meta"]["verification_summary"]["gate_reason"],
+            "fact_boundary_change",
+        )
 
         blocked = self.client.post(
             "/api/canvas/workspaces/demo/messages",

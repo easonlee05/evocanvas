@@ -20,6 +20,14 @@ from app.canvas.domain.snapshots import CanvasSnapshot
 from app.canvas.domain.workspace import CanvasWorkspace
 from app.canvas.governance import MutationGovernance
 from app.canvas.repository import CanvasRepository
+from app.canvas.runtime_state import (
+    apply_turn_runtime_state,
+    build_canvas_view_meta,
+    build_handoff_metadata,
+    ensure_workspace_runtime_defaults,
+    unresolved_issue_ids_from_cards,
+)
+from app.canvas.verification import verify_mutation_proposal
 from app.core.events import Event, utc_now_iso
 from app.services.fakes import FakeLLM
 
@@ -70,8 +78,11 @@ class CanvasService:
     def get_workspace(self, workspace_id: str) -> CanvasWorkspace:
         workspace = self.repository.load_workspace(workspace_id)
         if workspace is not None:
+            ensure_workspace_runtime_defaults(workspace)
             if not workspace.created_at or not workspace.updated_at:
                 self._touch_workspace(workspace, initialize_missing_only=True)
+            else:
+                self.repository.save_workspace(workspace)
             return workspace
 
         now = utc_now_iso()
@@ -83,6 +94,7 @@ class CanvasService:
             created_at=now,
             updated_at=now,
         )
+        ensure_workspace_runtime_defaults(workspace)
         self.repository.save_workspace(workspace)
         return workspace
 
@@ -123,6 +135,7 @@ class CanvasService:
         workspace, cards, relations, snapshot = self._load_canvas_state(workspace_id, snapshot_id=snapshot_id)
         todo_projection = self._build_todo_projection(workspace_id, cards)
         pending_confirmations = self.repository.load_confirmation_queue(workspace_id)
+        handoff = snapshot.handoff if snapshot is not None else self.repository.load_handoff(workspace_id)
 
         return {
             "workspace_id": workspace.workspace_id,
@@ -132,10 +145,12 @@ class CanvasService:
             "relations": [relation.to_dict() for relation in relations],
             "todo_projection": todo_projection.to_dict(),
             "pending_confirmations_count": len(pending_confirmations),
-            "view_meta": {
-                "handoff_status": workspace.handoff_status,
-                "is_snapshot": snapshot is not None,
-            },
+            "view_meta": build_canvas_view_meta(
+                workspace,
+                pending_confirmation_ids=[proposal.proposal_id for proposal in pending_confirmations],
+                handoff=handoff,
+                is_snapshot=snapshot is not None,
+            ),
         }
 
     def start_turn(
@@ -210,7 +225,9 @@ class CanvasService:
                 source_ref_ids=source_ref_ids,
                 model=resolved_model,
             )
-            self.repository.append_proposal_history(workspace_id, proposal)
+            proposal.metadata["intent"] = plan.intent
+            proposal.metadata["roles"] = list(plan.roles)
+            proposal.metadata["verification_receipt"] = verify_mutation_proposal(proposal, intent=plan.intent)
             self._publish_event(
                 workspace_id,
                 "canvas.mutation.proposed",
@@ -226,6 +243,16 @@ class CanvasService:
                 status="proposed",
             )
             outcome = self.governance.classify(proposal)
+            apply_turn_runtime_state(
+                workspace,
+                intent=plan.intent,
+                proposal=proposal,
+                result_action=outcome.action,
+                pending_gate_ids=[proposal.proposal_id] if outcome.action == "pending_confirmation" else [],
+                unresolved_issue_ids=unresolved_issue_ids_from_cards(existing_cards),
+            )
+            self.repository.save_workspace(workspace)
+            self.repository.append_proposal_history(workspace_id, proposal)
 
             if outcome.action == "auto_apply":
                 self._apply_proposal(workspace, proposal)
@@ -305,19 +332,29 @@ class CanvasService:
         self._materialize_confirmation_approval(approved)
         approved.status = CanvasMutationStatus.APPLIED
         self.repository.append_proposal_history(workspace_id, approved)
-        self._apply_proposal(self.get_workspace(workspace_id), approved)
+        workspace = self.get_workspace(workspace_id)
+        self._apply_proposal(workspace, approved)
         if any(
             mutation.metadata.get("mutation_type") == "promote_formal_handoff"
             for mutation in approved.mutations
         ):
-            workspace = self.get_workspace(workspace_id)
             workspace.handoff_status = "confirmed"
             workspace.handoff_metadata = {
                 **dict(workspace.handoff_metadata),
                 "confirmed_by": "user",
                 "confirmation_proposal_id": approved.proposal_id,
+                "confirmation_state": "confirmed",
             }
             self._touch_workspace(workspace)
+        apply_turn_runtime_state(
+            workspace,
+            intent=str(approved.metadata.get("intent", "")),
+            proposal=approved,
+            result_action="approved",
+            pending_gate_ids=[],
+            unresolved_issue_ids=unresolved_issue_ids_from_cards(self.repository.load_cards(workspace_id)),
+        )
+        self.repository.save_workspace(workspace)
         self.repository.save_confirmation_queue(workspace_id, remaining)
         self._publish_event(
             workspace_id,
@@ -363,6 +400,7 @@ class CanvasService:
         rejected_turn_id = ""
         remaining = []
         found = False
+        rejected = None
         for proposal in queue:
             if proposal.proposal_id == proposal_id:
                 found = True
@@ -378,6 +416,21 @@ class CanvasService:
                 self.repository.append_proposal_history(workspace_id, rejected)
         self.repository.save_confirmation_queue(workspace_id, remaining)
         if rejected_turn_id:
+            workspace = self.get_workspace(workspace_id)
+            apply_turn_runtime_state(
+                workspace,
+                intent=str(rejected.metadata.get("intent", "")) if rejected is not None else "",
+                proposal=rejected
+                or CanvasMutationProposal(
+                    proposal_id=proposal_id,
+                    workspace_id=workspace_id,
+                    turn_id=rejected_turn_id,
+                ),
+                result_action="rejected",
+                pending_gate_ids=[],
+                unresolved_issue_ids=unresolved_issue_ids_from_cards(self.repository.load_cards(workspace_id)),
+            )
+            self.repository.save_workspace(workspace)
             self._publish_event(
                 workspace_id,
                 "canvas.confirmation.rejected",
@@ -386,7 +439,7 @@ class CanvasService:
                     "turn_id": rejected_turn_id,
                     "proposal_id": proposal_id,
                     "result_action": "rejected",
-                    "active_turn": self._serialize_active_turn(self.get_workspace(workspace_id)),
+                    "active_turn": self._serialize_active_turn(workspace),
                     "affected_card_ids": [],
                     "affected_relation_ids": [],
                     "affected_snapshot_ids": [],
@@ -452,10 +505,14 @@ class CanvasService:
         workspace = self.get_workspace(workspace_id)
         handoff = self.repository.load_handoff(workspace_id)
         if handoff is None:
-            handoff = StructuredHandoff(handoff_id=f"handoff_{workspace_id}", summary="")
+            handoff = StructuredHandoff(
+                handoff_id=f"handoff_{workspace_id}",
+                summary="",
+                metadata=dict(workspace.handoff_metadata),
+            )
         return {
             "workspace_id": workspace_id,
-            "status": workspace.handoff_status or "draft",
+            "status": workspace.handoff_status or "not_ready",
             "content": handoff.summary,
             "handoff": handoff.to_dict(),
         }
@@ -477,7 +534,7 @@ class CanvasService:
             constraints=self._handoff_items(cards, CanvasCardKind.CONSTRAINT),
             open_questions=self._handoff_items(cards, CanvasCardKind.CLARIFICATION),
             decisions=self._handoff_items(cards, CanvasCardKind.DECISION),
-            metadata={"refreshed_by": "user", "refreshed_at": refreshed_at},
+            metadata={},
         )
         handoff_card = self._upsert_handoff_card(cards, handoff, refreshed_at=refreshed_at)
         todo_projection = self._build_todo_projection(workspace_id, cards)
@@ -496,16 +553,18 @@ class CanvasService:
             metadata={"created_by": "user", "source": "handoff_refresh"},
         )
 
+        handoff.metadata = build_handoff_metadata(
+            cards,
+            confirmation_state="draft",
+            source_snapshot_id=snapshot.snapshot_id,
+            refreshed_by="user",
+            refreshed_at=refreshed_at,
+        )
         self.repository.save_handoff(workspace_id, handoff)
         self.repository.save_cards(workspace_id, cards)
         self.repository.save_snapshot(workspace_id, snapshot)
         workspace.handoff_status = "draft"
-        workspace.handoff_metadata = {
-            **dict(workspace.handoff_metadata),
-            "last_refreshed_at": refreshed_at,
-            "last_refreshed_by": "user",
-            "source_snapshot_id": snapshot.snapshot_id,
-        }
+        workspace.handoff_metadata = {**dict(workspace.handoff_metadata), **dict(handoff.metadata)}
         workspace.active_snapshot_id = snapshot.snapshot_id
         self._touch_workspace(workspace)
         self._publish_event(
@@ -1209,8 +1268,6 @@ class CanvasService:
         self.repository.save_cards(workspace.workspace_id, cards)
         self.repository.save_relations(workspace.workspace_id, relations)
         if handoff is not None:
-            self.repository.save_handoff(workspace.workspace_id, handoff)
-            workspace.handoff_status = "draft"
             snapshot = CanvasSnapshot(
                 snapshot_id=f"snapshot_{uuid4().hex[:10]}",
                 workspace_id=workspace.workspace_id,
@@ -1225,7 +1282,23 @@ class CanvasService:
                 handoff=handoff,
                 metadata={"source_proposal_id": proposal.proposal_id},
             )
+            handoff.metadata = {
+                **dict(handoff.metadata or {}),
+                **build_handoff_metadata(
+                    cards,
+                    confirmation_state="draft",
+                    source_snapshot_id=snapshot.snapshot_id,
+                    refreshed_by="canvas_agent",
+                    refreshed_at=snapshot.created_at,
+                ),
+            }
+            self.repository.save_handoff(workspace.workspace_id, handoff)
             self.repository.save_snapshot(workspace.workspace_id, snapshot)
+            workspace.handoff_status = "draft"
+            workspace.handoff_metadata = {
+                **dict(workspace.handoff_metadata),
+                **dict(handoff.metadata),
+            }
             workspace.active_snapshot_id = snapshot.snapshot_id
         self._touch_workspace(workspace)
 
@@ -1361,6 +1434,7 @@ class CanvasService:
                 workspace.updated_at = workspace.created_at or now
         else:
             workspace.updated_at = now
+        ensure_workspace_runtime_defaults(workspace)
         self.repository.save_workspace(workspace)
         return workspace
 

@@ -151,6 +151,11 @@ class CanvasApiTests(unittest.TestCase):
         self.assertEqual(payload["cards"], [])
         self.assertEqual(payload["relations"], [])
         self.assertIn("todo_projection", payload)
+        self.assertIn("lifecycle", payload["view_meta"])
+        self.assertEqual(payload["view_meta"]["lifecycle"]["stage_node"], "compilation")
+        self.assertEqual(payload["view_meta"]["pending_confirmation_ids"], [])
+        self.assertIn("handoff_state", payload["view_meta"])
+        self.assertEqual(payload["view_meta"]["handoff_state"]["confirmation_state"], "not_ready")
 
     def test_post_message_rejects_empty_message(self) -> None:
         response = self.client.post(

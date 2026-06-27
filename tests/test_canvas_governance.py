@@ -43,6 +43,7 @@ class CanvasGovernanceTests(unittest.TestCase):
             self.assertEqual(outcome.risk_level, MutationRiskLevel.HIGH)
             self.assertEqual(proposal.risk_level, MutationRiskLevel.HIGH)
             self.assertEqual(proposal.status, CanvasMutationStatus.PENDING_CONFIRMATION)
+            self.assertEqual(proposal.metadata["gate_reason"], "fact_boundary_change")
             self.assertEqual(
                 [item.proposal_id for item in repository.load_confirmation_queue("ws_demo")],
                 ["proposal_001"],

@@ -1,20 +1,20 @@
 .card {
-  border-radius: var(--r-xl);
+  border-radius: 16px;
   overflow: hidden;
 }
 
 .card-solid {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-sm);
+  background: linear-gradient(180deg, #fffdf8 0%, #fffaf1 100%);
+  border: 1px solid rgba(216, 211, 200, 0.9);
+  box-shadow: 0 8px 18px rgba(78, 68, 47, 0.055), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
 }
 
 .card-glass {
-  background: rgba(255,255,255,0.72);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255,255,255,0.6);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.8);
+  background: rgba(255, 253, 248, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(216, 211, 200, 0.78);
+  box-shadow: 0 8px 18px rgba(78, 68, 47, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .card-hoverable {
@@ -25,6 +25,6 @@
 }
 .card-hoverable:hover {
   transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-  border-color: var(--border-light);
+  box-shadow: 0 12px 24px rgba(78, 68, 47, 0.075), 0 1px 0 rgba(255, 255, 255, 0.92) inset;
+  border-color: rgba(38, 38, 38, 0.18);
 }

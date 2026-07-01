@@ -56,10 +56,12 @@ test('demo canvas uses unified persona metadata and confidence instead of star r
   for (const card of allCards) {
     if (card.source) {
       assert.ok(card.source.avatarTone, `source on ${card.id} should declare an avatar tone`);
+      assert.ok(card.source.avatarSrc, `source on ${card.id} should declare an avatar source`);
     }
 
     if (card.owner) {
       assert.ok(card.owner.avatarTone, `owner on ${card.id} should declare an avatar tone`);
+      assert.ok(card.owner.avatarSrc, `owner on ${card.id} should declare an avatar source`);
     }
   }
 

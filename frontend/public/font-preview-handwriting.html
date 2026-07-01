@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EvoCanvas 手写字体预览</title>
+    <style>
+      @font-face {
+        font-family: "Jason Handwriting 1";
+        src: url("./fonts/JasonHandwriting1.ttf") format("truetype");
+      }
+
+      @font-face {
+        font-family: "Jason Handwriting 3";
+        src: url("./fonts/JasonHandwriting3.ttf") format("truetype");
+      }
+
+      @font-face {
+        font-family: "Jason Handwriting 6";
+        src: url("./fonts/JasonHandwriting6.ttf") format("truetype");
+      }
+
+      @font-face {
+        font-family: "Jason Handwriting 9";
+        src: url("./fonts/JasonHandwriting9.ttf") format("truetype");
+      }
+
+      @font-face {
+        font-family: "LXGW WenKai Regular";
+        src: url("./fonts/LXGWWenKai-Regular.ttf") format("truetype");
+      }
+
+      :root {
+        color-scheme: light;
+        --paper: #fffef9;
+        --ink: #1f1d1a;
+        --muted: #7b756e;
+        --line: #e4ddd2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px;
+        background:
+          radial-gradient(rgba(216, 211, 200, 0.62) 0.8px, transparent 0.8px),
+          var(--paper);
+        background-size: 18px 18px;
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      }
+
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+
+      p {
+        margin: 0 0 24px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+      }
+
+      .card {
+        padding: 20px 22px;
+        border: 2px solid #22201d;
+        border-radius: 18px 22px 18px 24px;
+        background: rgba(255, 255, 252, 0.96);
+        box-shadow: 2px 2px 0 rgba(32, 32, 29, 0.14);
+      }
+
+      .label {
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .sample-title {
+        margin: 0 0 14px;
+        font-size: 54px;
+        line-height: 1.04;
+      }
+
+      .sample-chip {
+        display: inline-block;
+        margin: 0 0 16px;
+        padding: 8px 18px;
+        border: 2px solid #f28d85;
+        border-radius: 18px;
+        color: #ef4b43;
+        font-size: 34px;
+        line-height: 1;
+        background: #fff3f1;
+      }
+
+      .sample-tag {
+        display: inline-block;
+        padding: 6px 16px;
+        border: 2px solid #f1a59c;
+        border-radius: 16px;
+        color: #ce564b;
+        font-size: 28px;
+        line-height: 1;
+      }
+
+      .sample-en {
+        margin-left: 8px;
+        color: #5d5952;
+        font-family: "Kaiti SC", "STKaiti", "Comic Sans MS", "Chalkboard SE", sans-serif;
+        font-size: 0.62em;
+      }
+
+      .font-jason-1 .sample-title,
+      .font-jason-1 .sample-chip,
+      .font-jason-1 .sample-tag {
+        font-family: "Jason Handwriting 1", "LXGW WenKai Regular", sans-serif;
+      }
+
+      .font-jason-3 .sample-title,
+      .font-jason-3 .sample-chip,
+      .font-jason-3 .sample-tag {
+        font-family: "Jason Handwriting 3", "LXGW WenKai Regular", sans-serif;
+      }
+
+      .font-jason-6 .sample-title,
+      .font-jason-6 .sample-chip,
+      .font-jason-6 .sample-tag {
+        font-family: "Jason Handwriting 6", "LXGW WenKai Regular", sans-serif;
+      }
+
+      .font-jason-9 .sample-title,
+      .font-jason-9 .sample-chip,
+      .font-jason-9 .sample-tag {
+        font-family: "Jason Handwriting 9", "LXGW WenKai Regular", sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>中文手写体预览</h1>
+      <p>先试清松手写体 4 个版本。这里我加了霞鹜文楷兜底，所以即使个别字缺失，也能先看整体气质而不至于坏字。</p>
+
+      <div class="grid">
+        <section class="card font-jason-1">
+          <div class="label">JasonHandwriting1 · 圆润</div>
+          <div class="sample-title">问题卡<span class="sample-en">(Problem)</span></div>
+          <div class="sample-chip">待解决</div>
+          <div class="sample-tag">核心问题</div>
+        </section>
+
+        <section class="card font-jason-3">
+          <div class="label">JasonHandwriting3 · 呆萌</div>
+          <div class="sample-title">问题卡<span class="sample-en">(Problem)</span></div>
+          <div class="sample-chip">待解决</div>
+          <div class="sample-tag">核心问题</div>
+        </section>
+
+        <section class="card font-jason-6">
+          <div class="label">JasonHandwriting6 · Q萌</div>
+          <div class="sample-title">问题卡<span class="sample-en">(Problem)</span></div>
+          <div class="sample-chip">待解决</div>
+          <div class="sample-tag">核心问题</div>
+        </section>
+
+        <section class="card font-jason-9">
+          <div class="label">JasonHandwriting9 · 文青</div>
+          <div class="sample-title">问题卡<span class="sample-en">(Problem)</span></div>
+          <div class="sample-chip">待解决</div>
+          <div class="sample-tag">核心问题</div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

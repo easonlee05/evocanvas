@@ -25,6 +25,7 @@ import {
   DEMO_CHAT,
   DEMO_DOC,
   DEMO_DOC_SECONDARY,
+  DEMO_PERSONA_AVATARS,
   DEMO_PROJECT_TITLE,
 } from './demoScenario.js';
 
@@ -470,14 +471,29 @@ export default function Workspace() {
 
           {chatMessages.map(m => (
             <div key={m.id} className={`chat-bubble-row ${m.role}`}>
+              {m.role === 'ai' && (
+                <div className="chat-avatar-ai" aria-hidden="true">
+                  <Bot size={14} />
+                </div>
+              )}
               <div className={`chat-bubble ${m.role}`}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
               </div>
+              {m.role === 'user' && (
+                <img
+                  className="chat-avatar-user"
+                  src={DEMO_PERSONA_AVATARS.chenJiamu}
+                  alt=""
+                />
+              )}
             </div>
           ))}
 
           {isLive && (
             <div className="chat-bubble-row ai">
+              <div className="chat-avatar-ai" aria-hidden="true">
+                <Bot size={14} />
+              </div>
               <div className="chat-bubble ai">
                 {streamingMessage ? (
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingMessage}</ReactMarkdown>

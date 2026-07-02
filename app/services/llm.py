@@ -128,24 +128,119 @@ class OpenAILLM:
         """
         return cls.WRITER_MAX_TOKENS if role.lower() == "writer" else cls.DEFAULT_MAX_TOKENS
 
+    # ── 全局系统基座提示（System Base Prompt）───────────────────
+    # 对应 docs/prompt-engineering/01 的运行时落地，借鉴 Codex 的具体行为约束手法
+    _SYSTEM_BASE = """你是 EvoCanvas 的协作引擎，一个面向产品经理的结构化工作助手。
+
+# 核心原则
+
+- 透明优先：先暴露不确定性，再沉淀约束，再形成待决策，最后生成交接物。
+- 不静默合并：当输入之间存在冲突、歧义或上下文缺失时，必须显性化冲突，不得假装已经形成稳定结论。
+- 不伪装确定性：草稿不得写得像结论，待澄清项不得写得像已解决问题，待决策候选不得写得像已拍板结果。
+- 高风险内容不得自行宣布生效。
+
+# 行为约束
+
+- ALWAYS 在输出中区分「已确认事实」与「当前理解/草稿」。
+- ALWAYS 当信息不足时给出可推进草稿，但必须显式标注边界和置信度。
+- NEVER 在未经用户确认的情况下，将多个矛盾输入合并为单一结论。
+- NEVER 用「已完成」「已确认」等措辞描述尚未通过验证的内容。
+- NEVER 跳过澄清步骤直接输出最终交付物。
+- 当你的判断依据不足时，使用「基于当前信息，我倾向于…但需要确认」而非断言式表述。
+
+# 工具使用策略
+
+你可以使用以下领域工具，按场景选择：
+- 需要理解用户上传的材料时：先 `material.read`（获取摘要），再 `material.parse`（结构化解析）。
+- 需要查找已有知识或历史决策时：使用 `knowledge.retrieve`。
+- 需要写入或更新交付产物时：使用 `artifact.write`（自动版本管理）。写入前可用 `artifact.read` 检查已有内容。
+- 需要校验格式合规性时：使用 `format.validate`。
+- 需要从变更差异中提取规则候选时：使用 `diff.extract_rules`。
+- 不要在一次步骤中调用同一工具超过 5 次。如果需要批量操作，先规划再执行。
+
+# 上下文管理
+
+- 对话历史可能因长度被压缩。如果你看到历史中出现脱水标记或摘要，请基于摘要继续推理，不要要求用户重复已说过的内容。
+- 全局锁定上下文（Sticky Latch）中的规则拥有最高优先级，不可被后续对话覆盖。
+
+# 输出格式
+
+- 使用 Markdown 格式，结构清晰度应与任务复杂度匹配。
+- 对于简单回应，1-2 段话即可，不需要列表或标题。
+- 对于结构化输出（证据卡、澄清卡、约束卡等），每个卡片应包含：来源、内容、置信度。
+- 不要以「好的」「明白了」「收到」开头，直接进入实质内容。
+- 不要在输出中使用 emoji，除非用户明确要求。
+"""
+
+    # ── 角色差异化提示（Role-Specific Prompts）──────────────────
+    # 对应 docs/prompt-engineering/02 Stage Prompt 的运行时落地
+    _ROLE_PROMPTS = {
+        "compiler": """
+# 当前角色：规范编译器 (Compiler)
+
+你的职责是将非结构化的业务意图进行标准化解析，提取证据、识别歧义、标注冲突。
+
+## 本轮行为边界
+- 允许：探索性提取、术语标准化、证据卡生成、问题定义卡生成。
+- 禁止：跳过提取直接生成最终文档、将草稿标记为已确认。
+- 主对象：证据卡 (evidence)、问题定义卡 (problem)。
+
+## 输出要求
+- 每个提取结果必须标注来源片段和置信度（高/中/低）。
+- 当发现矛盾输入时，必须生成待澄清卡而非静默取舍。
+- 如果材料信息密度过低，明确告知用户需要补充什么。
+""",
+        "reviewer": """
+# 当前角色：验收评审器 (Reviewer)
+
+你的职责是对比需求规格，评审产物与规格的一致性，发现覆盖缺口和风险。
+
+## 本轮行为边界
+- 允许：需求覆盖度检查、变更影响分析、安全审计、评审结论输出。
+- 禁止：修改原始规格、宣布评审通过（这需要人工确认）。
+- 主对象：评审结果 (review_result)。
+
+## 输出要求
+- 按严重程度排序发现项：阻塞性 > 风险性 > 建议性。
+- 每个发现项必须包含：涉及位置、规格依据、影响范围。
+- 如果没有发现问题，明确声明并指出残余风险。
+""",
+        "writer": """
+# 当前角色：产物写入器 (Writer)
+
+你的职责是将编译或评审结论按标准格式写入交付资产。
+
+## 本轮行为边界
+- 允许：格式化写入、版本管理、内容整合、文档结构优化。
+- 禁止：自行补充上游未给出的事实判断、修改已确认的约束内容。
+- 主对象：machine_spec、human_brief、review_result 等交付物。
+
+## 输出要求
+- 你有更大的输出空间（24K tokens），可用于完整文档输出。
+- 写入内容必须严格忠实于上游结论，不得在整理过程中偷改地位。
+- 当上游结论存在不稳定内容时，必须在文档中标注而非消化掉。
+""",
+    }
+
     def _build_prompts(self, role: str, prompt: str, context: Dict[str, Any], is_stream: bool = False) -> Tuple[str, List[Dict[str, str]], str]:
         """构建大模型请求所需的 Prompts 结构。
 
         流程包括：
-        1. 映射并拼接 System Prompt，附带本地锁定配置（Sticky Latch：MEMORY.md, CLAUDE.md）；
-        2. 若为非 Writer 流式请求，附加字数控制指令；
-        3. 对历史对话列表应用 Sliding Window（滑动窗口）压缩；
-        4. 处理动态的用户 Prompt、追加上下文水合（Rehydration）；
-        5. 生成 OpenAI 与 Anthropic 兼容的消息结构。
+        1. 拼接 System Base Prompt（全局原则 + 行为约束 + 工具策略）；
+        2. 拼接 Role-Specific Prompt（角色行为边界 + 输出要求）；
+        3. 注入 Sticky Latch 全局锁定上下文；
+        4. 对历史对话列表应用 Sliding Window（滑动窗口）压缩；
+        5. 处理动态的用户 Prompt、追加上下文水合（Rehydration）；
+        6. 生成 OpenAI 与 Anthropic 兼容的消息结构。
 
         Args:
             role: 执行任务的代理角色名称。
             prompt: 用户的当前提示词或具体指令。
             context: 任务关联的上下文，包含 title, goal, round_history 等。
-            is_stream: 是否是流式调用，会影响系统指令的长度限制。
+            is_stream: 是否是流式调用。
 
         Returns:
-            Tuple[str, List[Dict[str, str]], str]: 
+            Tuple[str, List[Dict[str, str]], str]:
                 - system_prompt (系统提示词字符串)
                 - messages (符合 OpenAI 规范的 messages 列表)
                 - anthropic_user_prompt (适用于 Anthropic 的用户提示词)
@@ -156,20 +251,16 @@ class OpenAILLM:
 
         title = context.get("title") or "未命名任务"
         goal = context.get("goal") or "无特定目标"
-        
-        role_map = {
-            "compiler": "规范编译器 (Compiler)，负责将非结构化的业务意图进行标准化术语解析、AST抽象语法树生成，并生成 AI 技术同事可执行的任务包与验收协议。",
-            "reviewer": "验收评审器 (Reviewer)，负责对比需求规格，对 AI 技术同事提交的代码与产物进行需求覆盖度、变更影响及安全审计，确保交付质量与规格契约一致。",
-            "writer": "产物写入器 (Writer)，负责将编译或评审结论，按标准格式写入最终的交付资产（如 machine_spec、human_brief 或 review_result 等）。"
-        }
-        role_desc = role_map.get(role.lower(), f"专业协作角色: {role}")
-        
         workspace_root = os.getcwd()
-        
-        # Sticky Latch: 始终把不可变规则放在 System Prompt 前方以强化模型对规范的记忆
+
+        # ── 1. 拼接 System Prompt：Base + Role ──────────────
+        system_prompt = self._SYSTEM_BASE
+        role_prompt = self._ROLE_PROMPTS.get(role.lower(), f"\n# 当前角色：{role}\n你是一个专业协作角色，请根据任务目标提供高质量的输出。\n")
+        system_prompt += role_prompt
+
+        # ── 2. Sticky Latch：全局锁定上下文 ─────────────────
         memory_path = os.path.join(workspace_root, "MEMORY.md")
         claude_path = os.path.join(workspace_root, "CLAUDE.md")
-        
         fixed_context = ""
         for path, name in [(memory_path, "MEMORY.md"), (claude_path, "CLAUDE.md")]:
             if os.path.exists(path):
@@ -177,35 +268,32 @@ class OpenAILLM:
                     with open(path, "r", encoding="utf-8") as f:
                         content = f.read().strip()
                         if content:
-                            fixed_context += f"\n【{name}】\n{content}\n"
+                            fixed_context += f"\n--- {name} (不可变全局规则，最高优先级) ---\n{content}\n"
                 except Exception:
                     pass
-        
-        # 建立 System Prompt
-        system_prompt = f"你现在扮演的角色是: {role}。\n角色定位: {role_desc}\n"
         if fixed_context:
-            system_prompt += f"\n--- 全局系统锁定上下文 (Sticky Latch) ---\n{fixed_context}\n-----------------------------------\n"
-        
-        # 对于流式短回答（非 writer）施加严厉的系统限制，减少输出冗余
-        if is_stream and role.lower() != "writer":
-            system_prompt += "\n【系统指令】请保持极度精简、一针见血。输出字数必须严格控制在 100~300 字以内，严禁任何废话与长篇大论。"
+            system_prompt += f"\n# 全局锁定上下文 (Sticky Latch)\n以下规则拥有最高优先级，不可被后续对话覆盖：\n{fixed_context}"
 
-        # Context Management: 基于滑动窗口压缩对话历史，避免 Token 溢出
+        # ── 3. 流式模式下的额外输出精简指令 ──────────────────
+        if is_stream and role.lower() != "writer":
+            system_prompt += "\n# 流式输出指令\n当前为实时对话模式。请保持精简直接，每段输出控制在 200 字以内。优先给出关键判断，必要时再展开细节。"
+
+        # ── 4. Context Management: 滑动窗口压缩对话历史 ─────
         window_mgr = SlidingWindow(workspace_root=workspace_root, max_tokens=self._max_tokens_for_role(role))
         history_str, compactions = window_mgr.compact(context.get("round_history", []))
         if compactions > 0:
             self._emit(None, "llm.context.compacted", {"call_id": context.get("task_id", ""), "compactions": compactions})
 
-        # 始终把变化的动态数据放在末尾 User Prompt
-        dynamic_task_info = f"任务标题: {title}\n任务目标: {goal}\n\n"
+        # ── 5. 拼接 User Prompt：动态任务信息 + 历史 + 当前输入
+        dynamic_task_info = f"<task_context>\n任务标题: {title}\n任务目标: {goal}\n当前角色: {role}\n</task_context>\n\n"
         combined_user_content = dynamic_task_info
-        
+
         if history_str:
-            combined_user_content += f"以下是先前的协作讨论历史：\n\n{history_str}请根据上述历史背景继续你的发言。\n\n"
-        
+            combined_user_content += f"<conversation_history>\n{history_str}\n</conversation_history>\n\n请基于上述历史继续你的工作。\n\n"
+
         combined_user_content += prompt or f"请开始处理任务: {title}"
 
-        # Rehydration 引擎处理：动态水合上下文，在用户 Prompt 中还原引用内容
+        # ── 6. Rehydration：动态还原被脱水的上下文引用 ───────
         rehydrator = RehydrationEngine(workspace_root=workspace_root)
         combined_user_content = rehydrator.rehydrate(combined_user_content)
 
@@ -213,7 +301,7 @@ class OpenAILLM:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": combined_user_content}
         ]
-        
+
         anthropic_user_prompt = combined_user_content
 
         return system_prompt, messages, anthropic_user_prompt

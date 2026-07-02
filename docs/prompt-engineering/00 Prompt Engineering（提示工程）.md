@@ -1,5 +1,7 @@
 # EvoCanvas Prompt Engineering（提示工程）
 
+> 临时迁移说明：本组文档只用于当前 harness 重构期间抽取语义，后续可删除。未来阅读与维护以 `docs/harness/` 为准。
+
 > 当前成熟度层级：`L2 对象与流程定义层`
 > 使用方式：`作为与 harness 平行的横切工程面文档，不替代 harness 七层设计`
 

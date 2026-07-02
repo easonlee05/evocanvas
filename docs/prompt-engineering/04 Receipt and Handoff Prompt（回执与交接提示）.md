@@ -1,5 +1,7 @@
 # Receipt and Handoff Prompt（回执与交接提示）
 
+> 临时迁移说明：本文只用于当前 harness 重构期间抽取语义，后续可删除。未来阅读与维护以 `docs/harness/` 为准。
+
 ## 1. 定位
 
 回执 / 交接提示是 EvoCanvas `prompt engineering` 的输出模块。

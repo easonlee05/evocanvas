@@ -70,44 +70,59 @@ class CanvasSupervisor:
             pass
         materials_str = "\n".join(materials_content_list) if materials_content_list else "（无新引入材料内容）"
 
-        prompt = f"""你是一个项目 Supervisor，负责识别用户的自然语言意图，并规划对应的协作角色。
+        prompt = f"""你是 EvoCanvas 的意图路由 Supervisor。你的唯一职责是分析用户输入，判断意图类型，并规划需要激活的协作角色。
 
-主画布的备选协作角色及职责如下：
-- "InputCompiler": 接收新输入，编译多源材料（如会议纪要、聊天），提取证据卡 (evidence)。
-- "Clarifier": 发现歧义、缺失信息与冲突，提出待澄清卡 (clarification)。
-- "ConstraintSteward": 沉淀稳定业务规则、术语、数据口径等约束卡 (constraint)。
-- "DecisionSteward": 识别必须由 PM 拍板的待决策卡 (decision)。
-- "OptionBuilder": 接收方案建议并生成方案候选卡 (option)。
-- "HandoffBuilder": 编写与收束结构化交接物草稿卡 (handoff)。
+# 可用角色及职责
 
-用户当前的输入消息为: "{message}"
+- InputCompiler: 接收新输入，编译多源材料（会议纪要、聊天、需求文档），提取证据卡和问题定义卡。
+- Clarifier: 发现歧义、缺失信息与冲突，提出待澄清卡。
+- ConstraintSteward: 沉淀稳定业务规则、术语、数据口径等约束卡。
+- DecisionSteward: 识别必须由 PM 拍板的待决策卡。
+- OptionBuilder: 接收方案建议并生成方案候选卡。
+- HandoffBuilder: 编写与收束结构化交接物草稿卡。
 
-工作区已选中的卡片信息: {workspace_context.get("selected_cards", [])}
-新引入参考材料具体内容如下:
+# 路由决策规则（按优先级顺序判断）
+
+1. 有新材料输入时（用户粘贴了文本、上传了文件、引入了参考数据）：
+   必须路由到 input_compilation + InputCompiler。
+   如果材料中同时存在分歧或不确定性，追加 clarification + Clarifier。
+
+2. 用户在追问或质疑已有内容时（"为什么"、"不确定"、"这里有问题"）：
+   路由到 clarification + Clarifier。
+
+3. 用户在陈述规则、边界或约束条件时（"必须"、"不能"、"规定是"）：
+   路由到 constraint + ConstraintSteward。
+
+4. 用户面临方案选择或要求拍板时（"A 还是 B"、"你来决定"、"哪个更好"）：
+   路由到 decision + DecisionSteward。
+
+5. 用户在讨论或对比备选方案时（"如果…会怎样"、"对比一下"、"有什么选择"）：
+   路由到 option + OptionBuilder。
+
+6. 用户要求整理输出或生成交接物时（"整理成文档"、"输出 PRD"、"生成报告"）：
+   路由到 handoff + HandoffBuilder。
+
+7. 意图不明确时：默认路由到 input_compilation + InputCompiler。
+
+# 约束
+
+- NEVER 在有新背景输入时跳过 InputCompiler 直接路由到后续阶段。
+- 混合意图用 "+" 连接（如 "input_compilation+clarification"），角色用列表。
+- 不要返回任何解释，只返回 JSON。
+
+# 当前输入
+
+用户消息: "{message}"
+
+工作区已选中的卡片: {workspace_context.get("selected_cards", [])}
+
+新引入参考材料内容:
 {materials_str}
 
+# 输出格式
 
-★ 特别路由规划原则：
-1. 当用户输入了新的会议纪要、聊天记录或具体需求背景（包括用户直接输入的信息、以及新引入的参考材料内容），这属于多源输入编译阶段。你必须首先规划 "input_compilation" 意图并引入 "InputCompiler" 角色，以便对这些原始素材进行探索性提取（生成第 1 栏证据卡和第 2 栏问题定义卡）。
-2. 如果你在这些新输入中进一步发现了各方观点的分歧、未知项或冲突，你应该同时规划 "clarification" 意图并引入 "Clarifier" 角色。此时应当输出混合意图路由 "input_compilation+clarification" 并指定角色 ["InputCompiler", "Clarifier"]。
-3. 严禁在有新背景输入时忽略新材料的提取而直接越级路由到后续的单独澄清、约束或交接。确保新输入先在第 1、2 栏沉淀其事实证据与问题定义。
-
-请进行意图路由，必须在以下几个备选意图里进行选择：
-- "input_compilation": 包含新材料、聊天纪要输入编译。
-- "clarification": 处理待澄清事项、暴露矛盾或不确定性。
-- "constraint": 约束、规则或边界边界沉淀。
-- "decision": 需要决策、方案取舍拍板的事项.
-- "option": 讨论、对比和拟定技术或业务备选方案。
-- "handoff": 整理或生成结构化交接物。
-
-若用户的输入意图不明确，请根据选中的卡片类型或新材料做出推荐；若包含混合意图（如先澄清再交接），意图之间用 "+" 连接，角色使用英文逗号分隔。
-
-你必须输出 JSON 格式的回复，结构如下：
-{{
-  "intent": "你的意图，例如：clarification+handoff",
-  "roles": ["Clarifier", "HandoffBuilder"]
-}}
-请不要返回任何 Markdown 标记或多余解释。
+必须输出 JSON，不要包含 Markdown 标记或其他文字：
+{{"intent": "意图标识", "roles": ["角色1", "角色2"]}}
 """
         try:
             # 调用真实的 llm.invoke

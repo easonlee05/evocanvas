@@ -553,19 +553,17 @@
   justify-content: center;
   flex-shrink: 0;
   margin-top: 2px;
+  overflow: hidden;
 }
 .chat-avatar-user {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #e2e8f0;
-  color: #475569;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   flex-shrink: 0;
   margin-top: 2px;
+  object-fit: cover;
+  overflow: hidden;
 }
 
 .chat-bubble {
@@ -1569,5 +1567,3 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-
-

@@ -291,6 +291,72 @@ function StructuredContent({ kind = 'list', items = [] }) {
   );
 }
 
+function serializeStructuredItemsForEditor(items, { isCheckpointCard = false } = {}) {
+  if (!Array.isArray(items)) return '';
+
+  if (!isCheckpointCard) {
+    return items.join('\n');
+  }
+
+  return items.map((item) => {
+    if (typeof item === 'string') return item;
+    const text = item?.text || '';
+    const date = item?.date ? ` | ${item.date}` : '';
+    return `${text}${date}`.trim();
+  }).join('\n');
+}
+
+function parseStructuredItemsFromEditor(rawValue, existingItems, { isCheckpointCard = false } = {}) {
+  const lines = String(rawValue)
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (!isCheckpointCard) {
+    return lines;
+  }
+
+  return lines.map((line, index) => {
+    const [textPart, datePart] = line.split('|').map((part) => part?.trim());
+    const previous = typeof existingItems?.[index] === 'object' ? existingItems[index] : {};
+    return {
+      ...previous,
+      text: textPart || previous.text || '',
+      state: previous.state || 'pending',
+      ...(datePart ? { date: datePart } : previous.date ? { date: previous.date } : {}),
+    };
+  });
+}
+
+function normalizeEditableValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') {
+          const text = item.trim();
+          return text || null;
+        }
+
+        if (item && typeof item === 'object') {
+          const text = String(item.text || '').trim();
+          if (!text) return null;
+
+          return {
+            text,
+            ...(item.state ? { state: String(item.state).trim() } : {}),
+            ...(item.date ? { date: String(item.date).trim() } : {}),
+          };
+        }
+
+        const text = String(item ?? '').trim();
+        return text || null;
+      })
+      .filter(Boolean);
+  }
+
+  return String(value ?? '').trim();
+}
+
 function buildRoundedRectPath(x, y, width, height, radius) {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
   return [
@@ -533,7 +599,7 @@ function CanvasCard({
     return (
       <div
         ref={uiKitCardRef}
-        className={`${cardClassName} ui-kit-card ui-kit-card-theme-problem ui-kit-problem-card${isEditingProblemCard ? ' is-editing-problem-card' : ''}`}
+        className={`${cardClassName} ui-kit-card ui-kit-card-theme-problem ui-kit-problem-card ui-kit-card-no-footer${isEditingProblemCard ? ' is-editing-problem-card' : ''}`}
         {...interactiveProps}
       >
         <SketchCardFrame cardRef={uiKitCardRef} contentRef={uiKitContentRef} />
@@ -703,14 +769,6 @@ function CanvasCard({
           ) : <span />}
         </div>
 
-        <div className="kit-card-bottom-row">
-          <div className="kit-owner">
-            <img className="kit-owner-avatar-image" src={previewCard.avatarSrc} alt="" />
-            <span>{previewCard.ownerName}</span>
-          </div>
-          <span className="kit-progress-text">{previewCard.progressText}</span>
-        </div>
-
         {showConnectorPorts && (
           <>
             <div
@@ -757,7 +815,7 @@ function CanvasCard({
         defaultSummary: '把还没确认的边界、口径和依赖先显性化，不要在模糊状态下继续定方案。',
         defaultItems: ['需要进一步澄清的边界是什么？', '谁来确认口径，何时给结论？'],
         defaultStructureKind: 'list',
-        footerMode: 'count',
+        footerMode: 'none',
       },
       rules: {
         themeClass: 'ui-kit-card-theme-rules ui-kit-rules-card',
@@ -769,7 +827,7 @@ function CanvasCard({
           { text: '这里记录仍需确认的规则或补充条件。', state: 'pending' },
         ],
         defaultStructureKind: 'checkpoints',
-        footerMode: 'progress',
+        footerMode: 'none',
       },
       options: {
         themeClass: 'ui-kit-card-theme-decision ui-kit-decision-card',
@@ -778,7 +836,7 @@ function CanvasCard({
         defaultSummary: '把候选方案、取舍条件和推荐方向显性化，避免讨论一直停留在口头层面。',
         defaultItems: ['方案 A：先做最小闭环，快速止损', '方案 B：补齐更多能力后再整体上线'],
         defaultStructureKind: 'list',
-        footerMode: 'count',
+        footerMode: 'none',
       },
       planning: {
         themeClass: 'ui-kit-card-theme-handoff ui-kit-handoff-card',
@@ -790,7 +848,7 @@ function CanvasCard({
           { text: '确认本周推进节奏与验收节点', state: 'pending' },
         ],
         defaultStructureKind: 'checkpoints',
-        footerMode: 'progress',
+        footerMode: 'none',
       },
     };
     const sectionConfig = cardConfigMap[sectionKey];
@@ -801,7 +859,9 @@ function CanvasCard({
     const completedCount = rawItems.filter((item) => typeof item === 'object' && ['done', 'current'].includes(item?.state)).length;
     const footerText = sectionConfig.footerMode === 'progress'
       ? `${completedCount} / ${rawItems.length}`
-      : `${rawItems.length} 项`;
+      : sectionConfig.footerMode === 'count'
+        ? `${rawItems.length} 项`
+        : '';
     const previewCard = {
       typeTitle: typeMeta.label,
       cardTitle: data.title || sectionConfig.defaultTitle,
@@ -820,7 +880,7 @@ function CanvasCard({
     return (
       <div
         ref={uiKitCardRef}
-        className={`${cardClassName} ui-kit-card ${sectionConfig.themeClass}`}
+        className={`${cardClassName} ui-kit-card ${sectionConfig.themeClass}${sectionConfig.footerMode === 'none' ? ' ui-kit-card-no-footer' : ''}`}
         {...interactiveProps}
       >
         <SketchCardFrame cardRef={uiKitCardRef} contentRef={uiKitContentRef} />
@@ -945,7 +1005,7 @@ function CanvasCard({
 
         <div ref={uiKitContentRef} className="kit-card-inner-frame-anchor">
           <div
-            className={`kit-card-structured-shell${isEditingItems ? ' is-editing' : ''}`}
+            className={`kit-card-structured-shell${isEditingItems ? ' is-editing' : ''}${isCheckpointCard && isEditingItems ? ' is-checkpoint-shell' : ''}`}
             onClick={(event) => {
               if (editingState?.cardId === data.id) return;
               event.stopPropagation();
@@ -954,28 +1014,18 @@ function CanvasCard({
           >
             {isEditingItems ? (
               <textarea
-                className="kit-card-list-input"
+                className={`kit-card-list-input${isCheckpointCard ? ' kit-card-list-input-checkpoint' : ''}`}
                 autoFocus
-              defaultValue={previewCard.items.map((item) => (typeof item === 'string' ? item : item.text)).join('\n')}
-              ref={autoResizeTextarea}
-              onClick={(event) => event.stopPropagation()}
-              onInput={(event) => autoResizeTextarea(event.currentTarget)}
-              onBlur={(event) => {
-                const nextItems = event.target.value.split('\n').map((item) => item.trim()).filter(Boolean);
-                if (isCheckpointCard) {
+                defaultValue={serializeStructuredItemsForEditor(previewCard.items, { isCheckpointCard })}
+                ref={autoResizeTextarea}
+                onClick={(event) => event.stopPropagation()}
+                onInput={(event) => autoResizeTextarea(event.currentTarget)}
+                onBlur={(event) => {
                   onSaveEdit(
                     data.id,
                     'structuredItems',
-                    nextItems.map((text, index) => ({
-                      ...(typeof previewCard.items[index] === 'object' ? previewCard.items[index] : {}),
-                      text,
-                      state: previewCard.items[index]?.state || 'pending',
-                    })),
+                    parseStructuredItemsFromEditor(event.target.value, previewCard.items, { isCheckpointCard }),
                   );
-                  return;
-                }
-
-                onSaveEdit(data.id, 'structuredItems', nextItems);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') {
@@ -985,21 +1035,11 @@ function CanvasCard({
 
                   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                     event.preventDefault();
-                    const nextItems = event.currentTarget.value.split('\n').map((item) => item.trim()).filter(Boolean);
-                    if (isCheckpointCard) {
-                      onSaveEdit(
-                        data.id,
-                        'structuredItems',
-                        nextItems.map((text, index) => ({
-                          ...(typeof previewCard.items[index] === 'object' ? previewCard.items[index] : {}),
-                          text,
-                          state: previewCard.items[index]?.state || 'pending',
-                        })),
-                      );
-                      return;
-                    }
-
-                    onSaveEdit(data.id, 'structuredItems', nextItems);
+                    onSaveEdit(
+                      data.id,
+                      'structuredItems',
+                      parseStructuredItemsFromEditor(event.currentTarget.value, previewCard.items, { isCheckpointCard }),
+                    );
                   }
                 }}
               />
@@ -1016,17 +1056,19 @@ function CanvasCard({
           </div>
         </div>
 
-        <div className="kit-card-bottom-row">
-          <div className="kit-owner">
-            {previewCard.avatarSrc ? (
-              <img className="kit-owner-avatar-image" src={previewCard.avatarSrc} alt="" />
-            ) : (
-              <span className="kit-owner-avatar-fallback" />
-            )}
-            <span>{previewCard.ownerName}</span>
+        {sectionConfig.footerMode !== 'none' && (
+          <div className="kit-card-bottom-row">
+            <div className="kit-owner">
+              {previewCard.avatarSrc ? (
+                <img className="kit-owner-avatar-image" src={previewCard.avatarSrc} alt="" />
+              ) : (
+                <span className="kit-owner-avatar-fallback" />
+              )}
+              <span>{previewCard.ownerName}</span>
+            </div>
+            <span className="kit-progress-text">{previewCard.footerText}</span>
           </div>
-          <span className="kit-progress-text">{previewCard.footerText}</span>
-        </div>
+        )}
 
         {showConnectorPorts && (
           <>
@@ -1083,7 +1125,7 @@ function CanvasCard({
     return (
       <div
         ref={uiKitCardRef}
-        className={`${cardClassName} ui-kit-card ui-kit-card-theme-evidence ui-kit-evidence-card`}
+        className={`${cardClassName} ui-kit-card ui-kit-card-theme-evidence ui-kit-evidence-card ui-kit-card-no-footer`}
         {...interactiveProps}
       >
         <SketchCardFrame cardRef={uiKitCardRef} contentRef={uiKitContentRef} />
@@ -1258,21 +1300,6 @@ function CanvasCard({
           )}
         </div>
 
-        <div className="kit-card-bottom-row kit-card-bottom-row-evidence">
-          {previewCard.sourceMeta ? (
-            <div className="kit-owner">
-              {previewCard.sourceMeta.avatarSrc ? (
-                <img className="kit-owner-avatar-image" src={previewCard.sourceMeta.avatarSrc} alt="" />
-              ) : (
-                <span>{previewCard.sourceMeta.avatar}</span>
-              )}
-              <span>{previewCard.sourceMeta.name}</span>
-            </div>
-          ) : (
-            <div />
-          )}
-        </div>
-
         {showConnectorPorts && (
           <>
             <div
@@ -1396,7 +1423,7 @@ function CanvasCard({
         )}
       </div>
 
-      <div 
+      <div
         className={`canvas-card-desc-wrap${isEditingDesc ? ' is-editing' : ''}`}
         onClick={(event) => {
           if (editingState?.cardId === data.id) return;
@@ -2488,13 +2515,8 @@ export default function Canvas({
     const targetCard = allCards.find(c => c.id === cardId);
     if (!targetCard) return;
 
-    const normalizedValue = Array.isArray(newValue)
-      ? newValue.map((item) => String(item).trim()).filter(Boolean)
-      : String(newValue).trim();
-
-    const normalizedCurrent = Array.isArray(targetCard[field])
-      ? targetCard[field].map((item) => String(item).trim()).filter(Boolean)
-      : String(targetCard[field] || '').trim();
+    const normalizedValue = normalizeEditableValue(newValue);
+    const normalizedCurrent = normalizeEditableValue(targetCard[field]);
 
     if (Array.isArray(normalizedValue) && Array.isArray(normalizedCurrent)) {
       if (JSON.stringify(normalizedValue) === JSON.stringify(normalizedCurrent)) return;

@@ -298,7 +298,7 @@ export const DEMO_CANVAS_SECTIONS = {
       ],
       statusPill: { label: '已确认', color: 'green' },
       owner: createPersona('拍板人', '陈嘉木 · 产品经理', '陈', 'slate', DEMO_PERSONA_AVATARS.chenJiamu),
-      next: 'd1',
+      next: 'o1',
     },
     {
       id: 'r2',
@@ -311,7 +311,7 @@ export const DEMO_CANVAS_SECTIONS = {
       ],
       statusPill: { label: '待审批', color: 'yellow' },
       owner: createPersona('审批中', '贺知行 · 安全策略负责人', '贺', 'emerald', DEMO_PERSONA_AVATARS.heZhixing),
-      next: 'd2',
+      next: ['o1', 'o2'],
     },
     {
       id: 'r3',
@@ -324,7 +324,29 @@ export const DEMO_CANVAS_SECTIONS = {
       ],
       statusPill: { label: '已审批', color: 'green' },
       owner: createPersona('负责人', '沈清和 · 客服运营负责人', '沈', 'rose', DEMO_PERSONA_AVATARS.shenQinghe),
-      next: 'd3',
+      next: 'o2',
+    },
+  ],
+  options: [
+    {
+      id: 'o1',
+      title: '一期先用规则拦截，模型评分延后到二期',
+      desc: '当前更重要的是活动窗口期快速止损和可解释性，因此先上线规则策略，模型评分作为二期增强能力继续准备。',
+      structureKind: 'list',
+      structuredItems: ['方案 A：规则优先，活动期内快速上线并保留可解释命中原因', '方案 B：规则与模型一起上，但需要额外联调和误杀验证时间'],
+      statusPill: { label: '待拍板', color: 'yellow' },
+      owner: createPersona('待拍板', '陈嘉木 · 产品经理', '陈', 'slate', DEMO_PERSONA_AVATARS.chenJiamu),
+      next: 'd1',
+    },
+    {
+      id: 'o2',
+      title: '申诉回滚入口放客服后台，并承诺活动期 T+0 复核',
+      desc: '这项决策直接影响客服承压和用户预期管理，需要把入口归属、回写方式和升级路径一次性拍板清楚。',
+      structureKind: 'list',
+      structuredItems: ['方案 A：客服后台承接申诉，人工复核当天闭环', '方案 B：运营后台统一回滚，但客服只做解释，不直接放行'],
+      statusPill: { label: '待拍板', color: 'yellow' },
+      owner: createPersona('待拍板', '沈清和 · 客服运营负责人', '沈', 'rose', DEMO_PERSONA_AVATARS.shenQinghe),
+      next: ['d2', 'd3'],
     },
   ],
   planning: [

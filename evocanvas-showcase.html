@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EvoCanvas — 从感觉到结构，Vibe Shaping 工作台</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #fbfbfd;
+  --bg-dark: #000000;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-tertiary: #86868b;
+  --text-white: #f5f5f7;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --border: #d2d2d7;
+  --card-bg: #ffffff;
+  --section-gap: 160px;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "PingFang SC", "Noto Sans SC", sans-serif;
+  line-height: 1.47059;
+  font-weight: 400;
+  letter-spacing: -0.022em;
+  overflow-x: hidden;
+}
+
+/* === REVEAL ANIMATION === */
+.reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.8s cubic-bezier(0.25, 0.1, 0.25, 1),
+              transform 0.8s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+.reveal-delay-4 { transition-delay: 0.4s; }
+.reveal-delay-5 { transition-delay: 0.5s; }
+
+/* === LAYOUT === */
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+
+.container-wide {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+
+/* === NAV === */
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(251, 251, 253, 0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid rgba(0,0,0,0.08);
+  transition: background 0.3s;
+}
+
+nav .nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 22px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+nav .logo {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+}
+
+nav .nav-tag {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  letter-spacing: 0;
+}
+
+/* === HERO === */
+.hero {
+  padding-top: 148px;
+  padding-bottom: 80px;
+  text-align: center;
+}
+
+.hero-eyebrow {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 16px;
+  letter-spacing: -0.022em;
+}
+
+.hero h1 {
+  font-size: clamp(40px, 7vw, 72px);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  color: var(--text-primary);
+  margin-bottom: 24px;
+}
+
+.hero h1 .gradient-text {
+  background: linear-gradient(90deg, #0071e3 0%, #6e50d1 50%, #bf4a9c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-sub {
+  font-size: clamp(19px, 2.5vw, 24px);
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.42;
+  max-width: 600px;
+  margin: 0 auto 40px;
+  letter-spacing: 0.011em;
+}
+
+/* === FLOW BAR === */
+.flow-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: wrap;
+  margin-bottom: 64px;
+}
+
+.flow-item {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.flow-node {
+  padding: 8px 20px;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.flow-node.n1 { background: #fef3f2; color: #b42318; }
+.flow-node.n2 { background: #f0edfe; color: #6e50d1; }
+.flow-node.n3 { background: #eff8ff; color: #0071e3; }
+.flow-node.n4 { background: #ecfdf3; color: #12b76a; }
+.flow-node.n5 { background: #1d1d1f; color: #f5f5f7; }
+
+.flow-arrow {
+  width: 24px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  opacity: 0.4;
+}
+
+/* === HERO SCREENSHOT === */
+.hero-screenshot {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+
+.hero-screenshot .screen-frame {
+  background: var(--card-bg);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.04),
+              0 24px 48px rgba(0,0,0,0.08),
+              0 0 0 0.5px rgba(0,0,0,0.06);
+}
+
+.hero-screenshot .screen-frame img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* === PROBLEM SECTION === */
+.problem {
+  padding-top: var(--section-gap);
+  padding-bottom: var(--section-gap);
+}
+
+.section-eyebrow {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: clamp(32px, 5vw, 56px);
+  font-weight: 600;
+  line-height: 1.07;
+  letter-spacing: -0.035em;
+  margin-bottom: 20px;
+}
+
+.section-desc {
+  font-size: 19px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.47;
+  max-width: 600px;
+  letter-spacing: 0.011em;
+}
+
+.problem-intro {
+  font-size: 21px;
+  color: var(--text-secondary);
+  line-height: 1.52;
+  max-width: 680px;
+  margin-top: 48px;
+  margin-bottom: 64px;
+  letter-spacing: 0.011em;
+}
+
+.problem-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.problem-card {
+  background: var(--card-bg);
+  border-radius: 18px;
+  padding: 36px 32px;
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.04);
+  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1),
+              box-shadow 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.problem-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.04), 0 12px 40px rgba(0,0,0,0.08);
+}
+
+.problem-card .card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 20px;
+}
+
+.problem-card:nth-child(1) .card-icon { background: #fef3f2; }
+.problem-card:nth-child(2) .card-icon { background: #f0edfe; }
+.problem-card:nth-child(3) .card-icon { background: #eff8ff; }
+.problem-card:nth-child(4) .card-icon { background: #ecfdf3; }
+
+.problem-card h3 {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  margin-bottom: 8px;
+}
+
+.problem-card p {
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.53;
+}
+
+/* === JOURNEY SECTION === */
+.journey {
+  padding-top: var(--section-gap);
+  padding-bottom: var(--section-gap);
+  background: var(--bg-dark);
+  color: var(--text-white);
+}
+
+.journey .section-eyebrow { color: rgba(255,255,255,0.4); }
+.journey .section-desc { color: rgba(255,255,255,0.6); }
+
+.journey-steps {
+  margin-top: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.journey-step {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 32px;
+  padding: 40px 0;
+  border-bottom: 0.5px solid rgba(255,255,255,0.08);
+  align-items: start;
+}
+
+.journey-step:first-child {
+  border-top: 0.5px solid rgba(255,255,255,0.08);
+}
+
+.step-number {
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: rgba(255,255,255,0.12);
+  font-variant-numeric: tabular-nums;
+}
+
+.step-content .step-en {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+}
+
+.step-content h3 {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 12px;
+  color: var(--text-white);
+}
+
+.step-content p {
+  font-size: 17px;
+  color: rgba(255,255,255,0.55);
+  line-height: 1.53;
+  max-width: 520px;
+}
+
+/* === SCREENSHOT SHOWCASE === */
+.showcase {
+  padding-top: var(--section-gap);
+  padding-bottom: var(--section-gap);
+}
+
+.showcase-header {
+  text-align: center;
+  margin-bottom: 64px;
+}
+
+.showcase-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+
+.showcase-card {
+  background: var(--card-bg);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.06);
+  transition: transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.showcase-card:hover {
+  transform: translateY(-6px);
+}
+
+.showcase-card .card-label {
+  padding: 32px 32px 16px;
+}
+
+.showcase-card .card-label h3 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 6px;
+}
+
+.showcase-card .card-label p {
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.47;
+}
+
+.showcase-card .card-image {
+  padding: 0 16px 16px;
+}
+
+.showcase-card .card-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* === VALUE SECTION === */
+.value {
+  padding-top: var(--section-gap);
+  padding-bottom: var(--section-gap);
+  text-align: center;
+}
+
+.value-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-top: 64px;
+  text-align: left;
+}
+
+.value-card {
+  background: var(--card-bg);
+  border-radius: 18px;
+  padding: 40px 32px;
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.04);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.value-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 0.5px rgba(0,0,0,0.04), 0 12px 40px rgba(0,0,0,0.08);
+}
+
+.value-card .value-emoji {
+  font-size: 32px;
+  margin-bottom: 20px;
+  display: block;
+}
+
+.value-card h3 {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  margin-bottom: 10px;
+}
+
+.value-card p {
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.53;
+}
+
+/* === QUOTE === */
+.quote-section {
+  padding: 120px 22px;
+  text-align: center;
+}
+
+.quote-section blockquote {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.quote-section .quote-mark {
+  font-size: 64px;
+  line-height: 1;
+  color: var(--border);
+  font-family: Georgia, serif;
+  margin-bottom: 16px;
+}
+
+.quote-section .quote-author {
+  margin-top: 24px;
+  font-size: 15px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+/* === FOOTER === */
+footer {
+  padding: 48px 22px;
+  text-align: center;
+  border-top: 0.5px solid var(--border);
+}
+
+footer .footer-logo {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+footer p {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 768px) {
+  :root { --section-gap: 100px; }
+
+  .problem-grid { grid-template-columns: 1fr; }
+  .showcase-split { grid-template-columns: 1fr; }
+  .value-grid { grid-template-columns: 1fr; }
+
+  .journey-step {
+    grid-template-columns: 48px 1fr;
+    gap: 20px;
+    padding: 28px 0;
+  }
+
+  .step-number { font-size: 40px; }
+  .step-content h3 { font-size: 22px; }
+
+  .flow-bar { gap: 6px; }
+  .flow-arrow { width: 16px; font-size: 12px; }
+  .flow-node { padding: 6px 14px; font-size: 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <span class="logo">EvoCanvas</span>
+    <span class="nav-tag">TRAE AI 创造力大赛 · 学习工作赛道</span>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-eyebrow reveal">Vibe Shaping Workbench</div>
+    <h1 class="reveal reveal-delay-1">
+      从模糊感觉到<br><span class="gradient-text">结构化交付</span>
+    </h1>
+    <p class="hero-sub reveal reveal-delay-2">
+      一款对话驱动的工作台，接住你脑中尚未成形的感觉，在对话中逐步塑形，最终收敛为可交接、可执行的结构化成果。
+    </p>
+    <div class="flow-bar reveal reveal-delay-3">
+      <div class="flow-item">
+        <span class="flow-node n1">感觉接入</span>
+        <span class="flow-arrow">→</span>
+      </div>
+      <div class="flow-item">
+        <span class="flow-node n2">对话塑形</span>
+        <span class="flow-arrow">→</span>
+      </div>
+      <div class="flow-item">
+        <span class="flow-node n3">结构收敛</span>
+        <span class="flow-arrow">→</span>
+      </div>
+      <div class="flow-item">
+        <span class="flow-node n4">画布显影</span>
+        <span class="flow-arrow">→</span>
+      </div>
+      <div class="flow-item">
+        <span class="flow-node n5">结构化交接</span>
+      </div>
+    </div>
+  </div>
+  <div class="hero-screenshot reveal reveal-delay-4">
+    <div class="screen-frame">
+      <img src="screenshot-canvas.png" alt="EvoCanvas 画布工作台 — 从探索发现到落地交接的完整工作流" loading="eager">
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section class="problem">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-eyebrow">痛点</div>
+      <h2 class="section-title">产品工作的起点，<br>从来不是一个清晰需求。</h2>
+    </div>
+    <p class="problem-intro reveal reveal-delay-1">
+      真实的产品思考，是从 leader、客户、研发、设计、数据报表、会议、聊天和截图中接收到零散输入，然后在多轮对齐中试图弄清楚"这件事到底要解决什么问题"。这个过程最典型地发生在产品经理身上，但并不只属于产品经理。
+    </p>
+    <div class="problem-grid">
+      <div class="problem-card reveal">
+        <div class="card-icon">📥</div>
+        <h3>输入来源太碎</h3>
+        <p>信息跨媒介、跨角色、跨时间出现。会议纪要只能覆盖一部分，没有统一收束入口。</p>
+      </div>
+      <div class="problem-card reveal reveal-delay-1">
+        <div class="card-icon">📄</div>
+        <h3>文档无法承载过程</h3>
+        <p>文档适合沉淀结果，不适合承载持续演化中的思考。自由白板又容易变成无结构的堆积。</p>
+      </div>
+      <div class="problem-card reveal reveal-delay-2">
+        <div class="card-icon">🔍</div>
+        <h3>细节吞噬全局</h3>
+        <p>一旦盯住某个细节，就容易丢掉整体目标。规则、术语、字段口径在推进中不断散落。</p>
+      </div>
+      <div class="problem-card reveal reveal-delay-3">
+        <div class="card-icon">🤖</div>
+        <h3>AI 无法维护工作面</h3>
+        <p>聊天式 AI 能回答问题，但无法稳定维护一张持续演化的工作面，也无法追踪哪些还没澄清。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- JOURNEY (dark section) -->
+<section class="journey">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-eyebrow">方案</div>
+      <h2 class="section-title">五步旅程。<br>从感觉到结构。</h2>
+      <p class="section-desc">EvoCanvas 不是在优化"写出来"，而是在优化"想明白"。</p>
+    </div>
+
+    <div class="journey-steps">
+      <div class="journey-step reveal">
+        <div class="step-number">01</div>
+        <div class="step-content">
+          <div class="step-en">Vibe Input</div>
+          <h3>感觉接入</h3>
+          <p>允许用户从一句话、一段聊天、一张图、几个关键词或一段语音开始。不要求先写出稳定需求，系统先接住这种感觉。</p>
+        </div>
+      </div>
+      <div class="journey-step reveal">
+        <div class="step-number">02</div>
+        <div class="step-content">
+          <div class="step-en">Dialogue Shaping</div>
+          <h3>对话塑形</h3>
+          <p>AI Agent 先理解、命名、拆解和追问，让模糊感觉逐步变成可讨论的对象。优先暴露不确定性，而不是过早下结论。</p>
+        </div>
+      </div>
+      <div class="journey-step reveal">
+        <div class="step-number">03</div>
+        <div class="step-content">
+          <div class="step-en">Structure Convergence</div>
+          <h3>结构收敛</h3>
+          <p>将初步成形的内容转为可治理的结构化候选对象——待澄清问题、约束和待决策项，持续暴露冲突、缺口和不确定性。</p>
+        </div>
+      </div>
+      <div class="journey-step reveal">
+        <div class="step-number">04</div>
+        <div class="step-content">
+          <div class="step-en">Canvas Rendering</div>
+          <h3>画布显影</h3>
+          <p>当结构稳定到可以承载时，在画布上显影卡片、栏目、关系、冲突、依赖和缺口。画布是稳定结构的显影层。</p>
+        </div>
+      </div>
+      <div class="journey-step reveal">
+        <div class="step-number">05</div>
+        <div class="step-content">
+          <div class="step-en">Structured Handoff</div>
+          <h3>结构化交接</h3>
+          <p>把当前稳定结构打包为可供人阅读、或供下游 AI 执行的产品上下文。可以清晰回看"推进了什么、消除了哪些不确定性"。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SHOWCASE: Real screenshots -->
+<section class="showcase">
+  <div class="container">
+    <div class="showcase-header reveal">
+      <div class="section-eyebrow">产品实况</div>
+      <h2 class="section-title">不止是概念。<br>已经在真实场景中运转。</h2>
+    </div>
+  </div>
+  <div class="showcase-split">
+    <div class="showcase-card reveal">
+      <div class="card-label">
+        <h3>画布工作台</h3>
+        <p>从探索发现到落地交接，四栏结构化画布承载完整产品收敛过程。</p>
+      </div>
+      <div class="card-image">
+        <img src="screenshot-canvas.png" alt="画布工作台" loading="lazy">
+      </div>
+    </div>
+    <div class="showcase-card reveal reveal-delay-1">
+      <div class="card-label">
+        <h3>Canvas AI 助手</h3>
+        <p>AI 像一个合格的产品同事：暴露不确定性、追踪缺口、推进收敛。</p>
+      </div>
+      <div class="card-image">
+        <img src="screenshot-ai-assistant.png" alt="AI 助手对话界面" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VALUE -->
+<section class="value">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-eyebrow">价值</div>
+      <h2 class="section-title">为什么值得做。</h2>
+    </div>
+    <div class="value-grid">
+      <div class="value-card reveal">
+        <span class="value-emoji">🎯</span>
+        <h3>降低需求失真</h3>
+        <p>从源头减少信息损耗。每一次收敛都有迹可循，不再让关键判断散落在聊天记录和会议纪要中。</p>
+      </div>
+      <div class="value-card reveal reveal-delay-1">
+        <span class="value-emoji">⚡</span>
+        <h3>打通 AI 工作流</h3>
+        <p>结构化交接物可直接被下游 AI 工具消费。Claude Code、Codex 可以基于已收敛结论进入实现，而非继续参与需求收敛。</p>
+      </div>
+      <div class="value-card reveal reveal-delay-2">
+        <span class="value-emoji">✨</span>
+        <h3>赋能个体思考者</h3>
+        <p>不只是产品经理。创业者、设计师、业务负责人——任何需要从模糊直觉收敛到结构化判断的人都能使用。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- QUOTE -->
+<div class="quote-section">
+  <div class="container reveal">
+    <div class="quote-mark">"</div>
+    <blockquote>
+      EvoCanvas 要验证的不是能不能搭一套完整 PM 工作台，而是一个更硬的命题——AI 是否可以像一个合格的产品同事一样，优先暴露不确定性，而不是过早替用户脑补结论。
+    </blockquote>
+    <div class="quote-author">— EvoCanvas 产品理念</div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">EvoCanvas</div>
+  <p>Vibe Shaping Workbench · TRAE AI 创造力大赛参赛作品</p>
+</footer>
+
+<script>
+// Scroll Reveal
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, {
+  threshold: 0.1,
+  rootMargin: '0px 0px -60px 0px'
+});
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Nav background on scroll
+const nav = document.querySelector('nav');
+window.addEventListener('scroll', () => {
+  if (window.scrollY > 40) {
+    nav.style.background = 'rgba(251, 251, 253, 0.92)';
+  } else {
+    nav.style.background = 'rgba(251, 251, 253, 0.8)';
+  }
+}, { passive: true });
+</script>
+
+</body>
+</html>

@@ -31,6 +31,7 @@ memory/
 data/
 cache/
 logs/
+tmp/
 
 # Logs
 *.log

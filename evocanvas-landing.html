@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EvoCanvas - 探索未来工作流</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 强制使用最高质量的系统级苹方和 SF Pro 字体 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            background-color: #fafafc; 
+            color: #1d1d1f;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+
+        .ease-apple { transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+
+        /* ---------------- 背景氛围光效 (Aura) ---------------- */
+        .aura {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.5;
+            animation: float 12s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 0;
+            will-change: transform;
+        }
+        .aura-1 { width: 450px; height: 450px; background: rgba(224, 231, 255, 0.8); top: -10%; left: 15%; animation-delay: 0s; }
+        .aura-2 { width: 350px; height: 350px; background: rgba(252, 231, 243, 0.7); top: 30%; right: 10%; animation-delay: -4s; }
+        .aura-3 { width: 400px; height: 400px; background: rgba(224, 242, 254, 0.6); bottom: -10%; left: 30%; animation-delay: -8s; }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(40px, 60px) scale(1.15); }
+        }
+
+        .hero-title-gradient {
+            background: linear-gradient(135deg, #000000 0%, #434343 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* ---------------- 优雅入场动效 ---------------- */
+        .reveal-up {
+            opacity: 0;
+            transform: translateY(50px);
+            transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .reveal-up.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ---------------- 高级 UI 质感 ---------------- */
+        .premium-glass {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: saturate(180%) blur(20px);
+            -webkit-backdrop-filter: saturate(180%) blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.06), 0 10px 30px rgba(0, 0, 0, 0.03);
+            border-radius: 2.5rem;
+            padding: 12px;
+        }
+        .premium-glass img {
+            border-radius: 2rem;
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.02);
+        }
+        .premium-border {
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+        @keyframes pulse-subtle {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.9; transform: scale(0.99); }
+        }
+        .animate-pulse-subtle {
+            animation: pulse-subtle 3s infinite ease-in-out;
+        }
+
+        /* ---------------- 粘性滚动区域 ---------------- */
+        .pin-container {
+            position: relative;
+            height: 300vh; 
+        }
+        .pin-panel {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            width: 100%;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            will-change: transform, opacity, filter;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 全局氛围光与噪点纹理 -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10 bg-[#fafafc]">
+        <div class="aura aura-1"></div>
+        <div class="aura aura-2"></div>
+        <div class="aura aura-3"></div>
+        <div class="absolute inset-0 opacity-[0.025]" style="background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noise%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.8%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noise)%22/%3E%3C/svg%3E');"></div>
+    </div>
+
+    <!-- ========== 第 1 篇章：首屏 Hero Section ========== -->
+    <section class="h-screen flex flex-col justify-center px-8 md:px-20 lg:px-32 relative z-10 max-w-[1400px] mx-auto w-full">
+        <div class="reveal-up" style="transition-delay: 0.1s;">
+            <p class="text-xs md:text-sm font-semibold tracking-[0.35em] text-[#86868b] uppercase mb-8">EvoCanvas 1.0</p>
+        </div>
+        <div class="reveal-up" style="transition-delay: 0.3s;">
+            <h1 class="text-6xl md:text-8xl lg:text-[7.5rem] font-semibold tracking-tighter mb-8 hero-title-gradient leading-[1.05]">
+                将灵感具象为蓝图
+            </h1>
+        </div>
+        <div class="reveal-up" style="transition-delay: 0.5s;">
+            <p class="text-2xl md:text-3xl text-[#86868b] font-medium tracking-tight max-w-3xl mt-2 leading-[1.6]">
+                从无拘无束的心流对话，到逻辑严密的交付物<br>一切只需一念之间
+            </p>
+        </div>
+        
+        <div class="absolute bottom-12 left-8 md:left-20 lg:left-32 flex flex-col items-start opacity-0 animate-[fadeIn_1.5s_ease-out_1.5s_forwards]">
+            <p class="text-[10px] uppercase tracking-[0.2em] text-[#86868b] mb-4 font-semibold">向下探索</p>
+            <div class="w-[1px] h-16 bg-gradient-to-b from-[#86868b] to-transparent ml-2"></div>
+        </div>
+    </section>
+
+    <!-- ========== 第 2 篇章：痛点与愿景 (Prelude) ========== -->
+    <section class="py-40 px-6 bg-white relative z-10">
+        <div class="max-w-4xl mx-auto text-center space-y-10">
+            <h2 class="text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tight text-[#1d1d1f] reveal-up leading-[1.2]">
+                曾经，我们将灵感强行塞进冰冷的表单
+            </h2>
+            <p class="text-2xl md:text-3xl text-[#86868b] font-medium leading-relaxed reveal-up" style="transition-delay: 0.15s;">
+                在繁琐的工具间疲于奔命，打断了心流，遗漏了细节<br>我们被迫用机器的逻辑去思考，而非让机器理解人类的直觉
+            </p>
+            <div class="pt-16 reveal-up" style="transition-delay: 0.3s;">
+                <h2 class="text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tight text-[#1d1d1f] hero-title-gradient">
+                    现在是时候改变了
+                </h2>
+            </div>
+        </div>
+    </section>
+
+    <!-- ========== 第 3 篇章：引入 Vibe-shaping ========== -->
+    <section class="py-32 bg-[#fafafc] relative z-10">
+        <div class="container mx-auto px-6 lg:px-24">
+            <div class="flex flex-col lg:flex-row items-start justify-between gap-16 lg:gap-24">
+                
+                <div class="lg:w-1/2 sticky top-40 z-20">
+                    <p class="text-xs font-bold tracking-[0.2em] text-indigo-500 uppercase mb-4 reveal-up">全新交互范式</p>
+                    <h2 class="text-5xl lg:text-7xl font-semibold tracking-tighter text-[#1d1d1f] mb-8 leading-[1.1] reveal-up" style="transition-delay: 0.1s;">
+                        引入 Vibe-shaping
+                    </h2>
+                    <p class="text-xl text-[#86868b] font-medium leading-relaxed reveal-up" style="transition-delay: 0.2s;">
+                        不要填表，不要拘泥于既定流程。把您的想法、直觉甚至是一种“感觉”直接抛给 EvoCanvas。<br><br>
+                        系统会在您的自然流露中，像一位极具同理心的产品搭档一样，帮您提炼出真正的业务逻辑和边界。我们称之为——“氛围塑形”。
+                    </p>
+                </div>
+
+                <div class="lg:w-1/2 w-full mt-12 lg:mt-0 relative z-10 flex justify-center lg:justify-end">
+                    <!-- Vibe-shaping 可视化面板 -->
+                    <div class="premium-glass w-full max-w-lg overflow-hidden relative shadow-[0_50px_100px_rgba(0,0,0,0.08)] bg-white/60" style="height: 480px;">
+                        
+                        <div class="p-10 h-full flex flex-col justify-center">
+                            <!-- 1. Raw Intuition 区域 -->
+                            <div class="mb-10 relative">
+                                <p class="text-[11px] font-medium tracking-[0.3em] text-[#86868b] uppercase mb-5 flex items-center gap-3">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                    RAW INTUITION
+                                </p>
+                                <div class="relative">
+                                    <p class="text-[24px] md:text-[26px] font-medium text-[#1d1d1f] leading-[1.5] tracking-tight opacity-20 transition-opacity duration-1000" id="vibe-raw-text">
+                                        "我想打造一个梦境响应系统。如果在梦里听到下雨声，清晨就播放肖邦；如果脑波显现出噩梦，就提前让咖啡机做杯热美式。"
+                                    </p>
+                                    <!-- 高级感扫描光效 -->
+                                    <div class="absolute inset-0 bg-gradient-to-b from-transparent via-[#1d1d1f]/10 to-transparent h-20 w-full opacity-0 pointer-events-none -translate-y-full blur-xl" id="vibe-scanner"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- 2. AI 极简结构化图谱 -->
+                            <div class="flex-1 flex flex-col pt-4 relative overflow-hidden">
+                                
+                                <p class="text-[11px] font-medium tracking-[0.3em] text-[#86868b] uppercase mb-8 opacity-0 transition-opacity duration-500 flex items-center gap-3" id="vibe-shaping-title">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-black"></span>
+                                    SEMANTIC GRAPH
+                                </p>
+                                
+                                <!-- 结构化图谱节点，极简排版风格 -->
+                                <div class="space-y-7 relative before:absolute before:inset-y-2 before:left-[3px] before:w-[1px] before:bg-gradient-to-b before:from-gray-300 before:to-transparent">
+                                    
+                                    <!-- 节点 1 -->
+                                    <div class="vibe-insight-group opacity-0 translate-x-6 transition-all duration-700 ease-apple relative pl-8">
+                                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[7px] flex justify-center">
+                                            <div class="w-2 h-2 rounded-full bg-black ring-[4px] ring-white"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <span class="text-[15px] font-medium text-[#1d1d1f]">梦境声纹</span>
+                                            <span class="px-2 py-0.5 rounded bg-gray-100 text-[#86868b] text-[12px] font-mono tracking-wider">== "下雨"</span>
+                                            <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                                            <span class="text-[15px] font-medium text-[#1d1d1f] border-b border-black/20 pb-0.5">播放《夜曲》</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 节点 2 -->
+                                    <div class="vibe-insight-group opacity-0 translate-x-6 transition-all duration-700 ease-apple delay-200 relative pl-8">
+                                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[7px] flex justify-center">
+                                            <div class="w-2 h-2 rounded-full bg-black ring-[4px] ring-white"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <span class="text-[15px] font-medium text-[#1d1d1f]">脑波特征</span>
+                                            <span class="px-2 py-0.5 rounded bg-gray-100 text-[#86868b] text-[12px] font-mono tracking-wider">IN (噩梦)</span>
+                                            <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                                            <span class="text-[15px] font-medium text-[#1d1d1f] border-b border-black/20 pb-0.5">启动咖啡机</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 隐含约束 3 -->
+                                    <div class="vibe-insight-group opacity-0 translate-x-6 transition-all duration-700 ease-apple delay-400 relative pl-8">
+                                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[7px] flex justify-center">
+                                            <div class="w-1.5 h-1.5 rounded-full bg-gray-300 ring-[4px] ring-white"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 opacity-50">
+                                            <span class="text-[13px] font-medium text-[#86868b] italic">缺省定义：需要补充咖啡机 API 接口...</span>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 底部连接口装饰 -->
+                        <div class="absolute bottom-0 left-0 w-full h-1.5 bg-gradient-to-r from-transparent via-black/10 to-transparent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ========== 第 4 篇章：全新工作流 ========== -->
+    <section class="py-40 bg-white relative z-10">
+        <div class="container mx-auto px-6 lg:px-24">
+            <div class="max-w-3xl mx-auto mb-24 text-center">
+                <p class="text-xs font-bold tracking-[0.2em] text-[#86868b] uppercase mb-4 reveal-up">进化版工作流</p>
+                <h2 class="text-5xl lg:text-7xl font-semibold tracking-tighter text-[#1d1d1f] mb-8 reveal-up" style="transition-delay: 0.1s;">
+                    从混沌走向秩序
+                </h2>
+                <p class="text-xl text-[#86868b] font-medium leading-relaxed reveal-up" style="transition-delay: 0.2s;">
+                    EvoCanvas 构建了一套极简而强大的智能流转机制，确保您的每一次心流迸发，都能完美落地为实际的工程架构。
+                </p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-12 lg:gap-16">
+                <!-- Step 1 -->
+                <div class="reveal-up border-t border-gray-100 pt-8">
+                    <p class="text-6xl font-semibold text-gray-100 mb-6 font-mono tracking-tighter">01</p>
+                    <h3 class="text-2xl font-semibold text-[#1d1d1f] mb-4 tracking-tight">多源输入编译</h3>
+                    <p class="text-lg text-[#86868b] leading-relaxed">无论是一段冗长的会议录音，还是一份粗糙的文档，只需丢进画布，系统瞬间为您提取核心命题。</p>
+                </div>
+                <!-- Step 2 -->
+                <div class="reveal-up border-t border-gray-100 pt-8" style="transition-delay: 0.15s;">
+                    <p class="text-6xl font-semibold text-gray-100 mb-6 font-mono tracking-tighter">02</p>
+                    <h3 class="text-2xl font-semibold text-[#1d1d1f] mb-4 tracking-tight">澄清与决策拍板</h3>
+                    <p class="text-lg text-[#86868b] leading-relaxed">AI 不会盲目执行。它会主动抛出逻辑断层与待决策项，您只需像做选择题一样轻松拍板，补齐约束。</p>
+                </div>
+                <!-- Step 3 -->
+                <div class="reveal-up border-t border-gray-100 pt-8" style="transition-delay: 0.3s;">
+                    <p class="text-6xl font-semibold text-gray-100 mb-6 font-mono tracking-tighter">03</p>
+                    <h3 class="text-2xl font-semibold text-[#1d1d1f] mb-4 tracking-tight">生成结构交接物</h3>
+                    <p class="text-lg text-[#86868b] leading-relaxed">当心流结束，一份结构严谨、可直接交付给开发团队的系统蓝图，已经静候在您的画布中央。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ========== 第 5 篇章：核心 UI 多幕剧场滚动区 ========== -->
+    <div class="pin-container" id="scroll-track">
+        
+        <!-- 场景 A: Agent (展示步骤 1, 2) -->
+        <div class="pin-panel" id="panel-agent">
+            <!-- 底色遮罩隔离上方内容 -->
+            <div class="absolute inset-0 bg-white/70 backdrop-blur-2xl -z-10"></div>
+            
+            <div class="container mx-auto px-6 lg:px-24 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16 items-center h-full">
+                <div class="lg:col-span-5 z-20" id="text-agent">
+                    <h2 class="text-5xl lg:text-[4rem] font-semibold tracking-tighter text-[#1d1d1f] mb-8 leading-[1.1]">
+                        对话是最好的塑形
+                    </h2>
+                    <p class="text-lg lg:text-xl text-[#86868b] font-medium leading-[1.7] max-w-md">
+                        这是 Vibe-shaping 的实际体验。系统正在实时捕捉您的意图，并抛出那些被忽略的关键业务分支供您拍板。
+                    </p>
+                </div>
+                <div class="lg:col-span-7 relative z-10 w-full flex justify-center lg:justify-end pr-0 lg:pr-12" id="img-agent">
+                    <!-- 直接渲染图片，去除冗余的嵌套边框，限制一个舒适的最大宽度 -->
+                    <img src="./agent.png" alt="Agent Chat Interface" class="w-full max-w-[420px] h-auto block rounded-[2.5rem] shadow-[0_40px_100px_rgba(0,0,0,0.08),0_10px_30px_rgba(0,0,0,0.04)] border border-gray-200/60 transition-transform duration-700 hover:-translate-y-2">
+                </div>
+            </div>
+        </div>
+
+        <!-- 场景 B: Canvas (展示步骤 3) -->
+        <div class="pin-panel" id="panel-canvas">
+            <div class="absolute inset-0 bg-[#fafafc]/95 backdrop-blur-3xl shadow-[0_-40px_80px_rgba(0,0,0,0.06)] -z-10"></div>
+            
+            <div class="container mx-auto px-6 lg:px-24 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center h-full">
+                <div class="lg:col-span-8 relative z-10 w-[110%] max-w-none flex justify-center lg:justify-start order-2 lg:order-1 -ml-[5%]" id="img-canvas">
+                    <!-- 放大 Canvas 图片占比，增加左侧溢出感 -->
+                    <img src="./canvas.png" alt="EvoCanvas Board Interface" class="w-full h-auto block rounded-[2rem] shadow-[0_50px_100px_rgba(0,0,0,0.08),0_15px_35px_rgba(0,0,0,0.04)] border border-gray-200/60 transition-transform duration-700 hover:-translate-y-2">
+                </div>
+                <div class="lg:col-span-4 z-20 lg:pl-10 order-1 lg:order-2" id="text-canvas">
+                    <h2 class="text-5xl lg:text-[3.5rem] font-semibold tracking-tighter text-[#1d1d1f] mb-6 leading-[1.1]">
+                        在画布上推演未来
+                    </h2>
+                    <p class="text-lg text-[#86868b] font-medium leading-[1.7]">
+                        当对话落地为结构化资产。Agent 已经在无界画布中为您自动绘制出所有的执行节点与逻辑链路。这就是最终的交接物。
+                    </p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ========== 终屏 CTA ========== -->
+    <section class="min-h-screen flex flex-col items-center justify-center text-center px-4 relative overflow-hidden bg-white">
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-b from-indigo-50/50 to-purple-50/50 rounded-full filter blur-[120px] pointer-events-none"></div>
+        
+        <div class="reveal-up z-10">
+            <h2 class="text-5xl md:text-[5rem] font-semibold mb-14 tracking-tighter text-[#1d1d1f]">
+                开启未来工作流
+            </h2>
+            <a href="#" class="group relative inline-flex items-center justify-center px-12 py-5 font-semibold text-lg text-white transition-all duration-[600ms] ease-apple bg-[#1d1d1f] rounded-full overflow-hidden hover:scale-105 hover:shadow-[0_20px_40px_rgba(29,29,31,0.15)]">
+                <span class="relative z-10">体验 EvoCanvas 1.0</span>
+                <div class="absolute inset-0 h-full w-full bg-gradient-to-r from-[#434343] to-[#000000] opacity-0 group-hover:opacity-100 transition-opacity duration-[600ms] ease-apple"></div>
+            </a>
+        </div>
+    </section>
+
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+
+    <script>
+        // 1. 首屏入场
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                document.querySelectorAll('section.h-screen .reveal-up').forEach(el => el.classList.add('active'));
+            }, 50);
+        });
+
+        // 2. 页面元素滚动触发 (Intersection Observer)
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                }
+            });
+        }, { threshold: 0.15, rootMargin: "0px 0px -50px 0px" });
+        
+        document.querySelectorAll('.reveal-up').forEach(el => {
+            if (!el.closest('section.h-screen')) {
+                observer.observe(el);
+            }
+        });
+
+        // 3. 核心视差滚动
+        const track = document.getElementById('scroll-track');
+        const panelAgent = document.getElementById('panel-agent');
+        const panelCanvas = document.getElementById('panel-canvas');
+        const imgAgent = document.getElementById('img-agent');
+        const textAgent = document.getElementById('text-agent');
+        const imgCanvas = document.getElementById('img-canvas');
+        const textCanvas = document.getElementById('text-canvas');
+
+        let ticking = false;
+
+        function updateParallax() {
+            const trackRect = track.getBoundingClientRect();
+            const scrollY = -trackRect.top;
+            const trackHeight = trackRect.height - window.innerHeight;
+            
+            let progress = Math.max(0, Math.min(1, scrollY / trackHeight));
+
+            if (progress > 0) {
+                const easeProgress = Math.pow(progress, 1.4);
+                
+                const agentScale = 1 - (easeProgress * 0.08); 
+                const agentY = easeProgress * 120; 
+                const agentOpacity = 1 - (easeProgress * 0.7); 
+                const agentBlur = easeProgress * 20; 
+                
+                panelAgent.style.transform = `translate3d(0, ${agentY}px, 0) scale(${agentScale})`;
+                panelAgent.style.opacity = agentOpacity;
+                panelAgent.style.filter = `blur(${agentBlur}px)`;
+            } else {
+                panelAgent.style.transform = `translate3d(0, 0, 0) scale(1)`;
+                panelAgent.style.opacity = 1;
+                panelAgent.style.filter = `blur(0px)`;
+            }
+
+            const easeIn = Math.pow(progress, 0.85);
+            const canvasY = window.innerHeight * (1 - easeIn);
+            panelCanvas.style.transform = `translate3d(0, ${canvasY}px, 0)`;
+            
+            const canvasImgScale = 1.08 - (progress * 0.08);
+            imgCanvas.style.transform = `scale(${canvasImgScale})`;
+            
+            const textY = 60 * (1 - progress);
+            textCanvas.style.transform = `translate3d(0, ${textY}px, 0)`;
+
+            ticking = false;
+        }
+
+        window.addEventListener('scroll', () => {
+            if (!ticking) {
+                window.requestAnimationFrame(updateParallax);
+                ticking = true;
+            }
+        });
+        
+        updateParallax();
+
+        // --- 4. Vibe-shaping 动态模拟器脚本 ---
+        async function runVibeScanner() {
+            const rawText = document.getElementById('vibe-raw-text');
+            const scanner = document.getElementById('vibe-scanner');
+            const shapingTitle = document.getElementById('vibe-shaping-title');
+            const groups = document.querySelectorAll('.vibe-insight-group');
+            
+            // 初始状态重置
+            rawText.classList.add('opacity-40');
+            rawText.classList.remove('opacity-100');
+            scanner.style.transition = 'none';
+            scanner.style.transform = 'translateY(-100%)';
+            scanner.style.opacity = '0';
+            shapingTitle.classList.remove('opacity-100');
+            groups.forEach(g => {
+                g.classList.remove('opacity-100', 'translate-x-0');
+                g.classList.add('opacity-0', 'translate-x-6');
+            });
+            
+            // 等待一下开始
+            await new Promise(r => setTimeout(r, 1000));
+            
+            // 1. 文字高亮
+            rawText.classList.remove('opacity-20');
+            rawText.classList.add('opacity-100');
+            
+            // 2. 扫描线向下移动
+            await new Promise(r => setTimeout(r, 500));
+            scanner.style.transition = 'transform 2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s ease';
+            scanner.style.opacity = '1';
+            scanner.style.transform = 'translateY(300px)';
+            
+            // 扫描结束隐藏
+            await new Promise(r => setTimeout(r, 1800));
+            scanner.style.opacity = '0';
+            
+            // 3. 结构化洞察浮现
+            shapingTitle.classList.add('opacity-100');
+            
+            // 依次显示各个提取出的卡片组
+            for (let i = 0; i < groups.length; i++) {
+                await new Promise(r => setTimeout(r, 400));
+                groups[i].classList.remove('opacity-0', 'translate-x-6');
+                groups[i].classList.add('opacity-100', 'translate-x-0');
+            }
+            
+            // 停留展示
+            await new Promise(r => setTimeout(r, 5000));
+            
+            // 循环
+            runVibeScanner();
+        }
+
+        // 启动 Vibe-shaping 动画
+        setTimeout(runVibeScanner, 1000);
+    </script>
+</body>
+</html>

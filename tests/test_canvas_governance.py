@@ -40,15 +40,12 @@ class CanvasGovernanceTests(unittest.TestCase):
 
             outcome = governance.classify(proposal)
 
-            self.assertEqual(outcome.action, "pending_confirmation")
+            self.assertEqual(outcome.action, "awaiting_chat_confirmation")
             self.assertEqual(outcome.risk_level, MutationRiskLevel.HIGH)
             self.assertEqual(proposal.risk_level, MutationRiskLevel.HIGH)
             self.assertEqual(proposal.status, CanvasMutationStatus.PENDING_CONFIRMATION)
             self.assertEqual(proposal.metadata["gate_reason"], "fact_boundary_change")
-            self.assertEqual(
-                [item.proposal_id for item in repository.load_confirmation_queue("ws_demo")],
-                ["proposal_001"],
-            )
+            self.assertTrue(proposal.metadata["awaiting_chat_confirmation"])
 
     def test_auto_applies_low_risk_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -76,29 +73,16 @@ class CanvasGovernanceTests(unittest.TestCase):
             self.assertEqual(outcome.risk_level, MutationRiskLevel.LOW)
             self.assertEqual(proposal.risk_level, MutationRiskLevel.LOW)
             self.assertEqual(proposal.status, CanvasMutationStatus.APPLIED)
-            self.assertEqual(repository.load_confirmation_queue("ws_demo"), [])
+            self.assertFalse(proposal.metadata.get("awaiting_chat_confirmation"))
 
-    def test_repository_persists_confirmation_queue(self) -> None:
+    def test_repository_persists_chat_message_for_confirmation_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repository = CanvasRepository(FakeStorage(Path(tmpdir)))
-            proposals = [
-                CanvasMutationProposal(
-                    proposal_id="proposal_003",
-                    workspace_id="ws_demo",
-                    turn_id="turn_003",
-                )
-            ]
-
-            repository.save_confirmation_queue("ws_demo", proposals)
-
-            queue_file = repository._workspace_dir("ws_demo") / "confirmation_queue.json"
-            self.assertTrue(queue_file.exists())
-            self.assertEqual(
-                json.loads(queue_file.read_text(encoding="utf-8"))["items"][0]["proposal_id"],
-                "proposal_003",
+            repository.append_chat_message(
+                "ws_demo",
+                {"message_id": "msg_003", "role": "assistant", "content": "请确认约束。"},
             )
-            loaded = repository.load_confirmation_queue("ws_demo")
-            self.assertEqual([proposal.proposal_id for proposal in loaded], ["proposal_003"])
+            self.assertEqual(repository.load_chat_messages("ws_demo")[0]["message_id"], "msg_003")
 
     def test_governance_detects_medium_risk_mutation(self) -> None:
         governance = MutationGovernance()
@@ -128,7 +112,7 @@ class CanvasGovernanceTests(unittest.TestCase):
                 card_id="card_001",
                 kind=CanvasCardKind.CONSTRAINT,
                 title="原有已确认约束",
-                status="confirmed",
+                status="effective",
             )
         ]
         proposal = CanvasMutationProposal(
@@ -146,7 +130,7 @@ class CanvasGovernanceTests(unittest.TestCase):
             ],
         )
         outcome = governance.classify(proposal, existing_cards=existing)
-        self.assertEqual(outcome.action, "pending_confirmation")
+        self.assertEqual(outcome.action, "awaiting_chat_confirmation")
         self.assertEqual(outcome.risk_level, MutationRiskLevel.HIGH)
 
     def test_apply_proposal_handles_supersede_and_retention(self) -> None:
@@ -161,7 +145,7 @@ class CanvasGovernanceTests(unittest.TestCase):
                 card_id="card_orig",
                 kind=CanvasCardKind.CONSTRAINT,
                 title="原确认约束",
-                status="confirmed",
+                status="effective",
             )
             repository.save_cards("ws_demo", [card])
             
@@ -190,13 +174,13 @@ class CanvasGovernanceTests(unittest.TestCase):
             
             self.assertEqual(orig_card.status, "superseded")
             self.assertEqual(orig_card.metadata["superseded_by"], new_card.card_id)
-            self.assertEqual(new_card.status, "confirmed")
+            self.assertEqual(new_card.status, "effective")
             self.assertEqual(new_card.title, "更新后的约束内容")
             self.assertEqual(new_card.metadata["supersedes"], "card_orig")
             
             relations = repository.load_relations("ws_demo")
             self.assertEqual(len(relations), 1)
-            self.assertEqual(relations[0].kind.value, "derived_from")
+            self.assertEqual(relations[0].kind.value, "replaces")
             self.assertEqual(relations[0].from_card_id, "card_orig")
             self.assertEqual(relations[0].to_card_id, new_card.card_id)
 
@@ -232,7 +216,7 @@ class CanvasGovernanceTests(unittest.TestCase):
         existing = [
             CanvasCard(card_id="card_c1", kind=CanvasCardKind.CONSTRAINT, title="约束1", status="draft"),
             CanvasCard(card_id="card_c2", kind=CanvasCardKind.CONSTRAINT, title="约束2", status="draft"),
-            CanvasCard(card_id="card_d1", kind=CanvasCardKind.DECISION, title="决策1", status="confirmed"),
+            CanvasCard(card_id="card_d1", kind=CanvasCardKind.DECISION, title="决策1", status="decided"),
         ]
         
         proposal = CanvasMutationProposal(

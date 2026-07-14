@@ -7,7 +7,17 @@ from uuid import uuid4
 
 from app.canvas.agent.supervisor import CanvasSupervisor
 from app.canvas.domain.cards import CanvasCard, CanvasCardKind
+from app.canvas.domain.confirmation import ConfirmationKind, ConfirmationRecord, ConfirmedClaim
 from app.canvas.domain.handoff import StructuredHandoff, TodoItem, TodoProjection
+from app.canvas.domain.ledger import LedgerActorType, LedgerEvent, LedgerEventType
+from app.canvas.domain.object_status import (
+    InitialGovernanceStatus,
+    ValidationState,
+    default_status_for_kind,
+    is_stable_status,
+    is_unresolved_status,
+)
+from app.canvas.domain.package import Package, PackageVersion
 from app.canvas.domain.mutations import (
     CanvasMutation,
     CanvasMutationAction,
@@ -53,10 +63,6 @@ class CanvasRelationNotFoundError(KeyError):
     """表示请求删除的画布关系不存在。"""
 
 
-class CanvasCardMoveValidationError(ValueError):
-    """表示卡片迁移目标不合法，不能静默破坏 EvoCanvas 的阶段语义。"""
-
-
 class CanvasSnapshotNotFoundError(KeyError):
     """表示请求读取的画布快照不存在。"""
 
@@ -86,11 +92,13 @@ class CanvasService:
             return workspace
 
         now = utc_now_iso()
+        # L3 规格：新工作区尚未形成包版本时交接状态为 not_ready；
+        # 后续状态由当前 PackageVersion.initial_governance_status 派生。
         workspace = CanvasWorkspace(
             workspace_id=workspace_id,
             title=f"EvoCanvas Workspace {workspace_id}",
             objective="从多源输入中收敛待澄清、约束、待决策与结构化交接物。",
-            handoff_status="draft",
+            handoff_status="not_ready",
             created_at=now,
             updated_at=now,
         )
@@ -104,9 +112,12 @@ class CanvasService:
         items = []
         for workspace in self.repository.list_workspaces()[:limit]:
             handoff = self.repository.load_handoff(workspace.workspace_id)
+            # L3 规格已下线 StructuredHandoff.summary；优先用 metadata.legacy.summary 兼容旧持久化，
+            # 缺失时回退到 workspace.objective，避免最近项目视图出现空白摘要。
             summary = ""
             if handoff is not None:
-                summary = (handoff.summary or "").strip()
+                legacy = dict(handoff.metadata or {}).get("legacy", {})
+                summary = str(legacy.get("summary", "")).strip()
             if not summary:
                 summary = (workspace.objective or "").strip()
             if not summary:
@@ -117,13 +128,14 @@ class CanvasService:
                     "title": workspace.title or "未命名项目",
                     "created_at": workspace.created_at,
                     "updated_at": workspace.updated_at or workspace.created_at,
-                    "handoff_status": workspace.handoff_status or "not_ready",
+                    "handoff_status": self._handoff_status(workspace.workspace_id),
                     "summary_preview": summary[:140],
                     "cover_mode": "placeholder",
+                    # L3 规格已废弃 stage 字段；改暴露 kind 与派生治理地位，供视图分组。
                     "cards": [
                         {
-                            "kind": card.kind,
-                            "stage": card.stage,
+                            "kind": card.kind.value if hasattr(card.kind, "value") else str(card.kind),
+                            "governance_class": card.governance_class,
                         }
                         for card in self.repository.load_cards(workspace.workspace_id)
                     ],
@@ -134,8 +146,8 @@ class CanvasService:
     def get_canvas_view(self, workspace_id: str, snapshot_id: Optional[str] = None) -> Dict[str, Any]:
         workspace, cards, relations, snapshot = self._load_canvas_state(workspace_id, snapshot_id=snapshot_id)
         todo_projection = self._build_todo_projection(workspace_id, cards)
-        pending_confirmations = self.repository.load_confirmation_queue(workspace_id)
         handoff = snapshot.handoff if snapshot is not None else self.repository.load_handoff(workspace_id)
+        handoff_status = self._handoff_status(workspace_id, handoff=handoff)
 
         return {
             "workspace_id": workspace.workspace_id,
@@ -144,12 +156,13 @@ class CanvasService:
             "cards": [card.to_dict() for card in cards],
             "relations": [relation.to_dict() for relation in relations],
             "todo_projection": todo_projection.to_dict(),
-            "pending_confirmations_count": len(pending_confirmations),
+            "pending_confirmations_count": 0,
             "view_meta": build_canvas_view_meta(
                 workspace,
-                pending_confirmation_ids=[proposal.proposal_id for proposal in pending_confirmations],
+                pending_confirmation_ids=[],
                 handoff=handoff,
                 is_snapshot=snapshot is not None,
+                handoff_status=handoff_status,
             ),
         }
 
@@ -169,6 +182,24 @@ class CanvasService:
         turn_id = f"turn_{uuid4().hex[:12]}"
         workspace = self._begin_turn(workspace_id, turn_id)
         try:
+            user_message = self.repository.append_chat_message(
+                workspace_id,
+                {
+                    "message_id": f"msg_{uuid4().hex[:12]}",
+                    "role": "user",
+                    "content": message,
+                    "turn_id": turn_id,
+                    "created_at": utc_now_iso(),
+                },
+            )
+            pending_proposal = self._latest_chat_confirmation_proposal(workspace_id)
+            if pending_proposal is not None and self._is_explicit_confirmation(message):
+                return self._apply_chat_confirmation(
+                    workspace,
+                    turn_id,
+                    pending_proposal,
+                    user_message_ref=str(user_message["message_id"]),
+                )
             self._publish_event(
                 workspace_id,
                 "canvas.turn.started",
@@ -227,6 +258,17 @@ class CanvasService:
             )
             proposal.metadata["intent"] = plan.intent
             proposal.metadata["roles"] = list(plan.roles)
+            assistant_message = self.repository.append_chat_message(
+                workspace_id,
+                {
+                    "message_id": f"msg_{uuid4().hex[:12]}",
+                    "role": "assistant",
+                    "content": self._proposal_message_content(proposal),
+                    "turn_id": turn_id,
+                    "created_at": utc_now_iso(),
+                },
+            )
+            proposal.metadata["assistant_message_ref"] = assistant_message["message_id"]
             proposal.metadata["verification_receipt"] = verify_mutation_proposal(
                 proposal, intent=plan.intent, existing_cards=existing_cards
             )
@@ -251,7 +293,7 @@ class CanvasService:
                 proposal=proposal,
                 result_action=outcome.action,
                 cards=existing_cards,
-                pending_gate_ids=[proposal.proposal_id] if outcome.action == "pending_confirmation" else [],
+                pending_gate_ids=[],
                 unresolved_issue_ids=unresolved_issue_ids_from_cards(existing_cards),
             )
             self.repository.save_workspace(workspace)
@@ -271,16 +313,17 @@ class CanvasService:
                     unresolved_issue_ids=unresolved_issue_ids_from_cards(updated_cards),
                 )
                 self.repository.save_workspace(workspace)
-            elif outcome.action == "pending_confirmation":
-                self._mark_turn_awaiting_confirmation(workspace_id, turn_id)
+            elif outcome.action == "awaiting_chat_confirmation":
+                # 提议已记录为普通 Chat 消息，下一条用户消息可确认、否定或修正。
+                pass
             else:
                 # 验证失败情况 (downgrade_to_proposal 或 awaiting_clarification)
                 # 不应用提案，也不用挂起，回合由于错误直接结束
                 pass
 
             event_type = "canvas.mutation.applied"
-            if outcome.action == "pending_confirmation":
-                event_type = "canvas.confirmation.requested"
+            if outcome.action == "awaiting_chat_confirmation":
+                event_type = "canvas.chat_confirmation.requested"
             elif outcome.action in {"downgrade_to_proposal", "awaiting_clarification"}:
                 event_type = "canvas.mutation.failed"
 
@@ -298,20 +341,19 @@ class CanvasService:
                 ),
                 status=proposal.status.value,
             )
-            if outcome.action != "pending_confirmation":
-                self._finish_turn(workspace_id, turn_id)
-                self._publish_event(
-                    workspace_id,
-                    "canvas.turn.completed",
-                    {
-                        "workspace_id": workspace_id,
-                        "turn_id": turn_id,
-                        "proposal_id": proposal.proposal_id,
-                        "result_action": outcome.action,
-                        "active_turn": None,
-                    },
-                    status="completed",
-                )
+            self._finish_turn(workspace_id, turn_id)
+            self._publish_event(
+                workspace_id,
+                "canvas.turn.completed",
+                {
+                    "workspace_id": workspace_id,
+                    "turn_id": turn_id,
+                    "proposal_id": proposal.proposal_id,
+                    "result_action": outcome.action,
+                    "active_turn": None,
+                },
+                status="completed",
+            )
             return {
                 "turn_id": turn_id,
                 "workspace_id": workspace_id,
@@ -337,156 +379,6 @@ class CanvasService:
                 status="failed",
             )
             raise
-
-    def list_confirmations(self, workspace_id: str) -> Dict[str, Any]:
-        items = self.repository.load_confirmation_queue(workspace_id)
-        return {"items": [item.to_dict() for item in items]}
-
-    def approve_confirmation(self, workspace_id: str, proposal_id: str) -> Dict[str, Any]:
-        queue = self.repository.load_confirmation_queue(workspace_id)
-        approved = None
-        remaining = []
-        for proposal in queue:
-            if proposal.proposal_id == proposal_id:
-                approved = proposal
-            else:
-                remaining.append(proposal)
-        if approved is None:
-            return {"workspace_id": workspace_id, "proposal_id": proposal_id, "status": "not_found"}
-
-        self._materialize_confirmation_approval(approved)
-        approved.status = CanvasMutationStatus.APPLIED
-        self.repository.append_proposal_history(workspace_id, approved)
-        workspace = self.get_workspace(workspace_id)
-        self._apply_proposal(workspace, approved)
-        if any(
-            mutation.metadata.get("mutation_type") == "promote_formal_handoff"
-            for mutation in approved.mutations
-        ):
-            workspace.handoff_status = "confirmed"
-            workspace.handoff_metadata = {
-                **dict(workspace.handoff_metadata),
-                "confirmed_by": "user",
-                "confirmation_proposal_id": approved.proposal_id,
-                "confirmation_state": "confirmed",
-            }
-            self._touch_workspace(workspace)
-        updated_cards = self.repository.load_cards(workspace_id)
-        apply_turn_runtime_state(
-            workspace,
-            intent=str(approved.metadata.get("intent", "")),
-            proposal=approved,
-            result_action="approved",
-            cards=updated_cards,
-            pending_gate_ids=[],
-            unresolved_issue_ids=unresolved_issue_ids_from_cards(updated_cards),
-        )
-        self.repository.save_workspace(workspace)
-        self.repository.save_confirmation_queue(workspace_id, remaining)
-        self._publish_event(
-            workspace_id,
-            "canvas.confirmation.approved",
-            self._proposal_event_payload(
-                workspace_id=workspace_id,
-                turn_id=approved.turn_id,
-                proposal=approved,
-                result_action="approved",
-                active_turn=self._serialize_active_turn(self.get_workspace(workspace_id)),
-            ),
-            status="approved",
-        )
-        self._publish_event(
-            workspace_id,
-            "canvas.mutation.applied",
-            self._proposal_event_payload(
-                workspace_id=workspace_id,
-                turn_id=approved.turn_id,
-                proposal=approved,
-                result_action="approved",
-                active_turn=self._serialize_active_turn(self.get_workspace(workspace_id)),
-            ),
-            status=approved.status.value,
-        )
-        self._finish_turn(workspace_id, approved.turn_id)
-        self._publish_event(
-            workspace_id,
-            "canvas.turn.completed",
-            {
-                "workspace_id": workspace_id,
-                "turn_id": approved.turn_id,
-                "proposal_id": approved.proposal_id,
-                "result_action": "approved",
-                "active_turn": None,
-            },
-            status="completed",
-        )
-        return {"workspace_id": workspace_id, "proposal_id": proposal_id, "status": "applied"}
-
-    def reject_confirmation(self, workspace_id: str, proposal_id: str) -> Dict[str, Any]:
-        queue = self.repository.load_confirmation_queue(workspace_id)
-        rejected_turn_id = ""
-        remaining = []
-        found = False
-        rejected = None
-        for proposal in queue:
-            if proposal.proposal_id == proposal_id:
-                found = True
-                rejected_turn_id = proposal.turn_id
-            else:
-                remaining.append(proposal)
-        if not found:
-            return {"workspace_id": workspace_id, "proposal_id": proposal_id, "status": "not_found"}
-        if rejected_turn_id:
-            rejected = next((proposal for proposal in queue if proposal.proposal_id == proposal_id), None)
-            if rejected is not None:
-                rejected.status = CanvasMutationStatus.REJECTED
-                self.repository.append_proposal_history(workspace_id, rejected)
-        self.repository.save_confirmation_queue(workspace_id, remaining)
-        if rejected_turn_id:
-            workspace = self.get_workspace(workspace_id)
-            apply_turn_runtime_state(
-                workspace,
-                intent=str(rejected.metadata.get("intent", "")) if rejected is not None else "",
-                proposal=rejected
-                or CanvasMutationProposal(
-                    proposal_id=proposal_id,
-                    workspace_id=workspace_id,
-                    turn_id=rejected_turn_id,
-                ),
-                result_action="rejected",
-                pending_gate_ids=[],
-                unresolved_issue_ids=unresolved_issue_ids_from_cards(self.repository.load_cards(workspace_id)),
-            )
-            self.repository.save_workspace(workspace)
-            self._publish_event(
-                workspace_id,
-                "canvas.confirmation.rejected",
-                {
-                    "workspace_id": workspace_id,
-                    "turn_id": rejected_turn_id,
-                    "proposal_id": proposal_id,
-                    "result_action": "rejected",
-                    "active_turn": self._serialize_active_turn(workspace),
-                    "affected_card_ids": [],
-                    "affected_relation_ids": [],
-                    "affected_snapshot_ids": [],
-                },
-                status="rejected",
-            )
-            self._finish_turn(workspace_id, rejected_turn_id)
-            self._publish_event(
-                workspace_id,
-                "canvas.turn.completed",
-                {
-                    "workspace_id": workspace_id,
-                    "turn_id": rejected_turn_id,
-                    "proposal_id": proposal_id,
-                    "result_action": "rejected",
-                    "active_turn": None,
-                },
-                status="completed",
-            )
-        return {"workspace_id": workspace_id, "proposal_id": proposal_id, "status": "rejected"}
 
     def list_snapshots(self, workspace_id: str) -> Dict[str, Any]:
         snapshots = self.repository.list_snapshots(workspace_id)
@@ -529,20 +421,35 @@ class CanvasService:
         return {"workspace_id": workspace_id, "snapshot": snapshot.to_dict()}
 
     def get_handoff(self, workspace_id: str) -> Dict[str, Any]:
-        workspace = self.get_workspace(workspace_id)
+        self.get_workspace(workspace_id)
         handoff = self.repository.load_handoff(workspace_id)
         if handoff is None:
             handoff = StructuredHandoff(
                 handoff_id=f"handoff_{workspace_id}",
-                summary="",
-                metadata=dict(workspace.handoff_metadata),
             )
+        # L3 规格要求交接模块不复制对象正文；此处 content 仅作过渡期前端兼容回显，
+        # 真正内容应通过 handoff.*_refs 回指源对象渲染。
+        legacy_summary = str(dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""))
         return {
             "workspace_id": workspace_id,
-            "status": workspace.handoff_status or "not_ready",
-            "content": handoff.summary,
+            "status": self._handoff_status(workspace_id, handoff=handoff),
+            "content": legacy_summary,
             "handoff": handoff.to_dict(),
         }
+
+    def _handoff_status(
+        self,
+        workspace_id: str,
+        *,
+        handoff: Optional[StructuredHandoff] = None,
+    ) -> str:
+        """从当前包版本派生交接状态，不再读取工作区覆盖式状态字段。"""
+
+        version = self.repository.load_active_package_version(workspace_id)
+        effective_handoff = handoff if handoff is not None else self.repository.load_handoff(workspace_id)
+        if version is None or effective_handoff is None:
+            return "not_ready"
+        return version.initial_governance_status.value
 
     def refresh_handoff(self, workspace_id: str) -> Dict[str, Any]:
         """基于当前画布状态重新收束结构化交接物草稿，并落一份新快照。"""
@@ -555,21 +462,46 @@ class CanvasService:
         cards = self.repository.load_cards(workspace_id)
         relations = self.repository.load_relations(workspace_id)
         refreshed_at = utc_now_iso()
+        # L3 规格要求交接模块只持有对象引用，不复制对象正文。
+        # 此处依据当前画布卡片类型化状态派生引用集合，正文由源对象维护。
         handoff = StructuredHandoff(
             handoff_id=f"handoff_{workspace_id}",
-            summary=self._build_refresh_handoff_summary(cards),
-            constraints=self._handoff_items(cards, CanvasCardKind.CONSTRAINT),
-            open_questions=self._handoff_items(cards, CanvasCardKind.CLARIFICATION),
-            decisions=self._handoff_items(cards, CanvasCardKind.DECISION),
-            metadata={},
+            confirmed_constraint_refs=[
+                card.card_id
+                for card in cards
+                if card.kind == CanvasCardKind.CONSTRAINT
+                and card.status == "effective"
+            ],
+            completed_decision_refs=[
+                card.card_id
+                for card in cards
+                if card.kind == CanvasCardKind.DECISION and card.status == "decided"
+            ],
+            unresolved_refs=unresolved_issue_ids_from_cards(cards),
+            pending_decision_refs=[
+                card.card_id
+                for card in cards
+                if card.kind == CanvasCardKind.DECISION
+                and card.status in {"pending_decision", "pending_confirmation"}
+            ],
+            key_source_refs=[
+                ref
+                for card in cards
+                if card.kind == CanvasCardKind.EVIDENCE
+                for ref in list(card.source_refs)
+            ],
+            metadata={
+                "legacy": {
+                    "summary": self._build_refresh_handoff_summary(cards),
+                }
+            },
         )
-        handoff_card = self._upsert_handoff_card(cards, handoff, refreshed_at=refreshed_at)
         todo_projection = self._build_todo_projection(workspace_id, cards)
         snapshot = CanvasSnapshot(
             snapshot_id=f"snapshot_{uuid4().hex[:10]}",
             workspace_id=workspace_id,
             title="结构化交接物草稿已刷新",
-            summary=handoff.summary,
+            summary=dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""),
             created_at=refreshed_at,
             active_card_ids=[card.card_id for card in cards],
             active_relation_ids=[relation.relation_id for relation in relations],
@@ -580,19 +512,37 @@ class CanvasService:
             metadata={"created_by": "user", "source": "handoff_refresh"},
         )
 
-        handoff.metadata = build_handoff_metadata(
-            cards,
-            confirmation_state="draft",
-            source_snapshot_id=snapshot.snapshot_id,
-            refreshed_by="user",
-            refreshed_at=refreshed_at,
-        )
-        self.repository.save_handoff(workspace_id, handoff)
-        self.repository.save_cards(workspace_id, cards)
+        handoff.metadata = {
+            **dict(handoff.metadata or {}),
+            **build_handoff_metadata(
+                cards,
+                confirmation_state="draft",
+                source_snapshot_id=snapshot.snapshot_id,
+                refreshed_by="user",
+                refreshed_at=refreshed_at,
+            ),
+        }
         self.repository.save_snapshot(workspace_id, snapshot)
-        workspace.handoff_status = "draft"
-        workspace.handoff_metadata = {**dict(workspace.handoff_metadata), **dict(handoff.metadata)}
         workspace.active_snapshot_id = snapshot.snapshot_id
+        proposal = CanvasMutationProposal(
+            proposal_id=f"proposal_{uuid4().hex[:12]}",
+            workspace_id=workspace_id,
+            turn_id=f"turn_handoff_refresh_{uuid4().hex[:8]}",
+            mutations=[
+                CanvasMutation(
+                    mutation_id=f"mutation_{uuid4().hex[:10]}",
+                    action=CanvasMutationAction.UPDATE,
+                    target=CanvasMutationTarget.HANDOFF,
+                    target_id=handoff.handoff_id,
+                    payload={"handoff": handoff.to_dict()},
+                    metadata={"mutation_type": "refresh_handoff_draft"},
+                )
+            ],
+            status=CanvasMutationStatus.APPLIED,
+            metadata={"user_edit": True},
+        )
+        self._commit_canvas_state(workspace, cards, relations, handoff, proposal, None)
+        self.repository.append_proposal_history(workspace_id, proposal)
         self._touch_workspace(workspace)
         self._publish_event(
             workspace_id,
@@ -601,16 +551,16 @@ class CanvasService:
                 "workspace_id": workspace_id,
                 "snapshot_id": snapshot.snapshot_id,
                 "handoff": handoff.to_dict(),
-                "card_id": handoff_card.card_id,
+                "card_id": None,
             },
             status="refreshed",
         )
         return {
             "workspace_id": workspace_id,
-            "status": workspace.handoff_status,
-            "content": handoff.summary,
+            "status": "draft",
+            "content": dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""),
             "handoff": handoff.to_dict(),
-            "card": handoff_card.to_dict(),
+            "card": None,
             "snapshot": snapshot.to_dict(),
             "todo_projection": todo_projection.to_dict(),
         }
@@ -622,10 +572,12 @@ class CanvasService:
         return self._build_todo_projection(workspace_id, cards).to_dict()
 
     def patch_card(self, workspace_id: str, card_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
-        """原地修订卡片展示字段，保留卡片类型、来源与关系边界不变。"""
+        """提交展示字段修订；业务状态只能经受控提案和确认记录升级。"""
 
         workspace = self.get_workspace(workspace_id)
         cards = self.repository.load_cards(workspace_id)
+        if "status" in patch:
+            raise ValueError("canvas card status is not directly writable")
         updated_card = None
         for card in cards:
             if card.card_id != card_id:
@@ -634,8 +586,6 @@ class CanvasService:
                 card.title = str(patch["title"]).strip()
             if "summary" in patch and patch["summary"] is not None:
                 card.summary = str(patch["summary"]).strip()
-            if "status" in patch and patch["status"] is not None:
-                card.status = str(patch["status"]).strip()
             if "tags" in patch and patch["tags"] is not None:
                 card.tags = [str(tag).strip() for tag in patch["tags"] if str(tag).strip()]
             card.metadata["last_edited_by"] = "user"
@@ -646,7 +596,36 @@ class CanvasService:
         if updated_card is None:
             raise CanvasCardNotFoundError(card_id)
 
-        self.repository.save_cards(workspace_id, cards)
+        proposal = CanvasMutationProposal(
+            proposal_id=f"proposal_{uuid4().hex[:12]}",
+            workspace_id=workspace_id,
+            turn_id=f"turn_user_edit_{uuid4().hex[:8]}",
+            mutations=[
+                CanvasMutation(
+                    mutation_id=f"mutation_{uuid4().hex[:10]}",
+                    action=CanvasMutationAction.UPDATE,
+                    target=CanvasMutationTarget.CARD,
+                    target_id=card_id,
+                    payload={
+                        "title": updated_card.title,
+                        "summary": updated_card.summary,
+                        "tags": list(updated_card.tags),
+                    },
+                    metadata={"mutation_type": "user_display_edit"},
+                )
+            ],
+            status=CanvasMutationStatus.APPLIED,
+            metadata={"user_edit": True},
+        )
+        self._commit_canvas_state(
+            workspace,
+            cards,
+            self.repository.load_relations(workspace_id),
+            self.repository.load_handoff(workspace_id),
+            proposal,
+            None,
+        )
+        self.repository.append_proposal_history(workspace_id, proposal)
         todo_projection = self._build_todo_projection(workspace_id, cards)
         self._touch_workspace(workspace)
         self._publish_event(
@@ -690,7 +669,7 @@ class CanvasService:
     ) -> Dict[str, Any]:
         """创建两张已有卡片之间的语义关系，帮助画布显性化证据链与冲突链。"""
 
-        self.get_workspace(workspace_id)
+        workspace = self.get_workspace(workspace_id)
         cards = self.repository.load_cards(workspace_id)
         card_ids = {card.card_id for card in cards}
         if from_card_id not in card_ids or to_card_id not in card_ids:
@@ -714,8 +693,33 @@ class CanvasService:
             },
         )
         relations.append(relation)
-        self.repository.save_relations(workspace_id, relations)
-        self._touch_workspace(self.get_workspace(workspace_id))
+        proposal = CanvasMutationProposal(
+            proposal_id=f"proposal_{uuid4().hex[:12]}",
+            workspace_id=workspace_id,
+            turn_id=f"turn_user_relation_{uuid4().hex[:8]}",
+            mutations=[
+                CanvasMutation(
+                    mutation_id=f"mutation_{uuid4().hex[:10]}",
+                    action=CanvasMutationAction.ADD,
+                    target=CanvasMutationTarget.RELATION,
+                    target_id=relation.relation_id,
+                    payload={"relation": relation.to_dict()},
+                    metadata={"mutation_type": "user_create_relation"},
+                )
+            ],
+            status=CanvasMutationStatus.APPLIED,
+            metadata={"user_edit": True},
+        )
+        self._commit_canvas_state(
+            workspace,
+            cards,
+            relations,
+            self.repository.load_handoff(workspace_id),
+            proposal,
+            None,
+        )
+        self.repository.append_proposal_history(workspace_id, proposal)
+        self._touch_workspace(workspace)
         self._publish_event(
             workspace_id,
             "canvas.relation.created",
@@ -731,14 +735,39 @@ class CanvasService:
     def delete_relation(self, workspace_id: str, relation_id: str) -> Dict[str, Any]:
         """删除一条已有卡片关系，允许用户修正错误连接并重新收敛证据链。"""
 
-        self.get_workspace(workspace_id)
+        workspace = self.get_workspace(workspace_id)
+        cards = self.repository.load_cards(workspace_id)
         relations = self.repository.load_relations(workspace_id)
         remaining_relations = [relation for relation in relations if relation.relation_id != relation_id]
         if len(remaining_relations) == len(relations):
             raise CanvasRelationNotFoundError(relation_id)
 
-        self.repository.save_relations(workspace_id, remaining_relations)
-        self._touch_workspace(self.get_workspace(workspace_id))
+        proposal = CanvasMutationProposal(
+            proposal_id=f"proposal_{uuid4().hex[:12]}",
+            workspace_id=workspace_id,
+            turn_id=f"turn_user_relation_{uuid4().hex[:8]}",
+            mutations=[
+                CanvasMutation(
+                    mutation_id=f"mutation_{uuid4().hex[:10]}",
+                    action=CanvasMutationAction.REMOVE,
+                    target=CanvasMutationTarget.RELATION,
+                    target_id=relation_id,
+                    metadata={"mutation_type": "user_delete_relation"},
+                )
+            ],
+            status=CanvasMutationStatus.APPLIED,
+            metadata={"user_edit": True},
+        )
+        self._commit_canvas_state(
+            workspace,
+            cards,
+            remaining_relations,
+            self.repository.load_handoff(workspace_id),
+            proposal,
+            None,
+        )
+        self.repository.append_proposal_history(workspace_id, proposal)
+        self._touch_workspace(workspace)
         self._publish_event(
             workspace_id,
             "canvas.relation.deleted",
@@ -755,54 +784,28 @@ class CanvasService:
         }
 
     def move_card(self, workspace_id: str, card_id: str, stage: str, reason: str = "") -> Dict[str, Any]:
-        """在合法阶段带之间迁移卡片，避免把主画布退化为自由白板。"""
+        """已废弃：L3 规格下线 stage_node 主题阶段机后，卡片不再有 stage 字段。
+
+        为避免破坏迁移期调用方，本方法保留 API 签名但不再持久化 stage 请求，
+        也不触发事件或版本提交。调用方应迁移到受治理的 Chat 提案与确认流程。
+        """
 
         workspace = self.get_workspace(workspace_id)
         cards = self.repository.load_cards(workspace_id)
-        normalized_stage = self._normalize_stage(stage)
-        updated_card = None
-        previous_stage = ""
-        for card in cards:
-            if card.card_id != card_id:
-                continue
-            self._validate_stage_move(card, normalized_stage)
-            previous_stage = card.stage
-            card.stage = normalized_stage
-            card.metadata["last_moved_by"] = "user"
-            card.metadata["last_moved_at"] = utc_now_iso()
-            card.metadata["previous_stage"] = previous_stage
-            if reason.strip():
-                card.metadata["move_reason"] = reason.strip()
-            updated_card = card
-            break
-
-        if updated_card is None:
+        card = next((item for item in cards if item.card_id == card_id), None)
+        if card is None:
             raise CanvasCardNotFoundError(card_id)
 
-        self.repository.save_cards(workspace_id, cards)
         todo_projection = self._build_todo_projection(workspace_id, cards)
-        self._touch_workspace(workspace)
-        self._publish_event(
-            workspace_id,
-            "canvas.card.moved",
-            {
-                "workspace_id": workspace_id,
-                "card_id": card_id,
-                "from_stage": previous_stage,
-                "to_stage": normalized_stage,
-                "card": updated_card.to_dict(),
-            },
-            status="moved",
-        )
         return {
             "workspace_id": workspace_id,
-            "action": "applied",
-            "card": updated_card.to_dict(),
+            "action": "deprecated_noop",
+            "card": card.to_dict(),
             "move": {
-                "from_stage": previous_stage,
-                "to_stage": normalized_stage,
+                "from_stage": "",
+                "to_stage": stage,
                 "reason": reason.strip(),
-                "semantic_change": previous_stage != normalized_stage,
+                "semantic_change": False,
             },
             "todo_projection": todo_projection.to_dict(),
         }
@@ -842,6 +845,7 @@ class CanvasService:
         # 2. 本地回退规则分支
         mutations: list[CanvasMutation] = []
         selected_cards = [card for card in existing_cards if card.card_id in set(selected_card_ids)]
+        # L3 规格已将 evidence_refs 统一为 source_refs；保留局部变量名以便回看。
         evidence_refs = list(material_ids) + list(source_ref_ids)
         contextual_summary = self._build_contextual_summary(message, selected_cards)
         role_set = set(plan.roles)
@@ -854,7 +858,7 @@ class CanvasService:
                         kind=CanvasCardKind.EVIDENCE,
                         title=self._truncate_title(message, "输入摘要"),
                         summary=contextual_summary,
-                        evidence_refs=evidence_refs,
+                        source_refs=evidence_refs,
                         material_ids=material_ids,
                         source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
@@ -866,7 +870,7 @@ class CanvasService:
                         kind=CanvasCardKind.PROBLEM,
                         title=self._truncate_title(message, "问题定义草稿"),
                         summary=f"从输入中抽取的待定义问题：{contextual_summary}",
-                        evidence_refs=evidence_refs,
+                        source_refs=evidence_refs,
                         material_ids=material_ids,
                         source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
@@ -883,7 +887,7 @@ class CanvasService:
                         kind=CanvasCardKind.CLARIFICATION,
                         title=title,
                         summary=contextual_summary,
-                        evidence_refs=evidence_refs,
+                        source_refs=evidence_refs,
                         material_ids=material_ids,
                         source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
@@ -901,7 +905,7 @@ class CanvasService:
                         title=title,
                         summary=f"拟定规则：{contextual_summary}",
                         status="draft",
-                        evidence_refs=evidence_refs,
+                        source_refs=evidence_refs,
                         material_ids=material_ids,
                         source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
@@ -918,57 +922,18 @@ class CanvasService:
                         kind=CanvasCardKind.DECISION,
                         title=title,
                         summary=f"【决策点：为什么需要拍板此项？】\n{contextual_summary}",
-                        status="pending",
-                        evidence_refs=evidence_refs,
+                        status="pending_decision",
+                        source_refs=evidence_refs,
                         material_ids=material_ids,
                         source_ref_ids=source_ref_ids,
                         selected_card_ids=selected_card_ids,
                     )
                 )
-            elif role_name == "OptionBuilder":
-                mutations.append(
-                    self._card_mutation(
-                        mutation_type="add_card",
-                        kind=CanvasCardKind.OPTION,
-                        title=f"方案：{self._truncate_title(message, '方案候选')}",
-                        summary=contextual_summary,
-                        status="draft",
-                        evidence_refs=evidence_refs,
-                        material_ids=material_ids,
-                        source_ref_ids=source_ref_ids,
-                        selected_card_ids=selected_card_ids,
-                    )
-                )
+            # L3 规格已下线 OptionBuilder 角色（option 不纳入 1.0 对象类型），
+            # 也不再为 HandoffBuilder 创建 HANDOFF 卡片：交接模块只通过引用组织对象。
             elif role_name == "HandoffBuilder":
-                handoff_card = CanvasCard(
-                    card_id=f"card_{uuid4().hex[:10]}",
-                    kind=CanvasCardKind.HANDOFF,
-                    title=self._truncate_title(message, "结构化交接物草稿"),
-                    summary=self._build_handoff_summary(message, existing_cards),
-                    stage="handoff",
-                    status="draft",
-                    evidence_refs=evidence_refs,
-                    metadata={
-                        "created_by": "canvas_agent",
-                        "source_turn_id": turn_id,
-                        "selected_card_ids": list(selected_card_ids),
-                    },
-                )
-                mutations.append(
-                    CanvasMutation(
-                        mutation_id=f"mutation_{uuid4().hex[:10]}",
-                        action=CanvasMutationAction.ADD,
-                        target=CanvasMutationTarget.CARD,
-                        target_id=handoff_card.card_id,
-                        payload={"card": handoff_card.to_dict()},
-                        metadata={
-                            "mutation_type": "refresh_handoff_card",
-                            "selected_card_ids": list(selected_card_ids),
-                            "material_ids": list(material_ids),
-                            "source_ref_ids": list(source_ref_ids),
-                        },
-                    )
-                )
+                # 只生成 refresh_handoff_draft 变更，正文由源对象维护；
+                # legacy 摘要写入 metadata.legacy.summary 仅供过渡期前端回看。
                 mutations.append(
                     CanvasMutation(
                         mutation_id=f"mutation_{uuid4().hex[:10]}",
@@ -978,11 +943,28 @@ class CanvasService:
                         payload={
                             "handoff": {
                                 "handoff_id": f"handoff_{workspace.workspace_id}",
-                                "summary": self._build_handoff_summary(message, existing_cards),
-                                "constraints": self._handoff_items(existing_cards, CanvasCardKind.CONSTRAINT),
-                                "open_questions": self._handoff_items(existing_cards, CanvasCardKind.CLARIFICATION),
-                                "decisions": self._handoff_items(existing_cards, CanvasCardKind.DECISION),
+                                "confirmed_constraint_refs": [
+                                    card.card_id
+                                    for card in existing_cards
+                                    if card.kind == CanvasCardKind.CONSTRAINT
+                                    and card.status == "effective"
+                                ],
+                                "completed_decision_refs": [
+                                    card.card_id
+                                    for card in existing_cards
+                                    if card.kind == CanvasCardKind.DECISION and card.status == "decided"
+                                ],
+                                "unresolved_refs": unresolved_issue_ids_from_cards(existing_cards),
+                                "pending_decision_refs": [
+                                    card.card_id
+                                    for card in existing_cards
+                                    if card.kind == CanvasCardKind.DECISION
+                                    and card.status in {"pending_decision", "pending_confirmation"}
+                                ],
                                 "metadata": {
+                                    "legacy": {
+                                        "summary": self._build_handoff_summary(message, existing_cards),
+                                    },
                                     "source_turn_id": turn_id,
                                     "material_ids": list(material_ids),
                                     "source_ref_ids": list(source_ref_ids),
@@ -1069,8 +1051,9 @@ class CanvasService:
                 expected_mutation_type = "create_decision_request"
                 role_instruction = "你负责识别必须由 PM 拍板的待决策项，而非单纯的信息缺失。请深度分析并生成待拍板决策卡（要给出备选方案和影响面）。"
             elif role_name == "HandoffBuilder":
-                expected_kind = "handoff"
-                expected_mutation_type = "refresh_handoff_card"
+                # L3 规格已下线 HANDOFF 卡片；交接模块只生成 refresh_handoff_draft 变更。
+                expected_kind = ""
+                expected_mutation_type = "refresh_handoff_draft"
                 role_instruction = "你负责收束结构化交接物草稿。请依据用户的意图和已有的卡片结构，撰写一份结构化交接物的草稿建议。"
             else:
                 expected_kind = "evidence"
@@ -1119,35 +1102,8 @@ class CanvasService:
 
                 # 构造真正的 CanvasMutation
                 if role_name == "HandoffBuilder":
-                    handoff_card = CanvasCard(
-                        card_id=f"card_{uuid4().hex[:10]}",
-                        kind=CanvasCardKind.HANDOFF,
-                        title=title,
-                        summary=summary,
-                        stage="handoff",
-                        status="draft",
-                        evidence_refs=evidence_refs,
-                        metadata={
-                            "created_by": "canvas_agent",
-                            "source_turn_id": turn_id,
-                            "selected_card_ids": list(selected_card_ids),
-                        },
-                    )
-                    mutations.append(
-                        CanvasMutation(
-                            mutation_id=f"mutation_{uuid4().hex[:10]}",
-                            action=CanvasMutationAction.ADD,
-                            target=CanvasMutationTarget.CARD,
-                            target_id=handoff_card.card_id,
-                            payload={"card": handoff_card.to_dict()},
-                            metadata={
-                                "mutation_type": "refresh_handoff_card",
-                                "selected_card_ids": list(selected_card_ids),
-                                "material_ids": list(material_ids),
-                                "source_ref_ids": list(source_ref_ids),
-                            },
-                        )
-                    )
+                    # L3 规格已下线 HANDOFF 卡片；只生成 refresh_handoff_draft 变更，
+                    # 正文由源对象维护，legacy 摘要写入 metadata.legacy.summary 供过渡期回看。
                     mutations.append(
                         CanvasMutation(
                             mutation_id=f"mutation_{uuid4().hex[:10]}",
@@ -1157,11 +1113,28 @@ class CanvasService:
                             payload={
                                 "handoff": {
                                     "handoff_id": f"handoff_{workspace.workspace_id}",
-                                    "summary": summary,
-                                    "constraints": self._handoff_items(existing_cards, CanvasCardKind.CONSTRAINT),
-                                    "open_questions": self._handoff_items(existing_cards, CanvasCardKind.CLARIFICATION),
-                                    "decisions": self._handoff_items(existing_cards, CanvasCardKind.DECISION),
+                                    "confirmed_constraint_refs": [
+                                        card.card_id
+                                        for card in existing_cards
+                                        if card.kind == CanvasCardKind.CONSTRAINT
+                                        and card.status == "effective"
+                                    ],
+                                    "completed_decision_refs": [
+                                        card.card_id
+                                        for card in existing_cards
+                                        if card.kind == CanvasCardKind.DECISION and card.status == "decided"
+                                    ],
+                                    "unresolved_refs": unresolved_issue_ids_from_cards(existing_cards),
+                                    "pending_decision_refs": [
+                                        card.card_id
+                                        for card in existing_cards
+                                        if card.kind == CanvasCardKind.DECISION
+                                        and card.status in {"pending_decision", "pending_confirmation"}
+                                    ],
                                     "metadata": {
+                                        "legacy": {
+                                            "summary": summary,
+                                        },
                                         "source_turn_id": turn_id,
                                         "material_ids": list(material_ids),
                                         "source_ref_ids": list(source_ref_ids),
@@ -1176,7 +1149,7 @@ class CanvasService:
                     kind_enum = CanvasCardKind(expected_kind)
                     card_status = "open" if kind_enum in (CanvasCardKind.CLARIFICATION, CanvasCardKind.EVIDENCE, CanvasCardKind.PROBLEM) else "draft"
                     if kind_enum == CanvasCardKind.DECISION:
-                        card_status = "pending"
+                        card_status = "pending_decision"
 
                     mutations.append(
                         self._card_mutation(
@@ -1185,7 +1158,7 @@ class CanvasService:
                             title=title,
                             summary=summary,
                             status=card_status,
-                            evidence_refs=evidence_refs,
+                            source_refs=evidence_refs,
                             material_ids=material_ids,
                             source_ref_ids=source_ref_ids,
                             selected_card_ids=selected_card_ids,
@@ -1209,7 +1182,12 @@ class CanvasService:
             },
         )
 
-    def _apply_proposal(self, workspace: CanvasWorkspace, proposal: CanvasMutationProposal) -> None:
+    def _apply_proposal(
+        self,
+        workspace: CanvasWorkspace,
+        proposal: CanvasMutationProposal,
+        confirmation: Optional[ConfirmationRecord] = None,
+    ) -> None:
         from app.canvas.domain.relations import CanvasRelation, CanvasRelationKind
         cards = self.repository.load_cards(workspace.workspace_id)
         relations = self.repository.load_relations(workspace.workspace_id)
@@ -1229,11 +1207,13 @@ class CanvasService:
                 from app.canvas.domain.cards import CanvasCardKind
                 card = CanvasCard.from_dict(mutation.payload["card"])
                 
-                # 水合 G层 最小治理与验证基线字段
+                # 验证结果独立写入 validation_state；禁止在 metadata 维护第二套治理状态。
                 receipt = dict(proposal.metadata.get("verification_receipt", {}))
-                card.metadata["governance_state"] = "proposal"
-                card.metadata["verification_state"] = receipt.get("result", "passed")
-                card.metadata["source_summary"] = card.summary[:100] if card.summary else ""
+                card.validation_state = (
+                    ValidationState.VALID.value
+                    if receipt.get("result", "passed") == "passed"
+                    else ValidationState.WARNING.value
+                )
                 
                 if card.kind == CanvasCardKind.CONSTRAINT:
                     card.metadata.setdefault("stability_source", "raw_compiler")
@@ -1241,7 +1221,6 @@ class CanvasService:
                     card.metadata.setdefault("review_risk", False)
                 elif card.kind == CanvasCardKind.DECISION:
                     card.metadata.setdefault("confirmation_source", "")
-                    card.metadata.setdefault("current_stable_status", "proposal")
 
                 card_index[card.card_id] = card
                 latest_card_id = card.card_id
@@ -1253,47 +1232,46 @@ class CanvasService:
                 # 检查是否修改了已确认的稳定事实卡片核心字段（冲突替代留痕）
                 title_changed = "title" in mutation.payload and mutation.payload["title"] is not None and str(mutation.payload["title"]).strip() != card.title.strip()
                 summary_changed = "summary" in mutation.payload and mutation.payload["summary"] is not None and str(mutation.payload["summary"]).strip() != card.summary.strip()
-                is_stable = card.status in {"confirmed", "effective", "resolved"}
+                # L3 规格下稳定态由 (kind, status) 派生，替代旧自由字符串集合。
+                kind_value = card.kind.value if hasattr(card.kind, "value") else str(card.kind)
+                is_stable = is_stable_status(kind_value, card.status)
 
                 if is_stable and (title_changed or summary_changed):
                     import copy
                     new_card_id = f"card_{uuid4().hex[:10]}"
                     new_card = copy.deepcopy(card)
                     new_card.card_id = new_card_id
-                    
+
                     if "title" in mutation.payload:
                         new_card.title = str(mutation.payload["title"])
                     if "summary" in mutation.payload:
                         new_card.summary = str(mutation.payload["summary"])
-                    if "stage" in mutation.payload:
-                        new_card.stage = str(mutation.payload["stage"])
+                    # L3 规格已下线 stage 字段；忽略 mutation.payload["stage"]，
+                    # 不再写入卡片业务状态。
                     if "status" in mutation.payload:
                         new_card.status = str(mutation.payload["status"])
                     else:
-                        new_card.status = "confirmed"
+                        new_card.status = card.status
                     if "tags" in mutation.payload:
                         new_card.tags = [str(tag) for tag in mutation.payload["tags"]]
                     if "metadata" in mutation.payload:
                         new_card.metadata = {**new_card.metadata, **dict(mutation.payload["metadata"])}
                     
-                    # 记录相互替代关系与治理水合
+                    # 记录相互替代关系；通用治理地位始终由 (kind, status) 派生。
                     new_card.metadata["supersedes"] = card.card_id
-                    new_card.metadata["governance_state"] = "confirmed"
-                    new_card.metadata["verification_state"] = "passed"
-                    new_card.metadata["source_summary"] = new_card.summary[:100] if new_card.summary else ""
+                    new_card.validation_state = ValidationState.VALID.value
                     
                     card.status = "superseded"
-                    card.metadata["governance_state"] = "superseded"
                     card.metadata["superseded_by"] = new_card_id
 
                     card_index[card.card_id] = card
                     card_index[new_card_id] = new_card
                     latest_card_id = new_card_id
 
-                    # 建立 DERIVED_FROM 替代追溯关系
+                    # 建立 REPLACES 替代追溯关系。
                     supersede_relation = CanvasRelation(
                         relation_id=f"rel_{uuid4().hex[:10]}",
-                        kind=CanvasRelationKind.DERIVED_FROM,
+                        kind=CanvasRelationKind.REPLACES,
                         from_card_id=card.card_id,
                         to_card_id=new_card_id,
                         metadata={"source_proposal_id": proposal.proposal_id, "relation_type": "supersede_tracking"}
@@ -1304,8 +1282,7 @@ class CanvasService:
                         card.title = str(mutation.payload["title"])
                     if "summary" in mutation.payload:
                         card.summary = str(mutation.payload["summary"])
-                    if "stage" in mutation.payload:
-                        card.stage = str(mutation.payload["stage"])
+                    # L3 规格已下线 stage 字段；忽略 mutation.payload["stage"]。
                     if "status" in mutation.payload:
                         card.status = str(mutation.payload["status"])
                     if "tags" in mutation.payload:
@@ -1313,13 +1290,7 @@ class CanvasService:
                     if "metadata" in mutation.payload:
                         card.metadata = {**card.metadata, **dict(mutation.payload["metadata"])}
                     
-                    # 水合治理状态
-                    if card.status in {"confirmed", "effective", "resolved"}:
-                        card.metadata["governance_state"] = "confirmed"
-                        card.metadata["verification_state"] = "passed"
-                    else:
-                        card.metadata["governance_state"] = "proposal"
-                    card.metadata["source_summary"] = card.summary[:100] if card.summary else ""
+                    card.validation_state = ValidationState.VALID.value
 
                     card_index[card.card_id] = card
                     latest_card_id = card.card_id
@@ -1357,8 +1328,9 @@ class CanvasService:
                 if selected_card and latest_card:
                     selected_kind_str = selected_card.kind.value if hasattr(selected_card.kind, "value") else str(selected_card.kind)
                     latest_kind_str = latest_card.kind.value if hasattr(latest_card.kind, "value") else str(latest_card.kind)
+                    # L3 规格已下线 REOPENS 关系；改用 REPLACES 表达决策重开/约束替代等过时关系。
                     if selected_kind_str in ("option", "decision") and latest_kind_str in ("problem", "clarification"):
-                        rel_kind = CanvasRelationKind.REOPENS
+                        rel_kind = CanvasRelationKind.REPLACES
                 relation = CanvasRelation(
                     relation_id=f"rel_{uuid4().hex[:10]}",
                     kind=rel_kind,
@@ -1369,14 +1341,14 @@ class CanvasService:
                 relation_index[relation.relation_id] = relation
 
         relations = list(relation_index.values())
-        self.repository.save_cards(workspace.workspace_id, cards)
-        self.repository.save_relations(workspace.workspace_id, relations)
         if handoff is not None:
+            # L3 规格已下线 StructuredHandoff.summary；快照 summary 改读 metadata.legacy.summary。
+            legacy_summary = str(dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""))
             snapshot = CanvasSnapshot(
                 snapshot_id=f"snapshot_{uuid4().hex[:10]}",
                 workspace_id=workspace.workspace_id,
                 title="结构化交接物草稿已刷新",
-                summary=handoff.summary,
+                summary=legacy_summary,
                 created_at=utc_now_iso(),
                 active_card_ids=[card.card_id for card in cards],
                 active_relation_ids=[relation.relation_id for relation in relations],
@@ -1396,14 +1368,9 @@ class CanvasService:
                     refreshed_at=snapshot.created_at,
                 ),
             }
-            self.repository.save_handoff(workspace.workspace_id, handoff)
             self.repository.save_snapshot(workspace.workspace_id, snapshot)
-            workspace.handoff_status = "draft"
-            workspace.handoff_metadata = {
-                **dict(workspace.handoff_metadata),
-                **dict(handoff.metadata),
-            }
             workspace.active_snapshot_id = snapshot.snapshot_id
+        self._commit_canvas_state(workspace, cards, relations, handoff, proposal, confirmation)
         self._touch_workspace(workspace)
 
     def _card_mutation(
@@ -1412,20 +1379,21 @@ class CanvasService:
         kind: CanvasCardKind,
         title: str,
         summary: str,
-        status: str = "open",
-        evidence_refs: Optional[List[str]] = None,
+        status: Optional[str] = None,
+        source_refs: Optional[List[str]] = None,
         material_ids: Optional[List[str]] = None,
         source_ref_ids: Optional[List[str]] = None,
         selected_card_ids: Optional[List[str]] = None,
     ) -> CanvasMutation:
+        # L3 规格已下线 stage 字段；CanvasCard 不再接受 stage kwarg。
+        # evidence_refs 已统一为 source_refs，由本方法消费方传入。
         card = CanvasCard(
             card_id=f"card_{uuid4().hex[:10]}",
             kind=kind,
             title=title,
             summary=summary,
-            stage="define" if kind != CanvasCardKind.EVIDENCE else "discovery",
-            status=status,
-            evidence_refs=list(evidence_refs or []),
+            status=status or default_status_for_kind(kind.value),
+            source_refs=list(source_refs or []),
             metadata={
                 "created_by": "canvas_agent",
                 "selected_card_ids": list(selected_card_ids or []),
@@ -1445,22 +1413,434 @@ class CanvasService:
             },
         )
 
+    def _commit_canvas_state(
+        self,
+        workspace: CanvasWorkspace,
+        cards: List[CanvasCard],
+        relations: List[CanvasRelation],
+        handoff: Optional[StructuredHandoff],
+        proposal: CanvasMutationProposal,
+        confirmation: Optional[ConfirmationRecord],
+    ) -> Package:
+        """把本轮结构化结果提交为新的不可变包版本和追加式账本事件。
+
+        `cards.json`、`relations.json` 与 `handoff.json` 仅在首次读取旧工作区时使用。
+        所有新的画布事实都通过该入口提交，包根指针由仓储在同一工作区锁下推进。
+        """
+
+        previous_package = self.repository.load_active_package(workspace.workspace_id)
+        previous_version = self.repository.load_active_package_version(workspace.workspace_id)
+        now = utc_now_iso()
+        package = previous_package or Package(
+            package_id=f"pkg_{workspace.workspace_id}",
+            workspace_id=workspace.workspace_id,
+            scope={"workspace_id": workspace.workspace_id},
+            created_at=now,
+        )
+        package.updated_at = now
+        next_version = package.current_version + 1
+        next_state_version = package.state_version + 1
+        message_refs = [
+            str(ref)
+            for ref in (
+                proposal.metadata.get("assistant_message_ref"),
+                proposal.metadata.get("user_message_ref"),
+            )
+            if ref
+        ]
+        source_refs = sorted(
+            {
+                source_ref
+                for card in cards
+                for source_ref in card.source_refs
+            }
+        )
+        version = PackageVersion(
+            package_id=package.package_id,
+            package_version=next_version,
+            parent_version=previous_version.package_version if previous_version else None,
+            state_version=next_state_version,
+            created_by_run_id=proposal.turn_id,
+            operation_id=f"operation_{proposal.proposal_id}",
+            initial_governance_status=(
+                InitialGovernanceStatus.CONFIRMED
+                if confirmation is not None
+                else InitialGovernanceStatus.DRAFT
+            ),
+            created_at=now,
+            scope={
+                **dict(package.scope),
+                "workspace_title": workspace.title,
+                "objective": workspace.objective,
+            },
+            background={"workspace_objective": workspace.objective},
+            objects=[card.to_dict() for card in cards],
+            relations=[relation.to_dict() for relation in relations],
+            handoff=handoff.to_dict() if handoff is not None else None,
+            source_refs=[{"ref": source_ref} for source_ref in source_refs],
+        )
+        events = self._build_package_ledger_events(
+            workspace=workspace,
+            package=package,
+            version=version,
+            previous_version=previous_version,
+            cards=cards,
+            relations=relations,
+            proposal=proposal,
+            confirmation=confirmation,
+            message_refs=message_refs,
+            occurred_at=now,
+        )
+        committed = self.repository.commit_package_version(
+            workspace.workspace_id,
+            package,
+            version,
+            events,
+            confirmation=confirmation,
+        )
+        workspace.metadata = {
+            **dict(workspace.metadata),
+            "active_package_id": committed.package_id,
+        }
+        return committed
+
+    def _latest_chat_confirmation_proposal(
+        self,
+        workspace_id: str,
+    ) -> Optional[CanvasMutationProposal]:
+        """返回尚待普通 Chat 明确确认的最新高影响提议。"""
+
+        for proposal in reversed(self.repository.load_proposal_history(workspace_id)):
+            if (
+                proposal.status == CanvasMutationStatus.PENDING_CONFIRMATION
+                and proposal.metadata.get("awaiting_chat_confirmation")
+                and proposal.metadata.get("assistant_message_ref")
+            ):
+                return proposal
+        return None
+
+    @staticmethod
+    def _is_explicit_confirmation(message: str) -> bool:
+        """识别当前回合是否给出明确同意，而非把模糊表达误判为确认。"""
+
+        normalized = "".join(message.strip().lower().split())
+        if any(token in normalized for token in ("不确认", "不同意", "拒绝", "再看看", "先不要")):
+            return False
+        return any(token in normalized for token in ("确认", "同意", "按这个执行", "就这么定", "可以生效"))
+
+    @staticmethod
+    def _proposal_message_content(proposal: CanvasMutationProposal) -> str:
+        """为可追溯确认保存助手实际提出的结构化变更摘要。"""
+
+        items = []
+        for mutation in proposal.mutations:
+            card = dict(mutation.payload.get("card", {}))
+            title = str(card.get("title", mutation.target_id)).strip()
+            mutation_type = str(mutation.metadata.get("mutation_type", mutation.action.value))
+            items.append(f"{mutation_type}: {title}")
+        return "；".join(items) or "本轮没有可应用的结构化变更。"
+
+    def _apply_chat_confirmation(
+        self,
+        workspace: CanvasWorkspace,
+        turn_id: str,
+        proposal: CanvasMutationProposal,
+        *,
+        user_message_ref: str,
+    ) -> Dict[str, Any]:
+        """把用户在普通 Chat 中的明确确认写为记录并提交对应包版本。"""
+
+        package = self.repository.load_active_package(workspace.workspace_id)
+        package_id = package.package_id if package is not None else f"pkg_{workspace.workspace_id}"
+        proposal.metadata = {
+            **dict(proposal.metadata),
+            "user_message_ref": user_message_ref,
+            "confirmed_turn_id": turn_id,
+        }
+        self._materialize_confirmation_approval(proposal)
+        scope_refs = [mutation.target_id for mutation in proposal.mutations if mutation.target_id]
+        confirmation = ConfirmationRecord(
+            confirmation_id=f"confirmation_{uuid4().hex[:12]}",
+            workspace_id=workspace.workspace_id,
+            package_id=package_id,
+            proposal_message_refs=[str(proposal.metadata["assistant_message_ref"])],
+            user_message_refs=[user_message_ref],
+            confirmed_claims=[
+                ConfirmedClaim(
+                    claim=(
+                        mutation.rationale.strip()
+                        or str(mutation.metadata.get("mutation_type", mutation.action.value))
+                    ),
+                    scope_refs=[mutation.target_id] if mutation.target_id else [],
+                )
+                for mutation in proposal.mutations
+            ],
+            scope_refs=scope_refs,
+            confirmation_kind=ConfirmationKind.CONFIRMED,
+            remaining_unresolved_refs=self._projected_unresolved_refs(
+                workspace.workspace_id, proposal
+            ),
+            recorded_at=utc_now_iso(),
+        )
+        proposal.status = CanvasMutationStatus.APPLIED
+        self._apply_proposal(workspace, proposal, confirmation=confirmation)
+        self.repository.append_proposal_history(workspace.workspace_id, proposal)
+        self._publish_event(
+            workspace.workspace_id,
+            "canvas.chat_confirmation.recorded",
+            self._proposal_event_payload(
+                workspace_id=workspace.workspace_id,
+                turn_id=turn_id,
+                proposal=proposal,
+                result_action="applied_confirmation",
+                active_turn=self._serialize_active_turn(workspace),
+            ),
+            status="confirmed",
+        )
+        self._publish_event(
+            workspace.workspace_id,
+            "canvas.mutation.applied",
+            self._proposal_event_payload(
+                workspace_id=workspace.workspace_id,
+                turn_id=turn_id,
+                proposal=proposal,
+                result_action="applied_confirmation",
+                active_turn=self._serialize_active_turn(workspace),
+            ),
+            status=proposal.status.value,
+        )
+        self._finish_turn(workspace.workspace_id, turn_id)
+        self._publish_event(
+            workspace.workspace_id,
+            "canvas.turn.completed",
+            {
+                "workspace_id": workspace.workspace_id,
+                "turn_id": turn_id,
+                "proposal_id": proposal.proposal_id,
+                "result_action": "applied_confirmation",
+                "active_turn": None,
+            },
+            status="completed",
+        )
+        return {
+            "turn_id": turn_id,
+            "workspace_id": workspace.workspace_id,
+            "proposal_id": proposal.proposal_id,
+            "action": "applied_confirmation",
+            "risk_level": proposal.risk_level.value,
+        }
+
+    def _projected_unresolved_refs(
+        self,
+        workspace_id: str,
+        proposal: CanvasMutationProposal,
+    ) -> List[str]:
+        """按待确认提案的最终状态投影确认记录中的未决引用。
+
+        确认记录随包版本一起提交，不能先写入“确认前”的未决集合再回写。
+        这里只计算状态投影，不触碰存储，也不生成第二条状态写路径。
+        """
+
+        card_index = {
+            card.card_id: CanvasCard.from_dict(card.to_dict())
+            for card in self.repository.load_cards(workspace_id)
+        }
+        for mutation in proposal.mutations:
+            if mutation.target != CanvasMutationTarget.CARD:
+                continue
+            if mutation.action == CanvasMutationAction.ADD and mutation.payload.get("card"):
+                card = CanvasCard.from_dict(mutation.payload["card"])
+                card_index[card.card_id] = card
+                continue
+            if mutation.action != CanvasMutationAction.UPDATE:
+                continue
+            card = card_index.get(mutation.target_id)
+            if card is not None and "status" in mutation.payload:
+                card.status = str(mutation.payload["status"])
+        return unresolved_issue_ids_from_cards(card_index.values())
+
+    def _build_package_ledger_events(
+        self,
+        *,
+        workspace: CanvasWorkspace,
+        package: Package,
+        version: PackageVersion,
+        previous_version: Optional[PackageVersion],
+        cards: List[CanvasCard],
+        relations: List[CanvasRelation],
+        proposal: CanvasMutationProposal,
+        confirmation: Optional[ConfirmationRecord],
+        message_refs: List[str],
+        occurred_at: str,
+    ) -> List[LedgerEvent]:
+        """从两个包版本的投影差异生成不含对象正文的账本事件。"""
+
+        before_state_version = previous_version.state_version if previous_version else 0
+        before_cards = {
+            str(item.get("card_id")): item
+            for item in (previous_version.objects if previous_version else [])
+        }
+        before_relations = {
+            str(item.get("relation_id")): item
+            for item in (previous_version.relations if previous_version else [])
+        }
+        actor_type = LedgerActorType.USER if confirmation is not None else LedgerActorType.SYSTEM
+        actor_id = "workspace_user" if confirmation is not None else "canvas_service"
+        operation_id = version.operation_id
+
+        def make_event(
+            event_type: LedgerEventType,
+            entity_type: str,
+            entity_id: str,
+            *,
+            before_ref: Optional[str] = None,
+            after_ref: Optional[str] = None,
+            source_refs: Optional[List[str]] = None,
+            confirmation_id: Optional[str] = None,
+        ) -> LedgerEvent:
+            return LedgerEvent(
+                ledger_event_id=f"ledger_{uuid4().hex[:12]}",
+                workspace_id=workspace.workspace_id,
+                package_id=package.package_id,
+                event_type=event_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                occurred_at=occurred_at,
+                package_version=version.package_version,
+                state_version_before=before_state_version,
+                state_version_after=version.state_version,
+                before_ref=before_ref,
+                after_ref=after_ref,
+                operation_id=operation_id,
+                convergence_run_id=proposal.turn_id,
+                chat_turn_id=proposal.turn_id,
+                message_refs=list(message_refs),
+                source_refs=list(source_refs or []),
+                confirmation_id=confirmation_id,
+            )
+
+        events: List[LedgerEvent] = []
+        if previous_version is None:
+            events.append(
+                make_event(
+                    LedgerEventType.PACKAGE_CREATED,
+                    "package",
+                    package.package_id,
+                    after_ref=f"package:{package.package_id}",
+                )
+            )
+        events.append(
+            make_event(
+                LedgerEventType.PACKAGE_VERSION_CREATED,
+                "package_version",
+                f"{package.package_id}:v{version.package_version}",
+                before_ref=(
+                    f"package:{package.package_id}:v{previous_version.package_version}"
+                    if previous_version
+                    else None
+                ),
+                after_ref=f"package:{package.package_id}:v{version.package_version}",
+            )
+        )
+        events.append(
+            make_event(
+                LedgerEventType.CURRENT_VERSION_MOVED,
+                "package",
+                package.package_id,
+                before_ref=(
+                    f"package:{package.package_id}:v{previous_version.package_version}"
+                    if previous_version
+                    else None
+                ),
+                after_ref=f"package:{package.package_id}:v{version.package_version}",
+            )
+        )
+
+        for card in cards:
+            previous = before_cards.get(card.card_id)
+            after_ref = f"package:{package.package_id}:v{version.package_version}:object:{card.card_id}"
+            if previous is None:
+                events.append(
+                    make_event(
+                        LedgerEventType.OBJECT_CREATED,
+                        card.kind.value,
+                        card.card_id,
+                        after_ref=after_ref,
+                        source_refs=card.source_refs,
+                    )
+                )
+            elif str(previous.get("status")) != card.status:
+                events.append(
+                    make_event(
+                        LedgerEventType.OBJECT_STATUS_CHANGED,
+                        card.kind.value,
+                        card.card_id,
+                        before_ref=f"package:{package.package_id}:v{previous_version.package_version}:object:{card.card_id}",
+                        after_ref=after_ref,
+                        source_refs=card.source_refs,
+                        confirmation_id=confirmation.confirmation_id if confirmation else None,
+                    )
+                )
+            elif previous != card.to_dict():
+                events.append(
+                    make_event(
+                        LedgerEventType.OBJECT_CONTENT_UPDATED,
+                        card.kind.value,
+                        card.card_id,
+                        before_ref=f"package:{package.package_id}:v{previous_version.package_version}:object:{card.card_id}",
+                        after_ref=after_ref,
+                        source_refs=card.source_refs,
+                    )
+                )
+
+        for relation in relations:
+            if relation.relation_id not in before_relations:
+                events.append(
+                    make_event(
+                        LedgerEventType.RELATION_CREATED,
+                        "relation",
+                        relation.relation_id,
+                        after_ref=f"package:{package.package_id}:v{version.package_version}:relation:{relation.relation_id}",
+                        source_refs=relation.source_refs,
+                    )
+                )
+        for relation_id in before_relations.keys() - {relation.relation_id for relation in relations}:
+            events.append(
+                make_event(
+                    LedgerEventType.RELATION_REMOVED,
+                    "relation",
+                    relation_id,
+                    before_ref=f"package:{package.package_id}:v{previous_version.package_version}:relation:{relation_id}",
+                )
+            )
+        if confirmation is not None:
+            events.append(
+                make_event(
+                    LedgerEventType.CONFIRMATION_RECORDED,
+                    "confirmation",
+                    confirmation.confirmation_id,
+                    after_ref=f"confirmation:{confirmation.confirmation_id}",
+                    confirmation_id=confirmation.confirmation_id,
+                )
+            )
+            events.append(
+                make_event(
+                    LedgerEventType.LATEST_CONFIRMED_VERSION_MOVED,
+                    "package",
+                    package.package_id,
+                    after_ref=f"package:{package.package_id}:v{version.package_version}",
+                    confirmation_id=confirmation.confirmation_id,
+                )
+            )
+        return events
+
     def _build_todo_projection(self, workspace_id: str, cards: List[CanvasCard]) -> TodoProjection:
+        # L3 规格已下线 OPTION 卡片；待澄清/约束/待决策的未决状态由类型化 status 派生。
         items: list[TodoItem] = []
         for card in cards:
-            is_todo = False
-            if card.status in {"open", "draft", "pending"} and card.kind in {
-                CanvasCardKind.CLARIFICATION,
-                CanvasCardKind.CONSTRAINT,
-                CanvasCardKind.DECISION,
-            }:
-                is_todo = True
-            elif card.kind == CanvasCardKind.OPTION and card.status in {"blocked", "pending"}:
-                is_todo = True
-            elif card.status == "blocked":
-                is_todo = True
-                
-            if is_todo:
+            if is_unresolved_status(card.kind.value, card.status):
                 items.append(
                     TodoItem(
                         todo_id=f"todo_{card.card_id}",
@@ -1613,71 +1993,26 @@ class CanvasService:
         if missing_ids:
             raise CanvasMessageValidationError(f"selected cards not found: {', '.join(missing_ids)}")
 
-    @staticmethod
-    def _normalize_stage(stage: str) -> str:
-        stage_key = str(stage).strip().lower()
-        return {"definition": "define"}.get(stage_key, stage_key)
-
-    def _validate_stage_move(self, card: CanvasCard, target_stage: str) -> None:
-        allowed_stages = {"discovery", "define", "handoff"}
-        if target_stage not in allowed_stages:
-            raise CanvasCardMoveValidationError(f"unsupported stage: {target_stage}")
-        if card.kind == CanvasCardKind.HANDOFF and target_stage != "handoff":
-            raise CanvasCardMoveValidationError("handoff card must stay in handoff stage")
-        if target_stage == card.stage:
-            return
-        allowed_transitions = {
-            "discovery": {"define"},
-            "define": {"handoff"},
-            "handoff": {"define"},
-        }
-        if target_stage not in allowed_transitions.get(card.stage, set()):
-            raise CanvasCardMoveValidationError(f"illegal stage transition: {card.stage} -> {target_stage}")
-
-    def _upsert_handoff_card(self, cards: List[CanvasCard], handoff: StructuredHandoff, refreshed_at: str) -> CanvasCard:
-        for card in cards:
-            if card.kind != CanvasCardKind.HANDOFF:
-                continue
-            card.title = card.title or "结构化交接物草稿"
-            card.summary = handoff.summary
-            card.stage = "handoff"
-            card.status = "draft"
-            card.metadata["last_edited_by"] = "user"
-            card.metadata["last_edited_at"] = refreshed_at
-            card.metadata["refresh_source"] = "current_canvas"
-            return card
-
-        handoff_card = CanvasCard(
-            card_id=f"card_{uuid4().hex[:10]}",
-            kind=CanvasCardKind.HANDOFF,
-            title="结构化交接物草稿",
-            summary=handoff.summary,
-            stage="handoff",
-            status="draft",
-            metadata={
-                "created_by": "user",
-                "created_at": refreshed_at,
-                "refresh_source": "current_canvas",
-            },
-        )
-        cards.append(handoff_card)
-        return handoff_card
+    # L3 规格已下线 stage_node 主题阶段机；_normalize_stage / _validate_stage_move
+    # 与 _upsert_handoff_card（依赖已删除的 CanvasCardKind.HANDOFF）一并移除。
+    # move_card 在过渡期保留为 deprecated_noop，不再依赖上述辅助。
 
     @staticmethod
     def _handoff_items(cards: List[CanvasCard], kind: CanvasCardKind) -> List[str]:
+        # L3 规格已下线 OPTION / HANDOFF 卡片类型；状态集合对齐类型化状态枚举。
         visible_statuses = {
-            CanvasCardKind.CLARIFICATION: {"open", "draft", "pending"},
-            CanvasCardKind.CONSTRAINT: {"draft", "effective", "confirmed"},
-            CanvasCardKind.DECISION: {"pending", "confirmed"},
-            CanvasCardKind.HANDOFF: {"draft", "confirmed"},
-            CanvasCardKind.EVIDENCE: {"open", "draft", "confirmed"},
-            CanvasCardKind.PROBLEM: {"open", "draft", "confirmed"},
-            CanvasCardKind.OPTION: {"open", "draft", "confirmed"},
+            CanvasCardKind.CLARIFICATION: {"open", "pending_confirmation", "blocked"},
+            CanvasCardKind.CONSTRAINT: {"draft", "pending_confirmation", "effective"},
+            CanvasCardKind.DECISION: {"pending_decision", "pending_confirmation", "decided"},
+            CanvasCardKind.EVIDENCE: {"collected", "cited"},
+            CanvasCardKind.PROBLEM: {"initial", "converging", "converged"},
         }
-        allowed = visible_statuses.get(kind, {"open", "draft", "pending"})
+        allowed = visible_statuses.get(kind, set())
         return [card.title for card in cards if card.kind == kind and card.status in allowed]
 
     def _build_handoff_summary(self, message: str, cards: List[CanvasCard]) -> str:
+        # L3 规格要求交接模块不复制对象正文；本方法仅生成过渡期 metadata.legacy.summary
+        # 供前端兼容回看，真正内容仍由源对象维护。
         clarifications = self._handoff_items(cards, CanvasCardKind.CLARIFICATION)
         constraints = self._handoff_items(cards, CanvasCardKind.CONSTRAINT)
         return (
@@ -1686,20 +2021,18 @@ class CanvasService:
         )
 
     def _build_refresh_handoff_summary(self, cards: List[CanvasCard]) -> str:
+        # L3 规格已下线 OPTION 卡片；本方法只输出过渡期 legacy 摘要。
         problems = [card.title for card in cards if card.kind == CanvasCardKind.PROBLEM]
         clarifications = self._handoff_items(cards, CanvasCardKind.CLARIFICATION)
         constraints = self._handoff_items(cards, CanvasCardKind.CONSTRAINT)
         decisions = self._handoff_items(cards, CanvasCardKind.DECISION)
-        options = [card.title for card in cards if card.kind == CanvasCardKind.OPTION]
-        
+
         problem_str = f"主问题：{problems[0]}" if problems else "暂无主问题"
-        option_str = f"方案候选：{', '.join(options)}" if options else "暂无方案候选"
-        
+
         return (
-            "基于当前画布收束的结构化交接物草稿：\n" +
-            f"【{problem_str}】\n" +
-            f"待澄清 {len(clarifications)} 项，约束 {len(constraints)} 项，待决策 {len(decisions)} 项。\n" +
-            f"【{option_str}】"
+            "基于当前画布收束的结构化交接物草稿：\n"
+            + f"【{problem_str}】\n"
+            + f"待澄清 {len(clarifications)} 项，约束 {len(constraints)} 项，待决策 {len(decisions)} 项。"
         )
 
     @staticmethod
@@ -1710,8 +2043,10 @@ class CanvasService:
         for mutation in proposal.mutations:
             mutation_type = str(mutation.metadata.get("mutation_type", ""))
             if mutation.target == CanvasMutationTarget.CARD and mutation_type == "create_decision_request":
+                # L3 规格：decision 类型化状态为 pending_decision/pending_confirmation/decided/archived；
+                # 旧自由字符串 "confirmed" 已下线，统一改为 "decided"。
                 card_payload = mutation.payload.get("card", {})
-                card_payload["status"] = "confirmed"
+                card_payload["status"] = "decided"
                 mutation.payload["card"] = card_payload
             elif mutation.target == CanvasMutationTarget.SNAPSHOT and mutation_type == "create_snapshot":
                 mutation.action = CanvasMutationAction.ADD
@@ -1739,29 +2074,18 @@ class CanvasService:
                     },
                 }
             elif mutation.target == CanvasMutationTarget.CARD and mutation_type == "resolve_clarification":
+                # L3 规格：clarification 类型化状态为 open/pending_confirmation/clarified/blocked/closed；
+                # 旧自由字符串 "resolved" 已下线，统一改为 "clarified"。
                 mutation.action = CanvasMutationAction.UPDATE
                 resolution = str(mutation.payload.get("resolution", "")).strip()
                 mutation.payload = {
                     **mutation.payload,
-                    "status": "resolved",
+                    "status": "clarified",
                     "metadata": {
                         **dict(mutation.payload.get("metadata", {})),
                         "resolved_by": "user",
                         "resolved_at": confirmed_at,
                         "resolution": resolution,
-                        "confirmation_proposal_id": proposal.proposal_id,
-                        "source_turn_id": proposal.turn_id,
-                    },
-                }
-            elif mutation.target == CanvasMutationTarget.CARD and mutation_type == "promote_formal_handoff":
-                mutation.action = CanvasMutationAction.UPDATE
-                mutation.payload = {
-                    **mutation.payload,
-                    "status": "confirmed",
-                    "metadata": {
-                        **dict(mutation.payload.get("metadata", {})),
-                        "confirmed_by": "user",
-                        "confirmed_at": confirmed_at,
                         "confirmation_proposal_id": proposal.proposal_id,
                         "source_turn_id": proposal.turn_id,
                     },

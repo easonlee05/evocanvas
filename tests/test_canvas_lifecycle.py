@@ -1,163 +1,191 @@
+"""L3 规格下的运行时状态与账本事件辅助测试。
+
+旧版基于 stage_node / checkpoint / transition_history / build_state_ledger
+的测试已整体废弃：L3 规格下线主题阶段机后，运行时状态只保留与 active_turn
+相关的最小占位，真正的事实变化通过 append_ledger_event 追加账本事件记录。
+
+参见 docs/harness/02-memory-state/02 State Ledger（状态账本）.md
+与 docs/harness/04-orchestration-lifecycle/02 Lifecycle（生命周期）.md。
+"""
+
 import unittest
+
 from app.canvas.domain.cards import CanvasCard, CanvasCardKind
-from app.canvas.domain.mutations import (
-    CanvasMutation,
-    CanvasMutationAction,
-    CanvasMutationProposal,
-    CanvasMutationStatus,
-    CanvasMutationTarget,
+from app.canvas.domain.object_status import (
+    GovernanceClass,
+    ValidationState,
+    derive_governance_class,
+    is_unresolved_status,
 )
-from app.canvas.domain.workspace import CanvasWorkspace
-from app.canvas.runtime_state import apply_turn_runtime_state, build_state_ledger
+from app.canvas.runtime_state import (
+    build_handoff_metadata,
+    make_object_created_event,
+    make_object_status_changed_event,
+    unresolved_issue_ids_from_cards,
+)
 
 
 class CanvasLifecycleTests(unittest.TestCase):
-    def test_enforces_adjacent_stage_rollback_limit(self) -> None:
-        """验证相邻阶段回流校验保护算法：不允许跨两级及以上的非法回滚，强行修正为相邻前序段。"""
+    def test_unresolved_issue_ids_derived_from_typed_status(self) -> None:
+        """验证未决对象 ID 从类型化状态派生，不再依赖旧 stage_node。"""
 
-        # 初始在 handoff 阶段
-        workspace = CanvasWorkspace(
-            workspace_id="ws_test",
-            title="测试项目",
-        )
-        workspace.metadata = {
-            "lifecycle": {
-                "stage_node": "handoff",
-                "checkpoint": "applied",
-                "pending_gate_ids": [],
-                "unresolved_issue_ids": [],
-                "transition_history": [],
-            }
-        }
-
-        # 试图直接回滚到 compilation 阶段 (跨越了 convergence 和 clarification)
-        proposal = CanvasMutationProposal(
-            proposal_id="proposal_rollback",
-            workspace_id="ws_test",
-            turn_id="turn_rb",
-        )
-        proposal.metadata["rollback_hint"] = "compilation"
-
-        # 回写状态，result_action 为验证失败
-        updated_ws = apply_turn_runtime_state(
-            workspace,
-            intent="compilation",
-            proposal=proposal,
-            result_action="downgrade_to_proposal",
-        )
-
-        lifecycle = updated_ws.metadata["lifecycle"]
-        # 应该被拦截并限制在相邻的前序阶段 (即 convergence)
-        self.assertEqual(lifecycle["stage_node"], "convergence")
-        self.assertEqual(lifecycle["checkpoint"], "fallback_to_proposal")
-
-        # 历史记录检查
-        history = lifecycle["transition_history"]
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0]["from_stage"], "handoff")
-        self.assertEqual(history[0]["to_stage"], "convergence")
-        self.assertEqual(history[0]["action_type"], "rollback")
-        self.assertEqual(history[0]["reason_category"], "verification_failed")
-
-    def test_state_ledger_blocked_and_non_blocking_classification(self) -> None:
-        """验证状态账本的阻塞卡片、非阻塞提醒和下一步 hint。"""
-
-        workspace = CanvasWorkspace(
-            workspace_id="ws_test",
-            title="测试项目",
-        )
-        workspace.metadata = {
-            "lifecycle": {
-                "stage_node": "convergence",
-                "checkpoint": "applied",
-            }
-        }
-
-        # 1. 存在 open 的决策，作为阻塞卡片
-        # 2. 存在 superseded 的约束卡片，作为非阻塞提醒
         cards = [
             CanvasCard(
-                card_id="card_dec",
+                card_id="card_dec_pending",
                 kind=CanvasCardKind.DECISION,
                 title="待决策",
-                status="pending",
+                status="pending_decision",
             ),
             CanvasCard(
-                card_id="card_old",
-                kind=CanvasCardKind.CONSTRAINT,
-                title="老约束",
-                status="superseded",
+                card_id="card_dec_decided",
+                kind=CanvasCardKind.DECISION,
+                title="已拍板决策",
+                status="decided",
+            ),
+            CanvasCard(
+                card_id="card_clarify_open",
+                kind=CanvasCardKind.CLARIFICATION,
+                title="开放澄清",
+                status="open",
+            ),
+            CanvasCard(
+                card_id="card_clarify_closed",
+                kind=CanvasCardKind.CLARIFICATION,
+                title="已关闭澄清",
+                status="closed",
+            ),
+        ]
+
+        unresolved = unresolved_issue_ids_from_cards(cards)
+
+        # pending_decision / open 视为未决；decided / closed 不计入。
+        self.assertIn("card_dec_pending", unresolved)
+        self.assertIn("card_clarify_open", unresolved)
+        self.assertNotIn("card_dec_decided", unresolved)
+        self.assertNotIn("card_clarify_closed", unresolved)
+
+    def test_governance_class_derived_from_kind_and_status(self) -> None:
+        """验证通用治理地位由 (kind, status) 派生，不依赖独立写入。"""
+
+        # 源（source）：evidence 默认 collected/cited/archived
+        self.assertEqual(
+            derive_governance_class("evidence", "collected"),
+            GovernanceClass.SOURCE,
+        )
+        # 未决（unresolved）：clarification 的 open/blocked
+        self.assertEqual(
+            derive_governance_class("clarification", "open"),
+            GovernanceClass.UNRESOLVED,
+        )
+        # 稳定（stable）：constraint 的 effective
+        self.assertEqual(
+            derive_governance_class("constraint", "effective"),
+            GovernanceClass.STABLE,
+        )
+        # 历史（historical）：constraint 的 archived
+        self.assertEqual(
+            derive_governance_class("constraint", "archived"),
+            GovernanceClass.HISTORICAL,
+        )
+
+    def test_handoff_metadata_counts_unresolved_and_high_confidence(self) -> None:
+        """验证交接物元数据派生未决计数与高置信未确认计数。"""
+
+        cards = [
+            CanvasCard(
+                card_id="card_clarify_open_valid",
+                kind=CanvasCardKind.CLARIFICATION,
+                title="开放且已验证",
+                status="open",
+                validation_state=ValidationState.VALID.value,
+            ),
+            CanvasCard(
+                card_id="card_clarify_open_warning",
+                kind=CanvasCardKind.CLARIFICATION,
+                title="开放但有警告",
+                status="open",
+                validation_state=ValidationState.WARNING.value,
+            ),
+            CanvasCard(
+                card_id="card_decided",
+                kind=CanvasCardKind.DECISION,
+                title="已拍板",
+                status="decided",
+                validation_state=ValidationState.VALID.value,
             ),
         ]
 
-        proposal = CanvasMutationProposal(
-            proposal_id="prop_01",
-            workspace_id="ws_test",
-            turn_id="turn_01",
+        metadata = build_handoff_metadata(
+            cards,
+            confirmation_state="draft",
+            source_snapshot_id="snapshot-1",
+            refreshed_by="user",
+            refreshed_at="2026-07-14T10:00:00Z",
         )
 
-        ledger = build_state_ledger(workspace, cards, proposal, "auto_apply")
+        # 两个未决（open + open），其中两个都是 valid/warning → 高置信未确认 = 2
+        self.assertEqual(metadata["unresolved_count"], 2)
+        self.assertEqual(metadata["high_confidence_unconfirmed_count"], 2)
+        self.assertEqual(metadata["generated_from_card_count"], 3)
+        self.assertEqual(metadata["confirmation_state"], "draft")
 
-        self.assertEqual(ledger["stage_node"], "convergence")
-        self.assertEqual(ledger["next_progression_hint"], "handoff")
-        self.assertEqual(ledger["blocked_by_card_ids"], ["card_dec"])
-        self.assertEqual(len(ledger["non_blocking_reminders"]), 1)
-        self.assertEqual(ledger["non_blocking_reminders"][0]["card_id"], "card_old")
-        self.assertEqual(ledger["non_blocking_reminders"][0]["reason"], "已失效被替代")
+    def test_make_object_created_event_carries_required_fields(self) -> None:
+        """验证账本事件构造辅助产出符合 L3 规格的事件结构。"""
 
-    def test_stage_conclusion_leading_card_extraction(self) -> None:
-        """验证阶段结论（主判断）根据卡片稳定程度动态挑选。"""
-
-        workspace = CanvasWorkspace(
-            workspace_id="ws_test",
-            title="测试项目",
+        event = make_object_created_event(
+            ledger_event_id="evt-1",
+            workspace_id="ws-1",
+            package_id="pkg-1",
+            object_id="card-1",
+            object_type="clarification",
+            operation_id="op-1",
+            occurred_at="2026-07-14T10:00:00Z",
+            state_version_before=0,
+            state_version_after=1,
+            chat_turn_id="turn-1",
+            source_refs=["input:meeting-1"],
         )
-        workspace.metadata = {
-            "lifecycle": {
-                "stage_node": "convergence",
-            }
-        }
 
-        # 场景 A：只有未确认的约束卡片
-        cards_unconfirmed = [
-            CanvasCard(
-                card_id="card_c1",
-                kind=CanvasCardKind.CONSTRAINT,
-                title="约束草稿",
-                summary="内容1",
-                status="draft",
-            )
-        ]
-        proposal = CanvasMutationProposal(
-            proposal_id="prop_01", workspace_id="ws_test", turn_id="turn_01"
+        self.assertEqual(event.event_type.value, "object_created")
+        self.assertEqual(event.entity_id, "card-1")
+        self.assertEqual(event.entity_type, "clarification")
+        self.assertEqual(event.operation_id, "op-1")
+        self.assertEqual(event.state_version_before, 0)
+        self.assertEqual(event.state_version_after, 1)
+        self.assertEqual(event.source_refs, ["input:meeting-1"])
+        self.assertEqual(event.chat_turn_id, "turn-1")
+
+    def test_make_object_status_changed_event_carries_confirmation_id(self) -> None:
+        """验证状态变更事件可携带 confirmation_id，支撑确认留痕。"""
+
+        event = make_object_status_changed_event(
+            ledger_event_id="evt-2",
+            workspace_id="ws-1",
+            package_id="pkg-1",
+            object_id="card-dec-1",
+            object_type="decision",
+            before_status="pending_decision",
+            after_status="decided",
+            operation_id="op-2",
+            occurred_at="2026-07-14T10:05:00Z",
+            confirmation_id="conf-1",
         )
-        ledger_a = build_state_ledger(workspace, cards_unconfirmed, proposal, "auto_apply")
-        conclusion_a = ledger_a["stage_conclusion"]
-        self.assertEqual(conclusion_a["card_id"], "card_c1")
-        self.assertEqual(conclusion_a["is_confirmed"], False)
 
-        # 场景 B：存在已确认的约束卡片，优先提取
-        cards_confirmed = [
-            CanvasCard(
-                card_id="card_c1",
-                kind=CanvasCardKind.CONSTRAINT,
-                title="约束草稿",
-                summary="内容1",
-                status="draft",
-            ),
-            CanvasCard(
-                card_id="card_c2",
-                kind=CanvasCardKind.CONSTRAINT,
-                title="已拍板约束",
-                summary="确认内容",
-                status="confirmed",
-            ),
-        ]
-        ledger_b = build_state_ledger(workspace, cards_confirmed, proposal, "auto_apply")
-        conclusion_b = ledger_b["stage_conclusion"]
-        self.assertEqual(conclusion_b["card_id"], "card_c2")
-        self.assertEqual(conclusion_b["is_confirmed"], True)
-        self.assertEqual(conclusion_b["lead_reason"], "上位事实边界")
+        self.assertEqual(event.event_type.value, "object_status_changed")
+        self.assertEqual(event.confirmation_id, "conf-1")
+        self.assertEqual(event.entity_id, "card-dec-1")
+
+    def test_is_unresolved_status_handles_legacy_values(self) -> None:
+        """验证 is_unresolved_status 对迁移过渡期旧状态值的兼容判断。"""
+
+        # 新类型化状态
+        self.assertTrue(is_unresolved_status("clarification", "open"))
+        self.assertTrue(is_unresolved_status("clarification", "blocked"))
+        self.assertFalse(is_unresolved_status("clarification", "closed"))
+        self.assertTrue(is_unresolved_status("decision", "pending_decision"))
+        self.assertFalse(is_unresolved_status("decision", "decided"))
+        # 旧状态值在映射表里缺失，回退到 WORKING，不计入未决。
+        self.assertFalse(is_unresolved_status("clarification", "legacy_unknown"))
 
 
 if __name__ == "__main__":

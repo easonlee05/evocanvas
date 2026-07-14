@@ -431,7 +431,6 @@ export default function Canvas({
   cards = [],
   relations = [],
   todos = [],
-  confirmations = [],
   selectedCardId,
   setSelectedCardId,
   onRefresh,
@@ -580,13 +579,6 @@ export default function Canvas({
       mode: '收敛',
     };
   };
-
-  function mapSectionToBackendStage(sectionKey) {
-    if (sectionKey === 'evidence') return 'discovery';
-    if (sectionKey === 'problems' || sectionKey === 'clarify' || sectionKey === 'rules' || sectionKey === 'options') return 'define';
-    if (sectionKey === 'planning') return 'handoff';
-    return sectionKey;
-  }
 
   function mapBackendCardsToSections(backendCards, backendRelations) {
     const sections = {
@@ -1571,7 +1563,6 @@ export default function Canvas({
           kind: backendKind,
           title,
           summary: desc,
-          stage: mapSectionToBackendStage(kind)
         });
         if (res && res.card_id) {
           setCardOffsets(prev => {

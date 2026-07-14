@@ -17,31 +17,35 @@ from app.canvas.domain.workspace import CanvasWorkspace
 
 class CanvasDomainRoundtripTests(unittest.TestCase):
     def test_canvas_card_roundtrip(self) -> None:
+        # L3 规格已下线 stage / evidence_refs，改为 source_refs 与类型化状态。
         card = CanvasCard(
             card_id="card-1",
             kind=CanvasCardKind.CLARIFICATION,
             title="确认核心用户是谁",
             summary="现有输入同时提到产品经理和业务负责人，需要继续澄清主使用者。",
-            stage="definition",
             status="open",
             tags=["user", "ambiguity"],
-            evidence_refs=["input:meeting-1", "input:chat-2"],
+            source_refs=["input:meeting-1", "input:chat-2"],
             metadata={"priority": "high"},
         )
 
         data = card.to_dict()
 
         self.assertEqual(data["kind"], "clarification")
+        self.assertEqual(data["source_refs"], ["input:meeting-1", "input:chat-2"])
+        self.assertNotIn("stage", data)
+        self.assertNotIn("evidence_refs", data)
         self.assertEqual(CanvasCard.from_dict(data), card)
 
     def test_canvas_card_problem_kind_serializes_to_problem(self) -> None:
+        # L3 规格已下线 stage 字段；卡片默认状态由类型化枚举派生。
         card = CanvasCard(card_id="card-problem", kind=CanvasCardKind.PROBLEM, title="核心问题")
 
         data = card.to_dict()
 
         self.assertEqual(data["kind"], "problem")
-        self.assertEqual(data["stage"], "discovery")
-        self.assertEqual(data["status"], "open")
+        self.assertNotIn("stage", data)
+        self.assertEqual(data["status"], "initial")
 
     def test_canvas_relation_roundtrip(self) -> None:
         relation = CanvasRelation(
@@ -153,10 +157,12 @@ class CanvasDomainRoundtripTests(unittest.TestCase):
             ),
             handoff=StructuredHandoff(
                 handoff_id="handoff-1",
-                summary="当前已收束出首版闭环与关键缺口。",
-                constraints=["首版不做多人实时协作"],
-                open_questions=["方案层对象是否进入 1.0"],
-                decisions=["先聚焦输入编译到结构化交接物"],
+                # L3 规格要求交接模块只持有对象引用，不复制对象正文；
+                # 旧 summary/constraints/open_questions/decisions 字段已下线。
+                confirmed_constraint_refs=["card-constraint-1"],
+                completed_decision_refs=["card-decision-1"],
+                unresolved_refs=["card-clarify-1"],
+                pending_decision_refs=["card-decision-2"],
                 metadata={"version": "1.0"},
             ),
             metadata={"trigger": "manual"},

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 try:
-    from pydantic import BaseModel, Field, constr
+    from pydantic import BaseModel, ConfigDict, Field, constr
 except Exception:  # pragma: no cover
     class BaseModel:  # type: ignore
         pass
@@ -13,6 +13,7 @@ except Exception:  # pragma: no cover
         return default
     def constr(**_kwargs):  # type: ignore
         return str
+    ConfigDict = None  # type: ignore
 
 
 class CanvasMessageRequest(BaseModel):
@@ -29,9 +30,11 @@ class CanvasMessageRequest(BaseModel):
 class CanvasCardPatchRequest(BaseModel):
     """画布卡片原地修订请求，仅允许更新不改变事实边界的展示字段。"""
 
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra="forbid")
+
     title: Optional[str] = None
     summary: Optional[str] = None
-    status: Optional[str] = None
     tags: Optional[List[str]] = None
 
 

@@ -23,11 +23,11 @@
 
 ### 一个核心设计哲学：通用约束 + 用户提示补全
 
-实验验证了一个关键事实：**Codex 在 4 个完全不同的场景中使用了完全相同的 system prompt**（MD5 校验一致）。这意味着 Codex 的设计者做了一个明确的判断——system prompt 只放"所有场景都需要遵守的通用规则"，场景特定的行为引导全部交给 user prompt。
+实验验证了一个关键事实：**Codex 在 4 个完全不同的场景中使用了完全相同的 system prompt**（MD5 校验一致）。这意味着 Codex 的设计者做了一个明确的判断——system prompt 只放"所有场景都需要遵守的通用规则"。场景特定的行为引导主要由 user prompt 承载；运行时权限、能力和环境信息则通过独立的 developer / user 消息注入。
 
 这是一个值得深思的架构决策。它的好处是 system prompt 精简、稳定、不会因为场景增多而膨胀；坏处是 user prompt 的负担很重，每次都要重复声明场景约束，一旦遗漏就可能导致行为偏移。
 
-对比 EvoCanvas 的四模块设计（System Base / Stage Prompt / Object Prompt / Receipt Prompt），Codex 实际上只实现了第一模块（System Base），把后三个模块的职责全部推给了 user prompt。EvoCanvas 的多模块设计理论上更精密，但前提是运行时能真正落地——目前并没有。
+对比 EvoCanvas 的四模块设计（System Base / Stage Prompt / Object Prompt / Receipt Prompt），Codex 的 system prompt 只对应稳定的通用基座；它的 developer message 和环境上下文是运行时消息来源，不等于 Stage Prompt 或 Object Prompt。当前 rollout 没有证明 Codex 会把内部阶段注入模型，也没有证明它存在独立的 Receipt Prompt。EvoCanvas 的四模块设计因此需要重新拆分为：稳定指令、运行时治理、结构化数据和输出协议。
 
 
 ### 三个设计张力
@@ -59,7 +59,7 @@
 
 | 维度 | Codex | EvoCanvas 设计意图 | EvoCanvas 运行时现状 |
 |------|-------|-------------------|---------------------|
-| Prompt 分层 | 1 层（通用 System Base） | 4 层（Base/Stage/Object/Receipt） | 1 层（简单的角色描述） |
+| 消息与指令分工 | 稳定 System + 运行时 Developer / Context / User | 4 个业务 Prompt 模块 | 角色、上下文和用户消息混杂 |
 | 角色切换 | 不切换，靠 user prompt | Supervisor 路由到 6 个角色 | Supervisor 有路由但角色行为弱 |
 | 输出控制 | prompt 里详细规定（占 46%） | Receipt Prompt 模块设计了但没落地 | 只有字数限制 |
 | 工具策略 | prompt 里直接写"用什么工具、怎么用" | ToolPolicy 做了角色×阶段白名单 | 有工具定义但无行为引导 |
@@ -67,6 +67,49 @@
 | 上下文管理 | 不在 prompt 里处理 | SlidingWindow + Rehydration | SlidingWindow 已实现 |
 
 核心差距：EvoCanvas 在"设计意图"上比 Codex 更精密（4 模块、6 角色、约束与决策分离），但在"运行时落地"上远远落后。Codex 设计简单但 100% 兑现，EvoCanvas 设计精密但兑现率不到 20%。
+
+
+### 完整 Prompt 组装链路：模型到底看到了什么
+
+从 rollout JSONL 中提取的完整消息流揭示了 Codex 发给模型的**不是**一个简单的 system prompt + user message，而是一个四层消息结构：
+
+```
+┌─ [1] System Prompt（base_instructions）─────────────── 14.7KB
+│   身份 + 人格 + 价值观 + 工作准则 + 格式规则 + 沟通规则
+│   来源：Codex CLI 内置，所有任务完全相同
+│
+├─ [2] Developer Message（运行时注入）────────────────── 约 8-10KB
+│   Part 0: <permissions instructions>  沙箱权限和审批策略
+│   Part 1: <apps_instructions>         已安装的 App/连接器说明
+│   Part 2: <skills_instructions>       ~100 个可用 Skill 清单 + 使用规则
+│   Part 3: <plugins_instructions>      ~16 个已启用 Plugin 清单 + 使用规则
+│   来源：Codex 运行时根据当前环境动态生成
+│
+├─ [3] User Message 1（运行时注入）────────────────────── 约 200B
+│   <environment_context>
+│     cwd / shell / current_date / timezone
+│   </environment_context>
+│   来源：Codex 运行时自动注入环境信息
+│
+└─ [4] User Message 2（用户原始输入）─────────────────── 用户写了啥就是啥
+    原样传入，无任何加工、包裹或重写
+```
+
+**关键发现一：用户输入原样透传，不做任何加工。** 对比原始 prompt 文件和 rollout 中记录的 user message，两者逐字一致。Codex 没有对用户输入添加任何包装语、没有注入额外指令、没有做 XML 标签化。策略是"环境信息由我注入，用户输入保持纯净"。
+
+**关键发现二：真正的"秘密武器"在 Developer Message 层。** 这一层不在 system prompt 里（`base_instructions` 中没有这些内容），也不在用户输入里——它是 Codex 运行时在组装请求时**动态插入**的一个独立消息（role=developer）。其中最有价值的是 `<skills_instructions>`，包含约 100 个可用 Skill 的名称、描述和路径，以及一套详细的"渐进式披露"（progressive disclosure）使用规则。这意味着模型在每一轮对话中都知道"当前环境有哪些能力可以用"，但只在需要时才去读取具体内容。
+
+**关键发现三：环境上下文作为独立 user message 注入。** 工作目录、shell 类型、日期和时区被放在一个独立的 user message 里，用 `<environment_context>` XML 标签包裹。这确保了模型知道"我在哪里、现在几点、用户的环境是什么"，而无需用户手动提供。
+
+**关键发现四：截断策略在运行时静默执行。** `turn_context` 中记录了 `truncation_policy: {mode: "tokens", limit: 10000}`，说明 Codex 有一个 10K token 的截断阈值，但这不在 prompt 里告诉模型——运行时层面静默处理。
+
+**对 EvoCanvas 的启示**：
+
+- **不要加工用户输入。** Codex 证明了用户输入原样透传是可行的。EvoCanvas 应保留用户原始输入，不要把角色、画布内容或内部状态拼接进用户原话。
+- **区分运行时治理和业务数据。** Codex 的 developer message 承载权限、能力和插件规则，但 rollout 没有证明它承载当前阶段。EvoCanvas 可以把必要的运行时治理放入 developer message；对象材料应作为结构化数据上下文传入，不应获得 developer 指令的权威性。
+- **Receipt 不应默认独立成 Prompt。** 如果某个内部操作需要稳定返回结构，应优先使用输出 Schema；只有在不同操作复用同一输出契约时，才将输出契约作为独立的可复用配置维护。
+- **结构化上下文应来自事实包。** 画布是结构化包的显影层，不是事实来源。已确认约束、待决策项和对象引用应统一来自结构化包；前几轮 user / assistant / tool 消息则作为带角色和来源的会话上下文保留。
+- **XML 标签化运行时注入内容。** Codex 对权限、能力和环境信息使用了明确标签，这有助于区分指令来源和数据来源；但不应因此把所有业务内容都包装成 developer 指令。
 
 
 ---

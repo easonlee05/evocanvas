@@ -3,7 +3,12 @@
 当前实现覆盖 EvoCanvas 1.0 首批落盘对象：
 - 在 `canvas/workspaces/{workspace_id}/workspace.json` 下保存工作区根对象
 - 从同一路径加载工作区根对象
-- 按 workspace 维度维护 confirmation queue
+- 结构化包（Package）与不可变包版本（PackageVersion）的持久化与查询
+- 追加式状态账本（StateLedger）事件流
+- 不可改写的确认记录（ConfirmationRecord）
+
+L3 规格明确：旧 confirmation_queue 只保留为历史提案或消息证据，不迁移成新的审批任务。
+因此本仓储不再提供 confirmation_queue 的写入入口，改为提供 ConfirmationRecord 仓储。
 """
 
 from __future__ import annotations
@@ -11,12 +16,16 @@ from __future__ import annotations
 import json
 import os
 import threading
+from hashlib import sha256
 from pathlib import Path
-from typing import Optional, Protocol, Sequence
+from typing import Any, Dict, Optional, Protocol, Sequence
 
 from app.canvas.domain.cards import CanvasCard
+from app.canvas.domain.confirmation import ConfirmationRecord
 from app.canvas.domain.handoff import StructuredHandoff
+from app.canvas.domain.ledger import LedgerEvent
 from app.canvas.domain.mutations import CanvasMutationProposal
+from app.canvas.domain.package import InitialGovernanceStatus, Package, PackageVersion
 from app.canvas.domain.relations import CanvasRelation
 from app.canvas.domain.snapshots import CanvasSnapshot
 from app.canvas.domain.workspace import CanvasWorkspace
@@ -32,7 +41,7 @@ class CanvasStorage(Protocol):
 class CanvasRepository:
     """面向 EvoCanvas 工作区根对象的最小文件仓储。"""
 
-    _workspace_locks: dict[str, threading.Lock] = {}
+    _workspace_locks: dict[str, Any] = {}
     _workspace_locks_guard = threading.Lock()
 
     def __init__(self, storage: CanvasStorage):
@@ -49,10 +58,11 @@ class CanvasRepository:
         return self.storage.canvas_root() / "workspaces" / workspace_id
 
     @classmethod
-    def _workspace_lock(cls, workspace_id: str) -> threading.Lock:
+    def _workspace_lock(cls, workspace_id: str) -> Any:
         with cls._workspace_locks_guard:
             if workspace_id not in cls._workspace_locks:
-                cls._workspace_locks[workspace_id] = threading.Lock()
+                # 提交路径会在同一工作区内读取现有账本和包指针，需允许可重入锁。
+                cls._workspace_locks[workspace_id] = threading.RLock()
             return cls._workspace_locks[workspace_id]
 
     def save_workspace(self, workspace: CanvasWorkspace) -> None:
@@ -129,26 +139,346 @@ class CanvasRepository:
             self.save_workspace(workspace)
             return workspace
 
-    def save_confirmation_queue(
+    # ------------------------------------------------------------------
+    # 结构化包（Package）与不可变包版本（PackageVersion）
+    # ------------------------------------------------------------------
+
+    def _package_dir(self, workspace_id: str, package_id: str) -> Path:
+        """返回指定包的持久化目录。"""
+
+        return self._workspace_dir(workspace_id) / "packages" / package_id
+
+    def save_package(self, workspace_id: str, package: Package) -> None:
+        """持久化结构化包根对象。"""
+
+        package_dir = self._package_dir(workspace_id, package.package_id)
+        package_dir.mkdir(parents=True, exist_ok=True)
+        self._write_json_atomic(package_dir / "package.json", package.to_dict())
+
+    def load_package(self, workspace_id: str, package_id: str) -> Optional[Package]:
+        """读取结构化包根对象。"""
+
+        path = self._package_dir(workspace_id, package_id) / "package.json"
+        if not path.exists():
+            return None
+        return Package.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    def list_packages(self, workspace_id: str) -> list[Package]:
+        """列出工作区下所有结构化包。"""
+
+        packages_dir = self._workspace_dir(workspace_id) / "packages"
+        if not packages_dir.exists():
+            return []
+        items: list[Package] = []
+        for path in sorted(packages_dir.glob("*/package.json")):
+            items.append(Package.from_dict(json.loads(path.read_text(encoding="utf-8"))))
+        return items
+
+    def save_package_version(
         self,
         workspace_id: str,
-        proposals: Sequence[CanvasMutationProposal],
+        version: PackageVersion,
     ) -> None:
-        """按工作区维度持久化待确认提案队列。"""
+        """持久化不可变包版本，拒绝同版本号的任何覆写。"""
 
+        package_dir = self._package_dir(workspace_id, version.package_id)
+        versions_dir = package_dir / "versions"
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        version_file = versions_dir / f"v{version.package_version}.json"
+        if version_file.exists():
+            raise FileExistsError(
+                f"package version already exists and is immutable: {version.package_id} v{version.package_version}"
+            )
+        version.content_checksum = self.package_version_checksum(version)
+        self._write_json_atomic(version_file, version.to_dict())
+
+    def load_package_version(
+        self,
+        workspace_id: str,
+        package_id: str,
+        package_version: int,
+    ) -> Optional[PackageVersion]:
+        """按版本号读取不可变包版本。"""
+
+        version_file = (
+            self._package_dir(workspace_id, package_id)
+            / "versions"
+            / f"v{package_version}.json"
+        )
+        if not version_file.exists():
+            return None
+        version = PackageVersion.from_dict(json.loads(version_file.read_text(encoding="utf-8")))
+        expected_checksum = self.package_version_checksum(version)
+        if version.content_checksum != expected_checksum:
+            raise ValueError(
+                f"package version checksum mismatch: {package_id} v{package_version}"
+            )
+        return version
+
+    def list_package_versions(
+        self,
+        workspace_id: str,
+        package_id: str,
+    ) -> list[PackageVersion]:
+        """列出指定包的所有不可变版本，按版本号升序返回。"""
+
+        versions_dir = self._package_dir(workspace_id, package_id) / "versions"
+        if not versions_dir.exists():
+            return []
+        versions: list[PackageVersion] = []
+        for path in sorted(versions_dir.glob("v*.json"), key=lambda item: int(item.stem[1:])):
+            versions.append(self.load_package_version(workspace_id, package_id, int(path.stem[1:])))
+        return versions
+
+    @staticmethod
+    def package_version_checksum(version: PackageVersion) -> str:
+        """计算包版本正文校验和，不把校验和字段本身纳入摘要。"""
+
+        payload = version.to_dict()
+        payload.pop("content_checksum", None)
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return sha256(canonical.encode("utf-8")).hexdigest()
+
+    def load_active_package(self, workspace_id: str) -> Optional[Package]:
+        """读取工作区当前活跃包；画布投影只能从该包的当前版本取得。"""
+
+        active_packages = [
+            package
+            for package in self.list_packages(workspace_id)
+            if package.lifecycle_status.value == "active"
+        ]
+        if not active_packages:
+            return None
+        return max(active_packages, key=lambda item: (item.updated_at, item.package_id))
+
+    def load_active_package_version(self, workspace_id: str) -> Optional[PackageVersion]:
+        """读取当前活跃包所指向的不可变版本。"""
+
+        package = self.load_active_package(workspace_id)
+        if package is None or package.current_version <= 0:
+            return None
+        return self.load_package_version(workspace_id, package.package_id, package.current_version)
+
+    def commit_package_version(
+        self,
+        workspace_id: str,
+        package: Package,
+        version: PackageVersion,
+        events: Sequence[LedgerEvent],
+        confirmation: Optional[ConfirmationRecord] = None,
+    ) -> Package:
+        """原子可见地提交一个新的包版本、账本事件和可选确认记录。
+
+        版本正文、确认记录和账本先写入不可变位置；最后原子更新包根指针，
+        因而读取方只能看到上一个完整版本或这个完整版本。相同 operation_id
+        在同一工作区内幂等返回既有包，不会重复推进 state_version 或追加事件。
+        """
+
+        if package.workspace_id != workspace_id or version.package_id != package.package_id:
+            raise ValueError("package commit workspace/package identity mismatch")
+        if not version.operation_id:
+            raise ValueError("package version commit requires operation_id")
+
+        with self._workspace_lock(workspace_id):
+            if self.has_operation_id(workspace_id, version.operation_id):
+                existing = self.load_package(workspace_id, package.package_id)
+                if existing is None:
+                    raise RuntimeError("ledger contains operation without package root")
+                return existing
+
+            previous = self.load_package(workspace_id, package.package_id)
+            expected_version = (previous.current_version if previous is not None else 0) + 1
+            expected_state_version = (previous.state_version if previous is not None else 0) + 1
+            if version.package_version != expected_version:
+                raise ValueError(
+                    f"expected package version {expected_version}, got {version.package_version}"
+                )
+            if version.state_version != expected_state_version:
+                raise ValueError(
+                    f"expected state version {expected_state_version}, got {version.state_version}"
+                )
+            if version.parent_version != (previous.current_version if previous else None):
+                raise ValueError("package version parent pointer does not match current package pointer")
+            if any(event.package_id != package.package_id for event in events):
+                raise ValueError("ledger event package_id does not match committed package")
+
+            package.current_version = version.package_version
+            package.state_version = version.state_version
+            if version.initial_governance_status == InitialGovernanceStatus.CONFIRMED:
+                package.latest_confirmed_version = version.package_version
+
+            # 包根指针是提交可见性的最后一步，之前的写入不会覆盖任何历史正文。
+            self.save_package_version(workspace_id, version)
+            if confirmation is not None:
+                self.save_confirmation_record(workspace_id, confirmation)
+            self._append_ledger_events_atomically(workspace_id, events)
+            self.save_package(workspace_id, package)
+            return package
+
+    # ------------------------------------------------------------------
+    # 追加式状态账本（StateLedger）
+    # ------------------------------------------------------------------
+
+    def append_ledger_event(
+        self,
+        workspace_id: str,
+        event: LedgerEvent,
+    ) -> None:
+        """向状态账本追加一条事件。
+
+        账本以 JSONL 文件追加保存，不覆盖历史事件；查询通过 query_ledger_events。
+        """
+
+        self.append_ledger_events(workspace_id, [event])
+
+    def append_ledger_events(
+        self,
+        workspace_id: str,
+        events: Sequence[LedgerEvent],
+    ) -> None:
+        """向状态账本批量追加事件，用于同提交升级的原子写入。"""
+
+        if not events:
+            return
+        with self._workspace_lock(workspace_id):
+            self._append_ledger_events_atomically(workspace_id, events)
+
+    def _append_ledger_events_atomically(
+        self,
+        workspace_id: str,
+        events: Sequence[LedgerEvent],
+    ) -> None:
+        """把既有账本与新增事件整体原子替换，避免批量提交出现半行记录。"""
+
+        if not events:
+            return
         workspace_dir = self._workspace_dir(workspace_id)
         workspace_dir.mkdir(parents=True, exist_ok=True)
-        queue_file = workspace_dir / "confirmation_queue.json"
-        self._write_json_atomic(queue_file, {"items": [proposal.to_dict() for proposal in proposals]})
+        ledger_file = workspace_dir / "state_ledger.jsonl"
+        existing = ledger_file.read_text(encoding="utf-8") if ledger_file.exists() else ""
+        suffix = "" if not existing or existing.endswith("\n") else "\n"
+        appended = "".join(
+            json.dumps(event.to_dict(), ensure_ascii=False, sort_keys=True) + "\n"
+            for event in events
+        )
+        self._write_text_atomic(ledger_file, existing + suffix + appended)
 
-    def load_confirmation_queue(self, workspace_id: str) -> list[CanvasMutationProposal]:
-        """读取工作区级待确认提案队列。"""
+    def query_ledger_events(
+        self,
+        workspace_id: str,
+        *,
+        package_id: Optional[str] = None,
+        package_version: Optional[int] = None,
+        entity_id: Optional[str] = None,
+        operation_id: Optional[str] = None,
+        convergence_run_id: Optional[str] = None,
+        confirmation_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+    ) -> list[LedgerEvent]:
+        """按多个键查询账本事件。
 
-        queue_file = self._workspace_dir(workspace_id) / "confirmation_queue.json"
-        if not queue_file.exists():
+        任意过滤键为 None 时不限制该维度；至少支持按 package_id、package_version、
+        object_id、operation_id、convergence_run_id、confirmation_id、event_type 查询。
+        """
+
+        ledger_file = self._workspace_dir(workspace_id) / "state_ledger.jsonl"
+        if not ledger_file.exists():
             return []
-        payload = json.loads(queue_file.read_text(encoding="utf-8"))
-        return [CanvasMutationProposal.from_dict(item) for item in payload.get("items", [])]
+        results: list[LedgerEvent] = []
+        for line in ledger_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if package_id is not None and payload.get("package_id") != package_id:
+                continue
+            if package_version is not None and payload.get("package_version") != package_version:
+                continue
+            if entity_id is not None and payload.get("entity_id") != entity_id:
+                continue
+            if operation_id is not None and payload.get("operation_id") != operation_id:
+                continue
+            if (
+                convergence_run_id is not None
+                and payload.get("convergence_run_id") != convergence_run_id
+            ):
+                continue
+            if confirmation_id is not None and payload.get("confirmation_id") != confirmation_id:
+                continue
+            if event_type is not None and payload.get("event_type") != event_type:
+                continue
+            results.append(LedgerEvent.from_dict(payload))
+        return results
+
+    def has_operation_id(self, workspace_id: str, operation_id: str) -> bool:
+        """判断给定幂等键是否已在账本中出现，用于原子提交幂等校验。"""
+
+        if not operation_id:
+            return False
+        return any(
+            event.operation_id == operation_id
+            for event in self.query_ledger_events(workspace_id)
+        )
+
+    # ------------------------------------------------------------------
+    # 确认记录（ConfirmationRecord）
+    # ------------------------------------------------------------------
+
+    def save_confirmation_record(
+        self,
+        workspace_id: str,
+        record: ConfirmationRecord,
+    ) -> None:
+        """持久化不可改写的确认记录。
+
+        确认记录一经写入不可改写；撤回通过追加 confirmation_withdrawn 账本事件
+        与新确认记录表达，不修改本记录。
+        """
+
+        confirmations_dir = self._workspace_dir(workspace_id) / "confirmations"
+        confirmations_dir.mkdir(parents=True, exist_ok=True)
+        record_file = confirmations_dir / f"{record.confirmation_id}.json"
+        if record_file.exists():
+            raise FileExistsError(
+                f"confirmation record already exists and is immutable: {record.confirmation_id}"
+            )
+        self._write_json_atomic(record_file, record.to_dict())
+
+    def load_confirmation_record(
+        self,
+        workspace_id: str,
+        confirmation_id: str,
+    ) -> Optional[ConfirmationRecord]:
+        """按 ID 读取确认记录。"""
+
+        record_file = (
+            self._workspace_dir(workspace_id) / "confirmations" / f"{confirmation_id}.json"
+        )
+        if not record_file.exists():
+            return None
+        return ConfirmationRecord.from_dict(json.loads(record_file.read_text(encoding="utf-8")))
+
+    def list_confirmation_records(
+        self,
+        workspace_id: str,
+        package_id: Optional[str] = None,
+    ) -> list[ConfirmationRecord]:
+        """列出工作区下的确认记录，可按 package_id 过滤。"""
+
+        confirmations_dir = self._workspace_dir(workspace_id) / "confirmations"
+        if not confirmations_dir.exists():
+            return []
+        records: list[ConfirmationRecord] = []
+        for path in sorted(confirmations_dir.glob("*.json")):
+            record = ConfirmationRecord.from_dict(json.loads(path.read_text(encoding="utf-8")))
+            if package_id is not None and record.package_id != package_id:
+                continue
+            records.append(record)
+        return records
 
     def save_cards(self, workspace_id: str, cards: Sequence[CanvasCard]) -> None:
         """持久化工作区当前画布卡片集合。"""
@@ -159,7 +489,11 @@ class CanvasRepository:
         self._write_json_atomic(cards_file, {"items": [card.to_dict() for card in cards]})
 
     def load_cards(self, workspace_id: str) -> list[CanvasCard]:
-        """读取工作区当前画布卡片集合。"""
+        """读取当前包版本的画布卡片；旧 cards.json 仅作为首读迁移来源。"""
+
+        active_version = self.load_active_package_version(workspace_id)
+        if active_version is not None:
+            return [CanvasCard.from_dict(item) for item in active_version.objects]
 
         cards_file = self._workspace_dir(workspace_id) / "cards.json"
         if not cards_file.exists():
@@ -176,7 +510,11 @@ class CanvasRepository:
         self._write_json_atomic(relations_file, {"items": [relation.to_dict() for relation in relations]})
 
     def load_relations(self, workspace_id: str) -> list[CanvasRelation]:
-        """读取工作区当前画布关系集合。"""
+        """读取当前包版本的关系；旧 relations.json 仅作为首读迁移来源。"""
+
+        active_version = self.load_active_package_version(workspace_id)
+        if active_version is not None:
+            return [CanvasRelation.from_dict(item) for item in active_version.relations]
 
         relations_file = self._workspace_dir(workspace_id) / "relations.json"
         if not relations_file.exists():
@@ -193,7 +531,15 @@ class CanvasRepository:
         self._write_json_atomic(handoff_file, handoff.to_dict())
 
     def load_handoff(self, workspace_id: str) -> Optional[StructuredHandoff]:
-        """读取工作区当前结构化交接物草稿。"""
+        """读取当前包版本的交接模块；旧 handoff.json 只用于首读迁移。"""
+
+        active_version = self.load_active_package_version(workspace_id)
+        if active_version is not None:
+            return (
+                StructuredHandoff.from_dict(active_version.handoff)
+                if active_version.handoff is not None
+                else None
+            )
 
         handoff_file = self._workspace_dir(workspace_id) / "handoff.json"
         if not handoff_file.exists():
@@ -238,6 +584,53 @@ class CanvasRepository:
         with history_file.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(proposal.to_dict(), ensure_ascii=False) + "\n")
 
+    def append_chat_message(self, workspace_id: str, message: Dict[str, Any]) -> Dict[str, Any]:
+        """追加保存一条正常 Chat 消息，供确认记录回指真实对话依据。
+
+        该消息流不是审批队列：它只记录用户与助手在普通 Chat 中已经发生的
+        表达，确认记录会引用其中明确的提议消息和用户回应消息。
+        """
+
+        message_id = str(message.get("message_id", "")).strip()
+        role = str(message.get("role", "")).strip()
+        content = str(message.get("content", "")).strip()
+        if not message_id or role not in {"user", "assistant", "system"} or not content:
+            raise ValueError("chat message requires message_id, supported role, and non-empty content")
+        workspace_dir = self._workspace_dir(workspace_id)
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        messages_file = workspace_dir / "chat_messages.jsonl"
+        with self._workspace_lock(workspace_id):
+            existing = self.load_chat_messages(workspace_id)
+            if any(item.get("message_id") == message_id for item in existing):
+                raise FileExistsError(f"chat message already exists: {message_id}")
+            existing.append(
+                {
+                    "message_id": message_id,
+                    "role": role,
+                    "content": content,
+                    "turn_id": str(message.get("turn_id", "")),
+                    "created_at": str(message.get("created_at", "")),
+                    "metadata": dict(message.get("metadata", {})),
+                }
+            )
+            self._write_text_atomic(
+                messages_file,
+                "".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in existing),
+            )
+        return existing[-1]
+
+    def load_chat_messages(self, workspace_id: str) -> list[Dict[str, Any]]:
+        """读取工作区普通 Chat 消息，按追加顺序返回。"""
+
+        messages_file = self._workspace_dir(workspace_id) / "chat_messages.jsonl"
+        if not messages_file.exists():
+            return []
+        return [
+            dict(json.loads(line))
+            for line in messages_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
     def load_proposal_history(self, workspace_id: str) -> list[CanvasMutationProposal]:
         """读取工作区提案历史。"""
 
@@ -257,4 +650,12 @@ class CanvasRepository:
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        os.replace(tmp_path, path)
+
+    @staticmethod
+    def _write_text_atomic(path: Path, content: str) -> None:
+        """原子替换文本文件，供 JSONL 账本整批追加使用。"""
+
+        tmp_path = path.with_name(f"{path.name}.{threading.get_ident()}.tmp")
+        tmp_path.write_text(content, encoding="utf-8")
         os.replace(tmp_path, path)

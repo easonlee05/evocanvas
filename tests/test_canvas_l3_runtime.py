@@ -1,0 +1,325 @@
+"""L3 运行时主链回归测试。"""
+
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from app.canvas.domain.cards import CanvasCard, CanvasCardKind
+from app.canvas.domain.ledger import LedgerActorType, LedgerEvent, LedgerEventType
+from app.canvas.domain.mutations import (
+    CanvasMutation,
+    CanvasMutationAction,
+    CanvasMutationProposal,
+    CanvasMutationStatus,
+    CanvasMutationTarget,
+)
+from app.canvas.domain.package import Package, PackageVersion
+from app.canvas.domain.relations import CanvasRelation
+from app.canvas.repository import CanvasRepository
+from app.canvas.service import CanvasService
+from app.services.fakes import FakeStorage
+
+try:
+    from fastapi.testclient import TestClient
+except Exception:  # pragma: no cover
+    TestClient = None
+
+from app.api.server import create_app
+
+
+class CanvasL3DomainTests(unittest.TestCase):
+    """验证新写入路径不再接受自由字符串状态。"""
+
+    def test_new_card_rejects_status_not_allowed_for_its_kind(self) -> None:
+        """约束卡不能以 clarification 的 open 状态创建。"""
+
+        with self.assertRaises(ValueError):
+            CanvasCard(
+                card_id="card_constraint",
+                kind=CanvasCardKind.CONSTRAINT,
+                title="首版范围",
+                status="open",
+            )
+
+    def test_legacy_option_and_reopens_relation_are_migrated(self) -> None:
+        """旧 option/reopens 数据读取时映射到 L3 的 decision/replaces。"""
+
+        card = CanvasCard.from_dict(
+            {
+                "card_id": "card_option",
+                "kind": "option",
+                "title": "方案 A",
+                "status": "confirmed",
+            }
+        )
+        relation = CanvasRelation.from_dict(
+            {
+                "relation_id": "rel_reopens",
+                "kind": "reopens",
+                "from_card_id": "card_a",
+                "to_card_id": "card_b",
+            }
+        )
+
+        self.assertEqual(card.kind.value, "decision")
+        self.assertEqual(card.status, "decided")
+        self.assertEqual(relation.kind.value, "replaces")
+
+
+class CanvasL3RepositoryTests(unittest.TestCase):
+    """验证版本提交的不可变性与账本原子可见性。"""
+
+    def test_commit_creates_immutable_version_and_is_idempotent(self) -> None:
+        """同一 operation_id 不能重复推进包指针或追加账本。"""
+
+        with TemporaryDirectory() as tmpdir:
+            repository = CanvasRepository(FakeStorage(Path(tmpdir)))
+            package = Package(package_id="pkg_demo", workspace_id="demo")
+            version = PackageVersion(
+                package_id="pkg_demo",
+                package_version=1,
+                parent_version=None,
+                state_version=1,
+                operation_id="operation_1",
+                objects=[
+                    CanvasCard(
+                        card_id="card_problem",
+                        kind=CanvasCardKind.PROBLEM,
+                        title="首版问题",
+                    ).to_dict()
+                ],
+            )
+            event = LedgerEvent(
+                ledger_event_id="ledger_1",
+                workspace_id="demo",
+                package_id="pkg_demo",
+                event_type=LedgerEventType.PACKAGE_VERSION_CREATED,
+                entity_type="package_version",
+                entity_id="pkg_demo:v1",
+                actor_type=LedgerActorType.SYSTEM,
+                actor_id="canvas_service",
+                occurred_at="2026-07-14T10:00:00Z",
+                package_version=1,
+                operation_id="operation_1",
+            )
+
+            first = repository.commit_package_version("demo", package, version, [event])
+            second = repository.commit_package_version("demo", package, version, [event])
+
+            self.assertEqual(first.current_version, 1)
+            self.assertEqual(second.current_version, 1)
+            self.assertEqual(
+                len(repository.query_ledger_events("demo", operation_id="operation_1")),
+                1,
+            )
+            with self.assertRaises(FileExistsError):
+                repository.save_package_version(
+                    "demo",
+                    PackageVersion(
+                        package_id="pkg_demo",
+                        package_version=1,
+                        parent_version=None,
+                        state_version=1,
+                        objects=[],
+                    ),
+                )
+
+    def test_load_detects_package_version_checksum_tampering(self) -> None:
+        """磁盘版本正文被篡改时不能作为画布投影来源。"""
+
+        with TemporaryDirectory() as tmpdir:
+            repository = CanvasRepository(FakeStorage(Path(tmpdir)))
+            version = PackageVersion(
+                package_id="pkg_demo",
+                package_version=1,
+                parent_version=None,
+                state_version=1,
+                objects=[],
+            )
+            repository.save_package_version("demo", version)
+            version_file = repository._package_dir("demo", "pkg_demo") / "versions" / "v1.json"
+            version_file.write_text('{"package_id":"pkg_demo","package_version":1}', encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                repository.load_package_version("demo", "pkg_demo", 1)
+
+
+class CanvasL3ServiceTests(unittest.TestCase):
+    """验证运行时写入已经切换为包版本，而非独立 JSON 文件。"""
+
+    def test_auto_applied_turn_commits_package_version_and_ledger(self) -> None:
+        """低风险结构化整理完成后，当前画布从 package version 投影。"""
+
+        with TemporaryDirectory() as tmpdir:
+            storage = FakeStorage(Path(tmpdir))
+            service = CanvasService(storage=storage)
+
+            result = service.start_turn(
+                workspace_id="demo",
+                message="继续补充一期范围的待澄清问题",
+                selected_card_ids=[],
+                material_ids=[],
+            )
+
+            package = service.repository.load_active_package("demo")
+            workspace_dir = service.repository._workspace_dir("demo")
+            self.assertEqual(result["action"], "auto_apply")
+            self.assertIsNotNone(package)
+            self.assertEqual(package.current_version, 1)
+            self.assertEqual(
+                len(service.repository.query_ledger_events("demo", package_id=package.package_id)) > 0,
+                True,
+            )
+            self.assertFalse((workspace_dir / "cards.json").exists())
+            self.assertEqual(len(service.get_canvas_view("demo")["cards"]), 1)
+
+    def test_chat_confirmation_reuses_proposal_without_approval_queue(self) -> None:
+        """高影响提议由下一条普通 Chat 确认，记录真实双向消息引用。"""
+
+        with TemporaryDirectory() as tmpdir:
+            service = CanvasService(storage=FakeStorage(Path(tmpdir)))
+
+            service.get_workspace("demo")
+            assistant_message = service.repository.append_chat_message(
+                "demo",
+                {
+                    "message_id": "msg_assistant_proposal",
+                    "role": "assistant",
+                    "content": "建议把首版范围约束升级为已生效。",
+                    "turn_id": "turn_proposal",
+                },
+            )
+            proposal = CanvasMutationProposal(
+                proposal_id="proposal_confirm_constraint",
+                workspace_id="demo",
+                turn_id="turn_proposal",
+                status=CanvasMutationStatus.PENDING_CONFIRMATION,
+                mutations=[
+                    CanvasMutation(
+                        mutation_id="mutation_confirm_constraint",
+                        action=CanvasMutationAction.ADD,
+                        target=CanvasMutationTarget.CARD,
+                        target_id="card_effective_constraint",
+                        payload={
+                            "card": CanvasCard(
+                                card_id="card_effective_constraint",
+                                kind=CanvasCardKind.CONSTRAINT,
+                                title="首版不做多人协作",
+                                status="effective",
+                            ).to_dict()
+                        },
+                        metadata={"mutation_type": "add_card"},
+                    )
+                ],
+                metadata={
+                    "awaiting_chat_confirmation": True,
+                    "assistant_message_ref": assistant_message["message_id"],
+                },
+            )
+            service.repository.append_proposal_history("demo", proposal)
+            applied = service.start_turn(
+                workspace_id="demo",
+                message="我确认按刚才这项决策执行",
+                selected_card_ids=[],
+                material_ids=[],
+            )
+
+            workspace_dir = service.repository._workspace_dir("demo")
+            records = service.repository.list_confirmation_records("demo")
+            self.assertEqual(applied["action"], "applied_confirmation")
+            self.assertEqual(len(records), 1)
+            self.assertTrue(records[0].proposal_message_refs)
+            self.assertTrue(records[0].user_message_refs)
+            self.assertFalse((workspace_dir / "confirmation_queue.json").exists())
+
+    def test_confirmation_records_post_confirmation_unresolved_refs(self) -> None:
+        """确认记录必须保存确认后的未决引用，而不是确认前的旧快照。"""
+
+        with TemporaryDirectory() as tmpdir:
+            service = CanvasService(storage=FakeStorage(Path(tmpdir)))
+            service.get_workspace("demo")
+            clarification = CanvasCard(
+                card_id="card_clarification",
+                kind=CanvasCardKind.CLARIFICATION,
+                title="确认首版目标用户",
+                status="open",
+            )
+            service.repository.save_cards("demo", [clarification])
+            assistant_message = service.repository.append_chat_message(
+                "demo",
+                {
+                    "message_id": "msg_assistant_resolution",
+                    "role": "assistant",
+                    "content": "建议确认首版目标用户为产品经理。",
+                    "turn_id": "turn_resolution",
+                },
+            )
+            proposal = CanvasMutationProposal(
+                proposal_id="proposal_resolve_clarification",
+                workspace_id="demo",
+                turn_id="turn_resolution",
+                status=CanvasMutationStatus.PENDING_CONFIRMATION,
+                mutations=[
+                    CanvasMutation(
+                        mutation_id="mutation_resolve_clarification",
+                        action=CanvasMutationAction.UPDATE,
+                        target=CanvasMutationTarget.CARD,
+                        target_id=clarification.card_id,
+                        payload={"resolution": "首版聚焦产品经理"},
+                        metadata={"mutation_type": "resolve_clarification"},
+                    )
+                ],
+                metadata={
+                    "awaiting_chat_confirmation": True,
+                    "assistant_message_ref": assistant_message["message_id"],
+                },
+            )
+            service.repository.append_proposal_history("demo", proposal)
+
+            service.start_turn(
+                workspace_id="demo",
+                message="确认，按这个结论执行",
+                selected_card_ids=[],
+                material_ids=[],
+            )
+
+            record = service.repository.list_confirmation_records("demo")[0]
+            self.assertEqual(record.remaining_unresolved_refs, [])
+            self.assertEqual(service.get_canvas_view("demo")["cards"][0]["status"], "clarified")
+
+
+class CanvasL3ApiTests(unittest.TestCase):
+    """验证 API 不再暴露第二条可写状态通道。"""
+
+    def test_card_patch_rejects_direct_status_writes(self) -> None:
+        """状态升级只能由受控提案及普通 Chat 确认完成。"""
+
+        if TestClient is None:
+            self.skipTest("FastAPI not installed")
+        client = TestClient(create_app())
+        headers = {"X-Tenant-ID": "canvas-l3-api"}
+        created = client.post(
+            "/api/canvas/workspaces/demo/messages",
+            json={
+                "message": "先补充一个待澄清问题",
+                "selected_card_ids": [],
+                "material_ids": [],
+            },
+            headers=headers,
+        )
+        card_id = client.get(
+            "/api/canvas/workspaces/demo/canvas", headers=headers
+        ).json()["cards"][0]["card_id"]
+
+        response = client.patch(
+            f"/api/canvas/workspaces/demo/cards/{card_id}",
+            json={"status": "clarified"},
+            headers=headers,
+        )
+
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(response.status_code, 422)
+
+
+if __name__ == "__main__":
+    unittest.main()

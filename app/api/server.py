@@ -45,7 +45,6 @@ from app.api.schemas import (
     SourceRefCreateRequest,
 )
 from app.canvas.service import (
-    CanvasCardMoveValidationError,
     CanvasCardNotFoundError,
     CanvasMessageValidationError,
     CanvasRelationNotFoundError,
@@ -310,35 +309,6 @@ def create_app(task_service: TaskService | None = None):
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
-    @app.get("/api/canvas/workspaces/{workspace_id}/confirmations")
-    async def list_canvas_confirmations(
-        workspace_id: str,
-        canvas_service: CanvasService = Depends(get_canvas_service),
-    ) -> Dict[str, Any]:
-        return canvas_service.list_confirmations(workspace_id)
-
-    @app.post("/api/canvas/workspaces/{workspace_id}/confirmations/{proposal_id}/approve")
-    async def approve_canvas_confirmation(
-        workspace_id: str,
-        proposal_id: str,
-        canvas_service: CanvasService = Depends(get_canvas_service),
-    ) -> Dict[str, Any]:
-        result = canvas_service.approve_confirmation(workspace_id, proposal_id)
-        if result.get("status") == "not_found":
-            raise HTTPException(status_code=404, detail="canvas confirmation not found")
-        return result
-
-    @app.post("/api/canvas/workspaces/{workspace_id}/confirmations/{proposal_id}/reject")
-    async def reject_canvas_confirmation(
-        workspace_id: str,
-        proposal_id: str,
-        canvas_service: CanvasService = Depends(get_canvas_service),
-    ) -> Dict[str, Any]:
-        result = canvas_service.reject_confirmation(workspace_id, proposal_id)
-        if result.get("status") == "not_found":
-            raise HTTPException(status_code=404, detail="canvas confirmation not found")
-        return result
-
     @app.get("/api/canvas/workspaces/{workspace_id}/snapshots")
     async def list_canvas_snapshots(
         workspace_id: str,
@@ -441,8 +411,6 @@ def create_app(task_service: TaskService | None = None):
             )
         except CanvasCardNotFoundError:
             raise HTTPException(status_code=404, detail="canvas card not found")
-        except CanvasCardMoveValidationError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
 
     @app.get("/api/canvas/workspaces/{workspace_id}/todos")
     async def get_canvas_todos(

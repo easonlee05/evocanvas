@@ -28,15 +28,15 @@ const STATUS_BADGES = {
 
 /**
  * 真实画布内容微缩缩略图生成组件
- * 基于工作区实际包含的卡片数据，按 L3 派生治理地位聚合渲染迷你节点。
+ * 基于工作区实际包含的卡片数据（按列 Discovery / Define / Handoff 聚合渲染迷你节点）
  */
 function MiniCanvasThumbnail({ cards, seed }) {
   // 极致的空值与类型防御，防止 cards 为 null/undefined 时调用 filter 报错导致 React 页面白屏挂掉
   const safeCards = Array.isArray(cards) ? cards : [];
   
-  const sourceCards = safeCards.filter(c => c && c.governance_class === 'source');
-  const activeCards = safeCards.filter(c => c && ['working', 'unresolved'].includes(c.governance_class));
-  const stableCards = safeCards.filter(c => c && ['stable', 'historical'].includes(c.governance_class));
+  const discoveryCards = safeCards.filter(c => c && (c.stage === 'discovery'));
+  const defineCards = safeCards.filter(c => c && (c.stage === 'define' || c.stage === 'definition'));
+  const handoffCards = safeCards.filter(c => c && (c.stage === 'handoff'));
 
   const hasCards = safeCards.length > 0;
 
@@ -51,6 +51,8 @@ function MiniCanvasThumbnail({ cards, seed }) {
         return '#a855f7'; // 紫色
       case 'decision': 
         return '#ef4444'; // 红色
+      case 'handoff': 
+        return '#10b981'; // 绿色
       default: 
         return '#94a3b8';
     }
@@ -94,9 +96,9 @@ function MiniCanvasThumbnail({ cards, seed }) {
     return [];
   };
 
-  const sourceNodes = getCoords(sourceCards, 50);
-  const activeNodes = getCoords(activeCards, 130);
-  const stableNodes = getCoords(stableCards, 210);
+  const discoveryNodes = getCoords(discoveryCards, 50);
+  const defineNodes = getCoords(defineCards, 130);
+  const handoffNodes = getCoords(handoffCards, 210);
 
   const getAverageY = (nodes) => {
     if (!nodes || !nodes.length) return null;
@@ -105,9 +107,9 @@ function MiniCanvasThumbnail({ cards, seed }) {
     return validNodes.reduce((sum, n) => sum + n.y, 0) / validNodes.length;
   };
 
-  const y1 = getAverageY(sourceNodes);
-  const y2 = getAverageY(activeNodes);
-  const y3 = getAverageY(stableNodes);
+  const y1 = getAverageY(discoveryNodes);
+  const y2 = getAverageY(defineNodes);
+  const y3 = getAverageY(handoffNodes);
 
   let pathD = '';
   if (y1 !== null && y2 !== null && y3 !== null) {
@@ -120,7 +122,7 @@ function MiniCanvasThumbnail({ cards, seed }) {
     pathD = `M 50 ${y1} L 210 ${y3}`;
   }
 
-  const allNodes = [...sourceNodes, ...activeNodes, ...stableNodes];
+  const allNodes = [...discoveryNodes, ...defineNodes, ...handoffNodes];
 
   return (
     <div className="mini-canvas-thumbnail">

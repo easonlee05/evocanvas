@@ -1260,8 +1260,16 @@ class CanvasService:
                     # 记录相互替代关系；通用治理地位始终由 (kind, status) 派生。
                     new_card.metadata["supersedes"] = card.card_id
                     new_card.validation_state = ValidationState.VALID.value
-                    
-                    card.status = "superseded"
+
+                    # L3 规格要求过时状态必须是对应对象类型的合法类型化状态：
+                    # constraint -> superseded；其余类型 -> archived。
+                    # 直接赋值不会触发 __post_init__ 校验，但序列化后 from_dict 会校验，
+                    # 因此必须写入合法类型化状态，否则重载后状态丢失、治理地位错误降级。
+                    legacy_kind = card.kind.value if hasattr(card.kind, "value") else str(card.kind)
+                    if legacy_kind == "constraint":
+                        card.status = "superseded"
+                    else:
+                        card.status = "archived"
                     card.metadata["superseded_by"] = new_card_id
 
                     card_index[card.card_id] = card

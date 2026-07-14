@@ -321,5 +321,102 @@ class CanvasL3ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
 
+class CanvasL3StableCardSupersedeTests(unittest.TestCase):
+    """验证稳定态卡片被替代时，过时状态必须是对应对象类型的合法类型化状态。"""
+
+    def test_stable_decision_card_superseded_uses_archived_not_superseded(self) -> None:
+        """decision 类型没有 superseded 状态；被替代时应使用 archived。"""
+
+        with TemporaryDirectory() as tmpdir:
+            from app.canvas.domain.handoff import StructuredHandoff
+            from app.core.events import EventBus
+            from app.services.fakes import FakeStorage
+
+            storage = FakeStorage(Path(tmpdir), event_bus=EventBus())
+            service = CanvasService(storage=storage)
+            service.get_workspace("demo")
+
+            # 写入一个已拍板的稳定决策卡（通过包版本提交）
+            decided = CanvasCard(
+                card_id="card_decided",
+                kind=CanvasCardKind.DECISION,
+                title="首版聚焦误杀成本",
+                status="decided",
+            )
+            service.repository.save_cards("demo", [decided])
+            proposal = CanvasMutationProposal(
+                proposal_id="proposal_supersede",
+                workspace_id="demo",
+                turn_id="turn_supersede",
+                status=CanvasMutationStatus.APPLIED,
+                mutations=[
+                    CanvasMutation(
+                        mutation_id="mutation_supersede",
+                        action=CanvasMutationAction.UPDATE,
+                        target=CanvasMutationTarget.CARD,
+                        target_id=decided.card_id,
+                        payload={"title": "首版聚焦响应延迟", "summary": "修正决策方向"},
+                        metadata={"mutation_type": "user_display_edit"},
+                    )
+                ],
+                metadata={"user_edit": True},
+            )
+            service._apply_proposal(service.get_workspace("demo"), proposal)
+
+            cards = service.repository.load_cards("demo")
+            # 原决策卡应被替代为 archived（而非 superseded，后者对 decision 不合法）
+            original = next(c for c in cards if c.card_id == "card_decided")
+            self.assertEqual(original.status, "archived")
+            # 治理地位应派生为 historical，而非错误降级为 working
+            self.assertEqual(original.governance_class, "historical")
+            # 新替代卡应存在且为 decided 状态
+            new_card = next(c for c in cards if c.card_id != "card_decided" and c.kind == CanvasCardKind.DECISION)
+            self.assertEqual(new_card.status, "decided")
+            self.assertEqual(new_card.metadata.get("supersedes"), "card_decided")
+
+    def test_stable_constraint_card_superseded_uses_superseded(self) -> None:
+        """constraint 类型有 superseded 状态；被替代时应使用 superseded。"""
+
+        with TemporaryDirectory() as tmpdir:
+            from app.core.events import EventBus
+            from app.services.fakes import FakeStorage
+
+            storage = FakeStorage(Path(tmpdir), event_bus=EventBus())
+            service = CanvasService(storage=storage)
+            service.get_workspace("demo")
+
+            effective = CanvasCard(
+                card_id="card_effective",
+                kind=CanvasCardKind.CONSTRAINT,
+                title="一期不做多人协作",
+                status="effective",
+            )
+            service.repository.save_cards("demo", [effective])
+            proposal = CanvasMutationProposal(
+                proposal_id="proposal_supersede_constraint",
+                workspace_id="demo",
+                turn_id="turn_supersede_constraint",
+                status=CanvasMutationStatus.APPLIED,
+                mutations=[
+                    CanvasMutation(
+                        mutation_id="mutation_supersede_constraint",
+                        action=CanvasMutationAction.UPDATE,
+                        target=CanvasMutationTarget.CARD,
+                        target_id=effective.card_id,
+                        payload={"title": "一期可探索多人协作", "summary": "修正约束方向"},
+                        metadata={"mutation_type": "user_display_edit"},
+                    )
+                ],
+                metadata={"user_edit": True},
+            )
+            service._apply_proposal(service.get_workspace("demo"), proposal)
+
+            cards = service.repository.load_cards("demo")
+            original = next(c for c in cards if c.card_id == "card_effective")
+            # constraint 的过时态是 superseded
+            self.assertEqual(original.status, "superseded")
+            self.assertEqual(original.governance_class, "historical")
+
+
 if __name__ == "__main__":
     unittest.main()

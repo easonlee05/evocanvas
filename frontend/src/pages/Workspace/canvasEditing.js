@@ -52,6 +52,7 @@ export function updateCanvasCard(sections, cardId, updates) {
           ...card,
           ...(typeof updates.title === 'string' ? { title: updates.title } : {}),
           ...(typeof updates.desc === 'string' ? { desc: updates.desc } : {}),
+          ...(Array.isArray(updates.structuredItems) ? { structuredItems: updates.structuredItems } : {}),
         }
       : card,
   );

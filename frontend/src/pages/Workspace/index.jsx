@@ -25,6 +25,7 @@ import {
   DEMO_CHAT,
   DEMO_DOC,
   DEMO_DOC_SECONDARY,
+  DEMO_PERSONA_AVATARS,
   DEMO_PROJECT_TITLE,
 } from './demoScenario.js';
 
@@ -155,6 +156,7 @@ export default function Workspace() {
   const [cards, setCards] = useState([]);
   const [relations, setRelations] = useState([]);
   const [todos, setTodos] = useState([]);
+  const [confirmations, setConfirmations] = useState([]);
   const [uploadedMaterials, setUploadedMaterials] = useState([]);
   const [knowledgeItems, setKnowledgeItems] = useState([]);
   const [sourceConnectors, setSourceConnectors] = useState([]);
@@ -190,6 +192,11 @@ export default function Workspace() {
         setTodos(res.todo_projection?.items || []);
       }
     });
+    apiGet(`/api/canvas/workspaces/${id}/confirmations`, null).then(res => {
+      if (res) {
+        setConfirmations(res.items || []);
+      }
+    });
     apiGet(`/api/canvas/workspaces/${id}/handoff`, null).then(res => {
       if (res && res.handoff) {
         setDoc(res.handoff.summary || '');
@@ -206,6 +213,7 @@ export default function Workspace() {
     setCards([]);
     setRelations([]);
     setTodos([]);
+    setConfirmations([]);
     const savedMaterials = taskId ? localStorage.getItem(`evocanvas_materials_${taskId}`) : null;
     if (savedMaterials) {
       try {
@@ -290,9 +298,9 @@ export default function Workspace() {
       } catch (err) {}
     };
     [
-      'canvas.turn.started', 'canvas.mutation.proposed', 'canvas.chat_confirmation.requested',
+      'canvas.turn.started', 'canvas.mutation.proposed', 'canvas.confirmation.requested',
       'canvas.mutation.applied', 'canvas.turn.completed', 'canvas.turn.failed',
-      'canvas.chat_confirmation.recorded',
+      'canvas.confirmation.approved', 'canvas.confirmation.rejected',
       'canvas.snapshot.created', 'canvas.handoff.refreshed',
       'canvas.card.updated', 'canvas.relation.created', 'canvas.relation.deleted', 'canvas.card.moved'
     ].forEach(t => source.addEventListener(t, handle));
@@ -311,16 +319,16 @@ export default function Workspace() {
         text: '🤖 AI 助理已启动并开始分析输入物料...'
       }]);
     }
-    else if (evType === 'canvas.mutation.proposed' || evType === 'canvas.chat_confirmation.requested') {
+    else if (evType === 'canvas.mutation.proposed' || evType === 'canvas.confirmation.requested') {
       loadCanvasData(taskId);
-      const isHighRisk = p.result_action === 'awaiting_chat_confirmation';
+      const isHighRisk = p.result_action === 'pending_confirmation';
       const text = `🤖 提炼完成！当前意图: **${p.intent}**，内部角色: **${p.roles?.join(', ') || ''}**。\n\n` + 
                    (isHighRisk 
-                     ? `⚠️ 这项变更会改变事实边界。请直接在下一条对话中确认、否定或修正，我会据此留痕并提交。`
+                     ? `⚠️ 发现高影响变更提案（如确认约束等），已放入**用户确认队列**，请审批后落盘。` 
                      : `✅ 变更提案已自动应用到主画布。`);
       setChatMessages(prev => [...prev, { id: 'ev_' + Date.now(), role: 'ai', text }]);
     }
-    else if (evType === 'canvas.turn.completed' || evType === 'canvas.mutation.applied' || evType === 'canvas.chat_confirmation.recorded') {
+    else if (evType === 'canvas.turn.completed' || evType === 'canvas.mutation.applied' || evType === 'canvas.confirmation.approved') {
       setIsLive(false);
       loadCanvasData(taskId);
     }
@@ -414,6 +422,7 @@ export default function Workspace() {
         cards={cards}
         relations={relations}
         todos={todos}
+        confirmations={confirmations}
         selectedCardId={selectedCardId}
         setSelectedCardId={setSelectedCardId}
         onRefresh={() => loadCanvasData(taskId)}
@@ -462,14 +471,29 @@ export default function Workspace() {
 
           {chatMessages.map(m => (
             <div key={m.id} className={`chat-bubble-row ${m.role}`}>
+              {m.role === 'ai' && (
+                <div className="chat-avatar-ai" aria-hidden="true">
+                  <Bot size={14} />
+                </div>
+              )}
               <div className={`chat-bubble ${m.role}`}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
               </div>
+              {m.role === 'user' && (
+                <img
+                  className="chat-avatar-user"
+                  src={DEMO_PERSONA_AVATARS.chenJiamu}
+                  alt=""
+                />
+              )}
             </div>
           ))}
 
           {isLive && (
             <div className="chat-bubble-row ai">
+              <div className="chat-avatar-ai" aria-hidden="true">
+                <Bot size={14} />
+              </div>
               <div className="chat-bubble ai">
                 {streamingMessage ? (
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingMessage}</ReactMarkdown>
@@ -488,9 +512,44 @@ export default function Workspace() {
           <button className="suggestion-chip" onClick={() => setInput('整理并刷新交接物草稿')}><FileText size={12}/> 刷新交接物</button>
         </div>
 
-        {/* 输入区：高影响变更在普通 Chat 中确认，不再显示独立审批队列。 */}
+        {/* 输入区 / 确认提案队列卡 */}
         <div className="ws-input-wrap">
-          <div className="ws-input-box" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+          {confirmations.length > 0 ? (
+            <div className="arbitration-card" style={{ maxHeight: 250, overflowY: 'auto' }}>
+              <div className="arb-title">⚠️ 待确认的画布修改提案</div>
+              <div className="arb-question" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>AI 生成了如下变更包，这包含需要产品经理决策的卡片操作：</div>
+              <div className="arb-options" style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '8px 0' }}>
+                {confirmations.map((proposal) => (
+                  <div key={proposal.proposal_id} style={{ border: '1px solid var(--clr-border)', borderRadius: 6, padding: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 'bold', marginBottom: 4 }}>提案 {proposal.proposal_id.substring(0, 10)}:</div>
+                    {proposal.mutations.map((m, idx) => {
+                      const mType = m.metadata?.mutation_type || m.mutation_type;
+                      return (
+                        <div key={idx} style={{ fontSize: 11, color: 'var(--text-secondary)', paddingLeft: 6 }}>
+                          • <strong>{mType === 'add_card' ? '新增' : mType}</strong>: {m.payload?.card?.title || m.target_id}
+                        </div>
+                      );
+                    })}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button className="arb-option-btn" style={{ background: 'var(--clr-red-soft)', color: 'var(--clr-red)' }} onClick={async () => {
+                        await apiPost(`/api/canvas/workspaces/${taskId}/confirmations/${proposal.proposal_id}/reject`, {});
+                        loadCanvasData(taskId);
+                      }}>
+                        拒绝提案
+                      </button>
+                      <button className="arb-option-btn" onClick={async () => {
+                        await apiPost(`/api/canvas/workspaces/${taskId}/confirmations/${proposal.proposal_id}/approve`, {});
+                        loadCanvasData(taskId);
+                      }}>
+                        同意应用
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="ws-input-box" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
               {uploadedMaterials.length > 0 && (
                 <div className="simple-attachments-list">
                   {uploadedMaterials.map((m) => (
@@ -651,6 +710,7 @@ export default function Workspace() {
                 </div>
               </div>
             </div>
+          )}
         </div>
       </div>
 

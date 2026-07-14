@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { MessageSquarePlus, LayoutDashboard, Clock, BookOpen, Settings, User } from 'lucide-react';
+import { MessageSquarePlus, LayoutDashboard, Clock, BookOpen, Settings } from 'lucide-react';
 import './sidebar.css';
 
 export function Sidebar() {
@@ -35,7 +35,7 @@ export function Sidebar() {
           <Settings size={20} strokeWidth={2} />
         </button>
         <button className="dock-item user-avatar" title="Profile">
-          <User size={20} strokeWidth={2} />
+          <img src="/avatars/ui-kit-nine/avatar-chen-jiamu.png" alt="" className="user-avatar-image" />
         </button>
       </div>
     </aside>

@@ -14,7 +14,7 @@ import {
 } from './demoScenario.js';
 
 test('demo scenario covers every canvas stage with non-empty cards', () => {
-  const requiredSections = ['evidence', 'problems', 'clarify', 'rules', 'planning'];
+  const requiredSections = ['evidence', 'problems', 'clarify', 'rules', 'options', 'planning'];
 
   for (const section of requiredSections) {
     assert.ok(Array.isArray(DEMO_CANVAS_SECTIONS[section]), `${section} should be an array`);
@@ -51,15 +51,18 @@ test('demo canvas uses unified persona metadata and confidence instead of star r
   const evidenceCards = DEMO_CANVAS_SECTIONS.evidence;
   const clarifyCards = DEMO_CANVAS_SECTIONS.clarify;
   const ruleCards = DEMO_CANVAS_SECTIONS.rules;
+  const optionCards = DEMO_CANVAS_SECTIONS.options;
   const planningCards = DEMO_CANVAS_SECTIONS.planning;
 
   for (const card of allCards) {
     if (card.source) {
       assert.ok(card.source.avatarTone, `source on ${card.id} should declare an avatar tone`);
+      assert.ok(card.source.avatarSrc, `source on ${card.id} should declare an avatar source`);
     }
 
     if (card.owner) {
       assert.ok(card.owner.avatarTone, `owner on ${card.id} should declare an avatar tone`);
+      assert.ok(card.owner.avatarSrc, `owner on ${card.id} should declare an avatar source`);
     }
   }
 
@@ -72,6 +75,10 @@ test('demo canvas uses unified persona metadata and confidence instead of star r
 
   for (const card of clarifyCards) {
     assert.equal(card.structureKind, 'list', `clarify card ${card.id} should use list structure`);
+  }
+
+  for (const card of optionCards) {
+    assert.equal(card.structureKind, 'list', `option card ${card.id} should use list structure`);
   }
 
   for (const card of [...ruleCards, ...planningCards]) {

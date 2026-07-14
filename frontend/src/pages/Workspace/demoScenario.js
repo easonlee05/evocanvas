@@ -7,6 +7,22 @@ export const PLACEHOLDER_NAMES = ['张三', '李四', '王五', '赵六', '测�
 
 export const DEMO_PROJECT_TITLE = '618 会员积分防刷治理一期';
 
+export const DEMO_PERSONA_AVATARS = {
+  chenJiamu: '/avatars/ui-kit-nine/avatar-chen-jiamu.png',
+  wangJingyi: '/avatars/ui-kit-nine/avatar-wang-jingyi.png',
+  guXingzhou: '/avatars/ui-kit-nine/avatar-gu-xingzhou.png',
+  zhouLan: '/avatars/ui-kit-nine/avatar-zhou-lan.png',
+  linYichen: '/avatars/ui-kit-nine/avatar-lin-yichen.png',
+  xuShuyao: '/avatars/ui-kit-nine/avatar-xu-shuyao.png',
+  heZhixing: '/avatars/ui-kit-nine/avatar-he-zhixing.png',
+  shenQinghe: '/avatars/ui-kit-nine/avatar-shen-qinghe.png',
+  xiaoYu: '/avatars/ui-kit-nine/avatar-xiao-yu.png',
+};
+
+function createPersona(label, name, avatar, avatarTone, avatarSrc) {
+  return { label, name, avatar, avatarTone, avatarSrc };
+}
+
 export const DEMO_CHAT = [
   {
     id: 'm1',
@@ -175,7 +191,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'quote',
       structuredItems: ['异常集中在晚 8 点到 11 点', '邀请返积分与签到补签占投诉量的 81%'],
       confidence: 84,
-      source: { label: '来源', name: '王静宜 · 客服经理', avatar: '王', avatarTone: 'violet' },
+      source: createPersona('来源', '王静宜 · 客服经理', '王', 'violet', DEMO_PERSONA_AVATARS.wangJingyi),
       tags: [
         { label: '用户反馈', color: 'red' },
         { label: '高风险', color: 'yellow' },
@@ -189,7 +205,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'quote',
       structuredItems: ['异常峰值时段发放量较日常增长 3.6 倍', 'Top 20 设备指纹贡献了 38% 的可疑领取'],
       confidence: 92,
-      source: { label: '来源', name: '周岚 · 数据分析师', avatar: '周', avatarTone: 'teal' },
+      source: createPersona('来源', '周岚 · 数据分析师', '周', 'teal', DEMO_PERSONA_AVATARS.zhouLan),
       tags: [
         { label: '数据证据', color: 'blue' },
         { label: '异常峰值', color: 'yellow' },
@@ -203,7 +219,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'quote',
       structuredItems: ['一期只治理最易被利用的任务', '客服侧必须能看到命中原因与申诉状态'],
       confidence: 76,
-      source: { label: '来源', name: '林奕辰 · 竞品研究', avatar: '林', avatarTone: 'amber' },
+      source: createPersona('来源', '林奕辰 · 竞品研究', '林', 'amber', DEMO_PERSONA_AVATARS.linYichen),
       tags: [
         { label: '外部参考', color: 'gray' },
         { label: '策略借鉴', color: 'blue' },
@@ -219,7 +235,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'list',
       structuredItems: ['目标是快速止损，而不是一次做完整风控平台', '对象是邀请返积分与签到补签两条链路'],
       statusPill: { label: '范围已聚焦', color: 'blue' },
-      owner: { label: '负责人', name: '陈嘉木 · 产品经理', avatar: '陈', avatarTone: 'slate' },
+      owner: createPersona('负责人', '陈嘉木 · 产品经理', '陈', 'slate', DEMO_PERSONA_AVATARS.chenJiamu),
       attachments: [
         { icon: '🧾', label: '输入编译摘要' },
         { icon: '🗺️', label: '链路草图' },
@@ -233,7 +249,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'list',
       structuredItems: ['客服是否有人工放行权限', '申诉结果是否回写运营看板'],
       statusPill: { label: '需要拍板', color: 'yellow' },
-      owner: { label: '协同方', name: '沈清和 · 客服运营负责人', avatar: '沈', avatarTone: 'rose' },
+      owner: createPersona('协同方', '沈清和 · 客服运营负责人', '沈', 'rose', DEMO_PERSONA_AVATARS.shenQinghe),
       attachments: [{ icon: '📄', label: '申诉流程草案' }],
       next: ['c3', 'r2'],
     },
@@ -246,7 +262,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'list',
       structuredItems: ['账号维度实现最快，但绕过成本低', '设备维度收益高，但要确认指纹服务稳定性'],
       statusPill: { label: '待澄清', color: 'yellow' },
-      owner: { label: '待确认', name: '贺知行 · 安全策略负责人', avatar: '贺', avatarTone: 'emerald' },
+      owner: createPersona('待确认', '贺知行 · 安全策略负责人', '贺', 'emerald', DEMO_PERSONA_AVATARS.heZhixing),
       next: 'r1',
     },
     {
@@ -256,7 +272,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'list',
       structuredItems: ['前台提示是否直接暴露风险原因', '客服后台是否展示命中规则名称'],
       statusPill: { label: '待澄清', color: 'yellow' },
-      owner: { label: '待确认', name: '许书瑶 · 体验设计师', avatar: '许', avatarTone: 'orange' },
+      owner: createPersona('待确认', '许书瑶 · 体验设计师', '许', 'orange', DEMO_PERSONA_AVATARS.xuShuyao),
       next: 'r2',
     },
     {
@@ -266,7 +282,7 @@ export const DEMO_CANVAS_SECTIONS = {
       structureKind: 'list',
       structuredItems: ['若不承诺 T+0，需补充用户预期管理文案', '若承诺 T+0，必须明确升级路径'],
       statusPill: { label: '待决策前置', color: 'yellow' },
-      owner: { label: '待确认', name: '沈清和 · 客服运营负责人', avatar: '沈', avatarTone: 'rose' },
+      owner: createPersona('待确认', '沈清和 · 客服运营负责人', '沈', 'rose', DEMO_PERSONA_AVATARS.shenQinghe),
       next: 'r3',
     },
   ],
@@ -281,8 +297,8 @@ export const DEMO_CANVAS_SECTIONS = {
         { text: '二期方案：接入模型评分，优化误拦率并提升召回能力。', state: 'pending' },
       ],
       statusPill: { label: '已确认', color: 'green' },
-      owner: { label: '拍板人', name: '陈嘉木 · 产品经理', avatar: '陈', avatarTone: 'slate' },
-      next: 'd1',
+      owner: createPersona('拍板人', '陈嘉木 · 产品经理', '陈', 'slate', DEMO_PERSONA_AVATARS.chenJiamu),
+      next: 'o1',
     },
     {
       id: 'r2',
@@ -294,8 +310,8 @@ export const DEMO_CANVAS_SECTIONS = {
         { text: '二期方案：模型评分进入活动后复盘，不阻塞一期上线。', state: 'pending' },
       ],
       statusPill: { label: '待审批', color: 'yellow' },
-      owner: { label: '审批中', name: '贺知行 · 安全策略负责人', avatar: '贺', avatarTone: 'emerald' },
-      next: 'd2',
+      owner: createPersona('审批中', '贺知行 · 安全策略负责人', '贺', 'emerald', DEMO_PERSONA_AVATARS.heZhixing),
+      next: ['o1', 'o2'],
     },
     {
       id: 'r3',
@@ -307,8 +323,30 @@ export const DEMO_CANVAS_SECTIONS = {
         { text: '当日未闭环必须自动升级到运营值班群。', state: 'done' },
       ],
       statusPill: { label: '已审批', color: 'green' },
-      owner: { label: '负责人', name: '沈清和 · 客服运营负责人', avatar: '沈', avatarTone: 'rose' },
-      next: 'd3',
+      owner: createPersona('负责人', '沈清和 · 客服运营负责人', '沈', 'rose', DEMO_PERSONA_AVATARS.shenQinghe),
+      next: 'o2',
+    },
+  ],
+  options: [
+    {
+      id: 'o1',
+      title: '一期先用规则拦截，模型评分延后到二期',
+      desc: '当前更重要的是活动窗口期快速止损和可解释性，因此先上线规则策略，模型评分作为二期增强能力继续准备。',
+      structureKind: 'list',
+      structuredItems: ['方案 A：规则优先，活动期内快速上线并保留可解释命中原因', '方案 B：规则与模型一起上，但需要额外联调和误杀验证时间'],
+      statusPill: { label: '待拍板', color: 'yellow' },
+      owner: createPersona('待拍板', '陈嘉木 · 产品经理', '陈', 'slate', DEMO_PERSONA_AVATARS.chenJiamu),
+      next: 'd1',
+    },
+    {
+      id: 'o2',
+      title: '申诉回滚入口放客服后台，并承诺活动期 T+0 复核',
+      desc: '这项决策直接影响客服承压和用户预期管理，需要把入口归属、回写方式和升级路径一次性拍板清楚。',
+      structureKind: 'list',
+      structuredItems: ['方案 A：客服后台承接申诉，人工复核当天闭环', '方案 B：运营后台统一回滚，但客服只做解释，不直接放行'],
+      statusPill: { label: '待拍板', color: 'yellow' },
+      owner: createPersona('待拍板', '沈清和 · 客服运营负责人', '沈', 'rose', DEMO_PERSONA_AVATARS.shenQinghe),
+      next: ['d2', 'd3'],
     },
   ],
   planning: [
@@ -322,7 +360,7 @@ export const DEMO_CANVAS_SECTIONS = {
         { text: '确认设备指纹服务的调用兜底', state: 'current', date: '05-11' },
       ],
       statusPill: { label: '本周启动', color: 'blue' },
-      owner: { label: '执行人', name: '顾行舟 · 服务端负责人', avatar: '顾', avatarTone: 'sky' },
+      owner: createPersona('执行人', '顾行舟 · 服务端负责人', '顾', 'sky', DEMO_PERSONA_AVATARS.guXingzhou),
     },
     {
       id: 'd2',
@@ -336,7 +374,7 @@ export const DEMO_CANVAS_SECTIONS = {
         { text: '开发联调与灰度准备', state: 'pending', date: '05-24' },
       ],
       statusPill: { label: '设计排期中', color: 'gray' },
-      owner: { label: '执行人', name: '许书瑶 · 体验设计师', avatar: '许', avatarTone: 'orange' },
+      owner: createPersona('执行人', '许书瑶 · 体验设计师', '许', 'orange', DEMO_PERSONA_AVATARS.xuShuyao),
     },
     {
       id: 'd3',
@@ -348,7 +386,7 @@ export const DEMO_CANVAS_SECTIONS = {
         { text: '准备客服 FAQ 与值班升级通讯录', state: 'current', date: '05-21' },
       ],
       statusPill: { label: '待演练', color: 'yellow' },
-      owner: { label: '执行人', name: '沈清和 · 客服运营负责人', avatar: '沈', avatarTone: 'rose' },
+      owner: createPersona('执行人', '沈清和 · 客服运营负责人', '沈', 'rose', DEMO_PERSONA_AVATARS.shenQinghe),
     },
   ],
 };

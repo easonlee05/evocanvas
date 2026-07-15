@@ -32,7 +32,7 @@ Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Li
 - 运行时提供受控执行边界。
 - 工具提供外部能力接入面。
 - 编排决定本轮如何调度。
-- 生命周期定义任务和对象如何跨阶段演化。
+- 生命周期定义运行记录、包版本和对象状态如何结束、替代与过时。
 - 安全负责防出事。
 - 治理负责定生效边界。
 - 可观测性负责留痕、回放和归因。
@@ -76,38 +76,37 @@ Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Li
 - `01-instructions-context/01 Instructions（指令）.md`：定义系统指令、产品指令、任务指令和用户指令的层级。
 - `01-instructions-context/02 Context（上下文）.md`：定义当前工作面包含什么、不包含什么。
 - `01-instructions-context/03 Context Assembly（上下文装配）.md`：定义上下文装配和复水规则。
-- `01-instructions-context/04 AI Assistant Working Surface（AI 助手工作面）.md`：定义右侧 AI 助手的当前工作面与变化摘要角色。
-- `01-instructions-context/05 Prompt Control（提示控制）.md`：定义指令如何组织成模型当前回合可执行的语言控制面。
+- `01-instructions-context/04 AI Assistant Working Surface（AI 助手工作面）.md`：定义右侧 AI 助手如何以正常 Chat 引导收敛，并与后台收敛回合协作。
+- `01-instructions-context/05 Prompt Control（提示控制）.md`：定义主对话 System、Runtime Developer 与 Raw User 三类指令面的职责、边界和写法。
 
-- `02-memory-state/00 Memory and State（记忆与状态）.md`：说明记忆与状态的关系。
-- `02-memory-state/01 Memory（记忆）.md`：定义原始材料、工作对象、稳定结论和冷历史。
-- `02-memory-state/02 State Ledger（状态账本）.md`：定义状态账本最小记录范围。
-- `02-memory-state/03 Stable State and Handoff（稳定状态与交接）.md`：定义稳定状态与结构化交接的关系。
+- `02-memory-state/00 Memory and State（记忆与状态）.md`：L3 主文档，定义原始记录、不可变包版本和状态账本三类权威记录及其边界。
+- `02-memory-state/01 Memory（记忆）.md`：L3 规格，定义包身份、统一包 Schema、不可变版本、轻量索引、复水和保留策略。
+- `02-memory-state/02 State Ledger（状态账本）.md`：L3 规格，定义追加式账本、类型化对象状态、派生治理分组、确认记录和版本指针。
+- `02-memory-state/03 Stable State and Handoff（稳定状态与交接）.md`：L3 规格，定义交接引用、确认版本、过时判断和下游版本选择。
 
-- `03-runtime-tools/00 Runtime and Tools（运行时与工具）.md`：说明运行时与工具的关系。
-- `03-runtime-tools/01 Runtime（运行时）.md`：定义受控回合、运行边界、失败恢复和状态写入边界。
-- `03-runtime-tools/02 Tool Contract（工具契约）.md`：定义工具接入、来源协议和工具结果入链规则。
-- `03-runtime-tools/03 Failure and Recovery（失败与恢复）.md`：定义重试、挂起、恢复和失败回执。
+- `03-runtime-tools/00 Runtime and Tools（运行时与工具）.md`：L3 主文档，说明 Chat、判断、收敛、提交与工具的关系。
+- `03-runtime-tools/01 Runtime（运行时）.md`：L3 规格，定义四类运行记录、触发调度、按包并发和幂等原子提交。
+- `03-runtime-tools/02 Tool Contract（工具契约）.md`：L3 规格，定义工具 Schema、权限、幂等、来源入链和副作用边界。
+- `03-runtime-tools/03 Failure and Recovery（失败与恢复）.md`：L3 规格，定义错误分类、租约恢复、未知提交核对、Outbox 重放和投影重建。
 
-- `04-orchestration-lifecycle/00 Orchestration and Lifecycle（编排与生命周期）.md`：说明编排与生命周期的关系。
-- `04-orchestration-lifecycle/01 Orchestration（编排）.md`：定义单轮、多模块和复杂回合的调度规则。
-- `04-orchestration-lifecycle/02 Lifecycle（生命周期）.md`：定义任务和对象跨阶段演化规则。
-- `04-orchestration-lifecycle/03 Stage Progression（阶段推进）.md`：定义阶段推进与停留规则。
-- `04-orchestration-lifecycle/04 Gate Adjudication（门禁裁决）.md`：定义高影响动作什么时候必须挂起确认。
-- `04-orchestration-lifecycle/05 Complex Turn Orchestration（复杂回合编排）.md`：定义复杂输入、冲突和多候选方向下的一轮如何拆解。
-- `04-orchestration-lifecycle/06 Implementation Baseline（实现基线）.md`：汇总编排与生命周期当前最小实现基线。
+- `04-orchestration-lifecycle/00 Orchestration and Lifecycle（编排与生命周期）.md`：L3 主文档，定义判断、收敛、治理、提交和投影的连接主链。
+- `04-orchestration-lifecycle/01 Orchestration（编排）.md`：L3 规格，定义触发来源、判断决策、合并调度、结果路由和过期处理。
+- `04-orchestration-lifecycle/02 Lifecycle（生命周期）.md`：L3 规格，定义运行记录、不可变包版本、对象信息地位和投影的生命周期。
+- `04-orchestration-lifecycle/03 Convergence Operations（收敛操作）.md`：L3 规格，定义结构化操作、复杂输入提案策略、部分放行和 Chat 分工。
+- `04-orchestration-lifecycle/04 Gate Adjudication（门禁裁决）.md`：L3 规格，定义候选整理、信息地位升级和外部不可逆动作的三类门禁边界。
+- `04-orchestration-lifecycle/05 Implementation Baseline（实现基线）.md`：L3 规格，汇总实现单元、原因码、迁移边界和验收场景。
 
 - `05-safety-governance/00 Safety and Governance（安全与治理）.md`：说明安全与治理的关系。
 - `05-safety-governance/01 Safety（安全）.md`：定义语义安全、风险拦截和防误导边界。
 - `05-safety-governance/02 Governance（治理）.md`：定义事实生效、确认、回退和追溯边界。
-- `05-safety-governance/03 Governance Baseline（治理基线）.md`：汇总状态机、确认提案队列和治理回执的最小基线。
+- `05-safety-governance/03 Governance Baseline（治理基线）.md`：汇总状态机、Chat 确认记录和治理 trace 的最小基线。
 - `05-safety-governance/04 Facts and Risk（事实与风险）.md`：定义事实可用性层级和风险分级。
 - `05-safety-governance/05 Object Governance（对象治理）.md`：定义核心卡片对象的状态与治理规则。
 - `05-safety-governance/06 Handoff Governance（交接物治理）.md`：定义结构化交接物的确认、过时与禁令。
 - `05-safety-governance/07 Authority and Guardrails（权限与护栏）.md`：定义 AI、系统与用户之间的动作权限。
 
 - `06-observability/00 Observability（可观测性）.md`：定义 trace、回执、来源链和诊断口径。
-- `06-observability/01 Change Receipt（变化回执）.md`：定义右侧 AI 助手变化摘要的最小内容。
+- `06-observability/01 Projection Signals（显影提示）.md`：定义画布状态变化的显影方式与低打扰提示边界。
 - `06-observability/02 Trace Model（追踪模型）.md`：定义回合、状态差异、治理、来源链和异常追踪。
 - `06-observability/03 Diagnostic Views（诊断视角）.md`：定义输入、上下文、编排、治理和验证问题的诊断视角。
 - `07-verification/00 Verification（验证）.md`：定义单次过程 / 输出的过关标准。

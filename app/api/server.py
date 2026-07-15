@@ -45,7 +45,7 @@ from app.api.schemas import (
     SourceRefCreateRequest,
 )
 from app.canvas.service import (
-    CanvasCardMoveValidationError,
+    CanvasCardConfirmationRequiredError,
     CanvasCardNotFoundError,
     CanvasMessageValidationError,
     CanvasRelationNotFoundError,
@@ -310,35 +310,6 @@ def create_app(task_service: TaskService | None = None):
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
-    @app.get("/api/canvas/workspaces/{workspace_id}/confirmations")
-    async def list_canvas_confirmations(
-        workspace_id: str,
-        canvas_service: CanvasService = Depends(get_canvas_service),
-    ) -> Dict[str, Any]:
-        return canvas_service.list_confirmations(workspace_id)
-
-    @app.post("/api/canvas/workspaces/{workspace_id}/confirmations/{proposal_id}/approve")
-    async def approve_canvas_confirmation(
-        workspace_id: str,
-        proposal_id: str,
-        canvas_service: CanvasService = Depends(get_canvas_service),
-    ) -> Dict[str, Any]:
-        result = canvas_service.approve_confirmation(workspace_id, proposal_id)
-        if result.get("status") == "not_found":
-            raise HTTPException(status_code=404, detail="canvas confirmation not found")
-        return result
-
-    @app.post("/api/canvas/workspaces/{workspace_id}/confirmations/{proposal_id}/reject")
-    async def reject_canvas_confirmation(
-        workspace_id: str,
-        proposal_id: str,
-        canvas_service: CanvasService = Depends(get_canvas_service),
-    ) -> Dict[str, Any]:
-        result = canvas_service.reject_confirmation(workspace_id, proposal_id)
-        if result.get("status") == "not_found":
-            raise HTTPException(status_code=404, detail="canvas confirmation not found")
-        return result
-
     @app.get("/api/canvas/workspaces/{workspace_id}/snapshots")
     async def list_canvas_snapshots(
         workspace_id: str,
@@ -393,6 +364,16 @@ def create_app(task_service: TaskService | None = None):
         payload = request.model_dump(exclude_none=True) if hasattr(request, "model_dump") else request.dict(exclude_none=True)
         try:
             return canvas_service.patch_card(workspace_id, card_id, payload)
+        except CanvasCardConfirmationRequiredError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "workspace_id": workspace_id,
+                    "card_id": card_id,
+                    "reason": "chat_confirmation_required",
+                    "message": str(exc),
+                },
+            )
         except CanvasCardNotFoundError:
             raise HTTPException(status_code=404, detail="canvas card not found")
 
@@ -441,8 +422,6 @@ def create_app(task_service: TaskService | None = None):
             )
         except CanvasCardNotFoundError:
             raise HTTPException(status_code=404, detail="canvas card not found")
-        except CanvasCardMoveValidationError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
 
     @app.get("/api/canvas/workspaces/{workspace_id}/todos")
     async def get_canvas_todos(

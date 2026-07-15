@@ -22,14 +22,12 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
     2. 物料上传 (POST /api/materials) 与物理落盘校验
     3. 低风险自然语言消息的提报、意图路由与自动应用 (action: auto_apply)
     4. 卡片原地修订与属性更新 (PATCH /api/canvas/workspaces/{ws}/cards/{card_id})
-    5. 卡片拖拽与阶段转移 (POST /api/canvas/workspaces/{ws}/cards/{card_id}/move)
+    5. 废弃 stage 接口不写入领域状态 (POST /api/canvas/workspaces/{ws}/cards/{card_id}/move)
     6. 手动创建卡片间的语义关联关系 (POST /api/canvas/workspaces/{ws}/relations)
-    7. 高风险待决策方案提报、锁工作台状态 (action: pending_confirmation) 及其 409 拒绝机制
-    8. 提案拒绝机制校验与工作台锁释放
-    9. 提案批准机制校验与卡片状态持久化
-    10. 结构化交接物刷新 (POST /handoff/refresh) 与快照备份 (POST /snapshots)
-    11. 待办提取 (GET /todos)
-    12. SSE 实时事件流推送通道订阅校验 (GET /events)
+    7. 待决策对象作为候选态自动入包，不创建确认队列或锁工作台
+    8. 结构化交接物刷新 (POST /handoff/refresh) 与快照备份 (POST /snapshots)
+    9. 待办提取 (GET /todos)
+    10. SSE 实时事件流推送通道订阅校验 (GET /events)
     """
 
     def setUp(self) -> None:
@@ -53,7 +51,8 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
         workspace_resp = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}", headers=self.headers)
         self.assertEqual(workspace_resp.status_code, 200)
         self.assertEqual(workspace_resp.json()["workspace_id"], self.workspace_id)
-        self.assertEqual(workspace_resp.json()["handoff_status"], "draft")
+        # L3 规格：新工作区未形成包版本前，交接状态应为 not_ready。
+        self.assertEqual(workspace_resp.json()["handoff_status"], "not_ready")
 
         # ====== 2. 模拟参考物料上传，并校验物理落盘 ======
         file_content = "一期上线必须在 618 之前，核心结算逻辑不能修改，P95 响应耗时控制在 120ms 以内"
@@ -92,13 +91,14 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(clarification_card)
         card_id = clarification_card["card_id"]
         self.assertEqual(clarification_card["status"], "open")
-        self.assertEqual(clarification_card["evidence_refs"], [material_id])
+        # L3 规格已将 evidence_refs 统一为 source_refs。
+        self.assertEqual(clarification_card["source_refs"], [material_id])
 
         # 原地修订卡片展示字段
+        # L3 规格：展示字段可以直接修订，业务状态只能经受控提案和普通 Chat 确认升级。
         patch_payload = {
             "title": "修订后的澄清标题",
             "summary": "修订后的澄清总结",
-            "status": "draft",
             "tags": ["e2e-test", "edited"]
         }
         patch_resp = self.client.patch(
@@ -110,10 +110,12 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
         patched_card = patch_resp.json()["card"]
         self.assertEqual(patched_card["title"], "修订后的澄清标题")
         self.assertEqual(patched_card["summary"], "修订后的澄清总结")
-        self.assertEqual(patched_card["status"], "draft")
+        self.assertEqual(patched_card["status"], "open")
         self.assertEqual(patched_card["tags"], ["e2e-test", "edited"])
 
-        # ====== 5. 测试卡片拖拽与阶段转移 (Move Card) ======
+        # ====== 5. 验证废弃 stage 接口不改变 L3 领域状态 ======
+        # L3 规格已下线 stage_node 主题阶段机：move_card 降级为 deprecated_noop，
+        # 不再修改或记录卡片业务状态。
         move_payload = {
             "stage": "define",
             "reason": "测试人工核对完成"
@@ -124,12 +126,13 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
             headers=self.headers
         )
         self.assertEqual(move_resp.status_code, 200)
-        self.assertEqual(move_resp.json()["card"]["stage"], "define")
+        self.assertEqual(move_resp.json()["action"], "deprecated_noop")
+        self.assertEqual(move_resp.json()["card"]["status"], "open")
 
-        # 重新获取 Canvas 验证卡片状态已在后端的 Canvas 中生效
+        # 重新获取 Canvas，确认没有残留 stage 兼容元数据。
         canvas_check = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/canvas", headers=self.headers).json()
         persisted_card = next(c for c in canvas_check["cards"] if c["card_id"] == card_id)
-        self.assertEqual(persisted_card["stage"], "define")
+        self.assertNotIn("legacy_stage_request", persisted_card["metadata"])
 
         # ====== 6. 测试手动创建卡片关联关系 ======
         # 再提交一条消息，生成另一张卡片（例如 problem 卡片）
@@ -168,7 +171,7 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
         canvas_state_3 = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/canvas", headers=self.headers).json()
         self.assertTrue(any(r["relation_id"] == relation_data["relation_id"] for r in canvas_state_3["relations"]))
 
-        # ====== 7. 发送高风险自然语言消息（待决策意图），验证待审批机制与工作台忙碌保护 ======
+        # ====== 7. 待决策是候选对象，不通过确认队列或工作台锁推进 ======
         decision_payload = {
             "message": "把这次方案取舍整理成需要我拍板的待决策项",
             "selected_card_ids": [],
@@ -182,72 +185,37 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(decision_turn_resp.status_code, 200)
         decision_turn_data = decision_turn_resp.json()
-        self.assertEqual(decision_turn_data["action"], "pending_confirmation")
-        self.assertEqual(decision_turn_data["risk_level"], "high")
+        self.assertEqual(decision_turn_data["action"], "auto_apply")
+        self.assertEqual(decision_turn_data["risk_level"], "medium")
 
-        # 验证忙碌状态：拒绝在未审批前提交新消息
-        busy_resp = self.client.post(
+        # 候选态不会阻塞下一次正常 Chat。
+        followup_resp = self.client.post(
             f"/api/canvas/workspaces/{self.workspace_id}/messages",
-            json={"message": "尝试在未审批前提交新消息", "selected_card_ids": [], "material_ids": []},
+            json={"message": "继续补充一期范围的待澄清问题", "selected_card_ids": [], "material_ids": []},
             headers=self.headers
         )
-        self.assertEqual(busy_resp.status_code, 409)
-        self.assertEqual(busy_resp.json()["reason"], "turn_in_progress")
-
-        # ====== 8. 测试提案拒绝流程 (Reject) ======
-        confirmations_resp = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/confirmations", headers=self.headers)
-        self.assertEqual(confirmations_resp.status_code, 200)
-        confirmations = confirmations_resp.json()["items"]
-        self.assertEqual(len(confirmations), 1)
-        proposal_1 = confirmations[0]
-
-        reject_resp = self.client.post(
-            f"/api/canvas/workspaces/{self.workspace_id}/confirmations/{proposal_1['proposal_id']}/reject",
-            headers=self.headers
+        self.assertEqual(followup_resp.status_code, 200)
+        canvas_after_decision = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/canvas", headers=self.headers).json()
+        decision_cards = [c for c in canvas_after_decision["cards"] if c["kind"] == "decision"]
+        self.assertEqual(len(decision_cards), 1)
+        self.assertEqual(decision_cards[0]["status"], "pending_decision")
+        self.assertIsNone(canvas_after_decision["active_turn"])
+        self.assertEqual(canvas_after_decision["view_meta"]["pending_confirmation_ids"], [])
+        self.assertEqual(
+            self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/confirmations", headers=self.headers).status_code,
+            404,
         )
-        self.assertEqual(reject_resp.status_code, 200)
-        self.assertEqual(reject_resp.json()["status"], "rejected")
 
-        # 检查 Canvas 状态：未产生新卡片，工作区 active_turn 锁已被释放
-        canvas_after_reject = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/canvas", headers=self.headers).json()
-        self.assertIsNone(canvas_after_reject["active_turn"])
-        decision_cards_after_reject = [c for c in canvas_after_reject["cards"] if c["kind"] == "decision"]
-        self.assertEqual(len(decision_cards_after_reject), 0)
-
-        # ====== 9. 测试提案批准流程 (Approve) ======
-        # 重新发送请求以产生新提案
-        decision_turn_resp_2 = self.client.post(
-            f"/api/canvas/workspaces/{self.workspace_id}/messages",
-            json=decision_payload,
-            headers=self.headers
-        )
-        self.assertEqual(decision_turn_resp_2.status_code, 200)
-
-        # 获取新提案并同意它
-        confirmations_resp_2 = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/confirmations", headers=self.headers)
-        proposal_2 = confirmations_resp_2.json()["items"][0]
-
-        approve_resp = self.client.post(
-            f"/api/canvas/workspaces/{self.workspace_id}/confirmations/{proposal_2['proposal_id']}/approve",
-            headers=self.headers
-        )
-        self.assertEqual(approve_resp.status_code, 200)
-        self.assertEqual(approve_resp.json()["status"], "applied")
-
-        # 验证卡片成功生成并且状态为 confirmed 
-        canvas_after_approve = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/canvas", headers=self.headers).json()
-        decision_cards_after_approve = [c for c in canvas_after_approve["cards"] if c["kind"] == "decision"]
-        self.assertEqual(len(decision_cards_after_approve), 1)
-        self.assertEqual(decision_cards_after_approve[0]["status"], "confirmed")
-
-        # ====== 10. 测试结构化交接物刷新与快照生成 ======
+        # ====== 8. 测试结构化交接物刷新与快照生成 ======
         # 刷新交接物
         refresh_resp = self.client.post(f"/api/canvas/workspaces/{self.workspace_id}/handoff/refresh", headers=self.headers)
         self.assertEqual(refresh_resp.status_code, 200)
         handoff_data = refresh_resp.json()
         self.assertEqual(handoff_data["status"], "draft")
-        # 由于我们先前把 clarification 卡片移动到了 resolved，而 problem 卡片是 open，因此 open_questions 应该有内容
-        self.assertGreaterEqual(len(handoff_data["handoff"]["open_questions"]), 1)
+        # L3 规格已下线 StructuredHandoff.open_questions 字符串列表；改用 unresolved_refs
+        # 回指未决对象（status 派生为 UNRESOLVED 治理地位）。
+        # 此处验证未决引用集合存在且非空（clarification 卡片仍为 open/draft）。
+        self.assertGreaterEqual(len(handoff_data["handoff"]["unresolved_refs"]), 1)
 
         # 生成备份快照
         snapshot_payload = {
@@ -270,12 +238,12 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(len(snapshots), 1)
         self.assertTrue(any(s["title"] == "v1.0-e2e-milestone" for s in snapshots))
 
-        # ====== 11. 测试待办提取 ======
+        # ====== 9. 测试待办提取 ======
         todos_resp = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/todos", headers=self.headers)
         self.assertEqual(todos_resp.status_code, 200)
         self.assertIn("items", todos_resp.json())
 
-        # ====== 12. 测试 SSE (Server-Sent Events) 事件流推送 ======
+        # ====== 10. 测试 SSE (Server-Sent Events) 事件流推送 ======
         def mock_event_publisher():
             # 延迟一段时间后发布事件以通知 SSE 流关闭
             time.sleep(0.3)
@@ -298,4 +266,3 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
 
         # 确认后台线程顺利退出
         publisher_thread.join(timeout=1.0)
-

@@ -151,8 +151,9 @@ class CanvasApiTests(unittest.TestCase):
         self.assertEqual(payload["cards"], [])
         self.assertEqual(payload["relations"], [])
         self.assertIn("todo_projection", payload)
-        self.assertIn("lifecycle", payload["view_meta"])
-        self.assertEqual(payload["view_meta"]["lifecycle"]["stage_node"], "compilation")
+        # L3 规格已下线 view_meta.lifecycle / verification_summary 覆盖式摘要；
+        # 改为验证交接状态与待确认列表的最小视图元信息。
+        self.assertEqual(payload["view_meta"]["handoff_status"], "not_ready")
         self.assertEqual(payload["view_meta"]["pending_confirmation_ids"], [])
         self.assertIn("handoff_state", payload["view_meta"])
         self.assertEqual(payload["view_meta"]["handoff_state"]["confirmation_state"], "not_ready")
@@ -204,7 +205,6 @@ class CanvasApiTests(unittest.TestCase):
             json={
                 "title": "误杀成本范围待澄清",
                 "summary": "需要明确误杀成本、影响用户和可接受阈值。",
-                "status": "draft",
                 "tags": ["manual-edit", "risk"],
             },
             headers=self.headers,
@@ -216,7 +216,7 @@ class CanvasApiTests(unittest.TestCase):
         self.assertEqual(updated["kind"], card["kind"])
         self.assertEqual(updated["title"], "误杀成本范围待澄清")
         self.assertEqual(updated["summary"], "需要明确误杀成本、影响用户和可接受阈值。")
-        self.assertEqual(updated["status"], "draft")
+        self.assertEqual(updated["status"], card["status"])
         self.assertEqual(updated["tags"], ["manual-edit", "risk"])
 
         canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
@@ -365,23 +365,28 @@ class CanvasApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["workspace_id"], "demo")
         self.assertEqual(payload["status"], "draft")
-        self.assertEqual(payload["content"], payload["handoff"]["summary"])
+        # L3 规格已下线 StructuredHandoff.summary；content 与 metadata.legacy.summary 同源。
+        legacy_summary = payload["handoff"].get("metadata", {}).get("legacy", {}).get("summary", "")
+        self.assertEqual(payload["content"], legacy_summary)
         self.assertEqual(payload["handoff"]["handoff_id"], "handoff_demo")
-        self.assertEqual(len(payload["handoff"]["open_questions"]), 1)
-        self.assertEqual(len(payload["handoff"]["constraints"]), 1)
+        # L3 规格要求交接模块只引用对象，不复制正文；此处验证未决引用集合。
+        self.assertIn(clarification_id, payload["handoff"]["unresolved_refs"])
         self.assertIn("snapshot", payload)
 
         canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
         self.assertEqual(canvas["snapshot_id"], payload["snapshot"]["snapshot_id"])
         self.assertEqual(canvas["view_meta"]["handoff_status"], "draft")
-        self.assertEqual(len([card for card in canvas["cards"] if card["kind"] == "handoff"]), 1)
+        # L3 规格已下线 CanvasCardKind.HANDOFF：交接模块只引用对象，不创建对象。
+        self.assertEqual(len([card for card in canvas["cards"] if card["kind"] == "handoff"]), 0)
 
         repeated = self.client.post("/api/canvas/workspaces/demo/handoff/refresh", headers=self.headers)
         self.assertEqual(repeated.status_code, 200)
         repeated_canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
-        self.assertEqual(len([card for card in repeated_canvas["cards"] if card["kind"] == "handoff"]), 1)
+        self.assertEqual(len([card for card in repeated_canvas["cards"] if card["kind"] == "handoff"]), 0)
 
-    def test_move_card_updates_stage_when_transition_is_allowed(self) -> None:
+    def test_move_card_is_a_non_persisting_legacy_noop(self) -> None:
+        # L3 规格已下线 stage_node 主题阶段机：move_card 降级为 deprecated_noop，
+        # 不再修改或记录卡片业务状态。
         self.client.post(
             "/api/canvas/workspaces/demo/messages",
             json={
@@ -404,11 +409,14 @@ class CanvasApiTests(unittest.TestCase):
         moved = response.json()["card"]
         self.assertEqual(moved["card_id"], evidence_card["card_id"])
         self.assertEqual(moved["kind"], evidence_card["kind"])
-        self.assertEqual(moved["stage"], "define")
-        self.assertEqual(moved["metadata"]["last_moved_by"], "user")
-        self.assertEqual(moved["metadata"]["move_reason"], "这条证据已经进入问题定义阶段")
+        # L3 规格已下线 stage 字段；兼容入口不能写入 card.stage 或 metadata 影子字段。
+        self.assertNotIn("stage", moved)
+        self.assertNotIn("legacy_stage_request", moved["metadata"])
+        self.assertNotIn("legacy_stage_reason", moved["metadata"])
 
     def test_move_card_rejects_illegal_stage_transition(self) -> None:
+        # L3 规格已下线 stage_node 主题阶段机：move_card 不再校验 stage 跳转合法性，
+        # 任何请求都返回 200 + deprecated_noop，且不产生持久化副作用。
         self.client.post(
             "/api/canvas/workspaces/demo/messages",
             json={
@@ -427,8 +435,10 @@ class CanvasApiTests(unittest.TestCase):
             headers=self.headers,
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("illegal stage transition", response.json()["detail"])
+        # L3 规格下不再返回 400；deprecated_noop 一律返回 200。
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["action"], "deprecated_noop")
+        self.assertFalse(response.json()["move"]["semantic_change"])
 
     def test_get_todos_matches_canvas_projection_for_live_and_snapshot_views(self) -> None:
         self.client.post(

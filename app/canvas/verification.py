@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from app.canvas.domain.mutations import CanvasMutationProposal, CanvasMutationTarget
 from app.canvas.domain.cards import CanvasCard
+from app.canvas.domain.object_status import is_stable_status
 
 
 @dataclass
@@ -81,9 +82,10 @@ def verify_mutation_proposal(
             if card_payload is not None:
                 status = card_payload.get("status")
                 kind = card_payload.get("kind")
-                evidence_refs = card_payload.get("evidence_refs", [])
-                if kind and kind != CanvasCardKind.EVIDENCE.value and status in {"confirmed", "effective", "resolved"}:
-                    if not evidence_refs:
+                # L3 规格已将 evidence_refs 统一为 source_refs；兼容旧持久化回看。
+                source_refs = card_payload.get("source_refs") or card_payload.get("evidence_refs", [])
+                if kind and kind != CanvasCardKind.EVIDENCE.value and status in {"effective", "decided", "clarified"}:
+                    if not source_refs:
                         checks["source"] = "failed"
                         notes.append(f"稳定事实卡片 [{kind}] 缺少关联依据引用，无法确认生效。")
 
@@ -92,7 +94,7 @@ def verify_mutation_proposal(
             card_payload = mutation.payload.get("card")
             if card_payload is not None:
                 status = card_payload.get("status")
-                if status in {"confirmed", "effective", "resolved", "formal"}:
+                if status in {"effective", "decided", "clarified", "formal"}:
                     mutation_type = mutation.metadata.get("mutation_type", "")
                     allowed_types = {
                         "confirm_constraint",
@@ -106,11 +108,11 @@ def verify_mutation_proposal(
                         checks["policy"] = "failed"
                         notes.append("不可直接将卡片设为已确认或生效状态，需经过必要的前置提案或澄清动作。")
 
-        # 4. 冲突检查：如果试图修改已是 confirmed 的卡片的核心内容，标记冲突
+        # 4. 冲突检查：如果试图修改已处于稳定治理地位的卡片核心内容，标记冲突
         if existing_cards and mutation.target == CanvasMutationTarget.CARD and mutation.action.value == "update":
             card_map = {c.card_id: c for c in existing_cards}
             orig_card = card_map.get(mutation.target_id)
-            if orig_card and orig_card.status in {"confirmed", "effective", "resolved"}:
+            if orig_card and is_stable_status(orig_card.kind.value, orig_card.status):
                 new_title = mutation.payload.get("title")
                 new_summary = mutation.payload.get("summary")
                 title_changed = new_title is not None and new_title.strip() != orig_card.title.strip()
@@ -121,8 +123,9 @@ def verify_mutation_proposal(
 
     # 5. 角色权限越权检测
     roles = set(proposal.metadata.get("roles", []))
+    # L3 规格已下线 OptionBuilder 角色；此处只保留收敛者职责边界判定。
     divergent_roles = {"InputCompiler", "Clarifier"}
-    convergent_roles = {"ConstraintSteward", "DecisionSteward", "OptionBuilder"}
+    convergent_roles = {"ConstraintSteward", "DecisionSteward"}
     
     if roles:
         # 发散者权限越界检测
@@ -133,7 +136,7 @@ def verify_mutation_proposal(
                 if mutation.payload.get("card") is not None:
                     status = status or mutation.payload["card"].get("status")
                 
-                is_resolve = mutation_type in {"resolve_clarification", "resolve_critical_clarification"} or status in {"resolved", "confirmed", "effective", "formal"}
+                is_resolve = mutation_type in {"resolve_clarification", "resolve_critical_clarification"} or status in {"clarified", "decided", "effective", "formal"}
                 is_handoff_publish = mutation.target == CanvasMutationTarget.HANDOFF or mutation_type == "promote_formal_handoff"
                 
                 if is_resolve or is_handoff_publish:
@@ -149,7 +152,7 @@ def verify_mutation_proposal(
                     status = status or mutation.payload["card"].get("status")
                 mutation_type = mutation.metadata.get("mutation_type", "")
                 
-                if status in {"confirmed", "effective", "resolved"}:
+                if status in {"clarified", "decided", "effective"}:
                     if mutation_type not in {"confirm_constraint", "resolve_clarification"}:
                         checks["policy"] = "failed"
                         notes.append(f"角色权限越界：收敛者角色 {list(roles)} 无法直接让提案生效，需经必要确认。")
@@ -169,7 +172,11 @@ def verify_mutation_proposal(
     if is_formal_handoff and existing_cards:
         main_kinds = {CanvasCardKind.CONSTRAINT, CanvasCardKind.DECISION, CanvasCardKind.CLARIFICATION}
         main_cards = [c for c in existing_cards if c.kind in main_kinds]
-        unconfirmed_cards = [c for c in main_cards if c.status not in {"confirmed", "resolved", "superseded"}]
+        unconfirmed_cards = [
+            c
+            for c in main_cards
+            if not is_stable_status(c.kind.value, c.status) and c.status != "superseded"
+        ]
         
         if main_cards:
             ratio = len(unconfirmed_cards) / len(main_cards)
@@ -187,7 +194,7 @@ def verify_mutation_proposal(
     if is_formal_handoff and existing_cards:
         # 检查是否有关联卡片处于“复核状态”
         under_review_cards = [
-            c for c in existing_cards if c.metadata.get("governance_state") == "under_review"
+            c for c in existing_cards if c.validation_state in {"warning", "invalid"}
         ]
         if under_review_cards:
             checks["evaluation"] = "failed"
@@ -223,7 +230,7 @@ def verify_mutation_proposal(
                 "promote_formal_handoff",
             }:
                 is_high_risk = True
-        recommendation = "pending_confirmation" if is_high_risk else "auto_apply"
+        recommendation = "awaiting_chat_confirmation" if is_high_risk else "auto_apply"
 
     receipt_obj = CanvasVerificationReceipt(
         result=result,

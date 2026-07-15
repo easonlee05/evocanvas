@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from app.canvas.domain.cards import CanvasCard
 from app.canvas.domain.mutations import CanvasMutationProposal, CanvasMutationStatus, CanvasMutationTarget, MutationRiskLevel
+from app.canvas.domain.object_status import is_stable_status
 
 
 @dataclass(frozen=True)
@@ -26,11 +27,10 @@ class MutationGovernance:
     HIGH_RISK_MUTATION_TYPES = {
         "confirm_constraint",
         "resolve_clarification",
-        "create_decision_request",
         "create_snapshot",
         "promote_formal_handoff",
     }
-    HIGH_RISK_STATUSES = {"effective", "confirmed", "resolved", "formal"}
+    HIGH_RISK_STATUSES = {"effective", "decided", "clarified", "formal"}
     HIGH_RISK_TARGETS = {CanvasMutationTarget.SNAPSHOT}
 
     def __init__(self, repository=None) -> None:
@@ -49,7 +49,7 @@ class MutationGovernance:
         proposal: CanvasMutationProposal,
         existing_cards: list[CanvasCard] | None = None,
     ) -> GovernanceOutcome:
-        """返回提案处理方式，并同步标记提案风险等级。"""
+        """返回提案处理方式；高影响升级等待普通 Chat 的明确确认。"""
 
         from app.canvas.domain.cards import CanvasCardKind
 
@@ -79,8 +79,11 @@ class MutationGovernance:
         if max_risk == MutationRiskLevel.HIGH:
             proposal.status = CanvasMutationStatus.PENDING_CONFIRMATION
             proposal.metadata["gate_reason"] = self._gate_reason_for(proposal)
-            self._enqueue_confirmation(proposal)
-            return GovernanceOutcome(action="pending_confirmation", risk_level=MutationRiskLevel.HIGH)
+            proposal.metadata["awaiting_chat_confirmation"] = True
+            return GovernanceOutcome(
+                action="awaiting_chat_confirmation",
+                risk_level=MutationRiskLevel.HIGH,
+            )
 
         proposal.status = CanvasMutationStatus.APPLIED
         proposal.metadata["gate_reason"] = ""
@@ -113,7 +116,7 @@ class MutationGovernance:
         if not is_high and existing_cards and mutation.target == CanvasMutationTarget.CARD and mutation.action.value == "update":
             card_map = {c.card_id: c for c in existing_cards}
             orig_card = card_map.get(mutation.target_id)
-            if orig_card and orig_card.status in {"confirmed", "effective", "resolved"}:
+            if orig_card and is_stable_status(orig_card.kind.value, orig_card.status):
                 new_title = mutation.payload.get("title")
                 new_summary = mutation.payload.get("summary")
                 if (new_title is not None and new_title.strip() != orig_card.title.strip()) or \
@@ -137,14 +140,6 @@ class MutationGovernance:
             return MutationRiskLevel.MEDIUM
 
         return MutationRiskLevel.LOW
-
-    def _enqueue_confirmation(self, proposal: CanvasMutationProposal) -> None:
-        if self.repository is None:
-            return
-        queue = self.repository.load_confirmation_queue(proposal.workspace_id)
-        if not any(item.proposal_id == proposal.proposal_id for item in queue):
-            queue.append(proposal)
-        self.repository.save_confirmation_queue(proposal.workspace_id, queue)
 
     @staticmethod
     def _gate_reason_for(proposal: CanvasMutationProposal) -> str:

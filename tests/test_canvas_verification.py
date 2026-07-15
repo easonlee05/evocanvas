@@ -48,8 +48,8 @@ class CanvasVerificationTests(unittest.TestCase):
                 card_id="card_c1",
                 kind=CanvasCardKind.CONSTRAINT,
                 title="复核中的约束",
-                status="confirmed",
-                metadata={"governance_state": "under_review"}
+                status="effective",
+                validation_state="warning",
             )
         ]
 

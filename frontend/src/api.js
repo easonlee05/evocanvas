@@ -157,5 +157,28 @@ export async function apiPatch(path, body, fallback) {
   }
 }
 
+/**
+ * 发起 PATCH 请求并返回完整状态信息，不吞业务错误状态码。
+ * 用于需要按 HTTP 状态码做差异化处理的场景（如 409 chat_confirmation_required）。
+ * @param {string} path - API 相对路径
+ * @param {Object} body - 修改后的请求体对象
+ * @returns {Promise<{ok: boolean, status: number, data: *|null}>} 响应结果，status 为 0 表示网络/超时错误
+ */
+export async function apiPatchWithStatus(path, body) {
+  try {
+    const res = await fetchWithTimeout(apiUrl(path), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    return { ok: res.ok, status: res.status, data };
+  } catch (error) {
+    console.warn(error);
+    return { ok: false, status: 0, data: null };
+  }
+}
+
 export { API_BASE };
 

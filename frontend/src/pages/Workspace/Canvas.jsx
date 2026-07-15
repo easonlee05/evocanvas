@@ -19,7 +19,7 @@ import {
   Type,
 } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS, DEMO_PERSONA_AVATARS } from './demoScenario.js';
-import { apiPost, apiPatch, apiDelete, apiUrl } from '../../api';
+import { apiPost, apiPatchWithStatus, apiDelete, apiUrl } from '../../api';
 import {
   applyConnectionToSections,
   buildConnectionPortMap,
@@ -2532,15 +2532,24 @@ export default function Canvas({
     );
 
     if (workspaceId && workspaceId !== 'demo') {
-      try {
-        // L3 规格：patch_card 只接受展示字段 title/summary/tags，kind/status 不可写。
-        // 稳定态卡片修订会触发 409 chat_confirmation_required，由调用方按需引导走 Chat 流。
-        await apiPatch(`/api/canvas/workspaces/${workspaceId}/cards/${cardId}`, {
+      // L3 规格：patch_card 只接受展示字段 title/summary/tags，kind/status 不可写。
+      // 稳定态卡片修订会触发 409 chat_confirmation_required，此处显性引导走 Chat 确认流，
+      // 不静默回滚，也不绕过用户确认。
+      const result = await apiPatchWithStatus(
+        `/api/canvas/workspaces/${workspaceId}/cards/${cardId}`,
+        {
           title: field === 'title' ? newValue : targetCard.title,
           summary: field === 'desc' ? newValue : targetCard.desc,
-        }, null);
+        },
+      );
+      if (result.ok) {
         if (onRefresh) onRefresh();
-      } catch (err) {
+      } else if (result.status === 409 && result.data?.reason === 'chat_confirmation_required') {
+        // 回滚本地乐观更新，避免本地与后端稳定态不一致
+        setCanvasSections((current) => updateCanvasCard(current, cardId, { [field]: targetCard[field] }));
+        setMoveError('这张卡片已进入稳定态，直接修订需走对话确认。请在右侧对话中说明修订意图，由 AI 提案后确认。');
+      } else {
+        setCanvasSections((current) => updateCanvasCard(current, cardId, { [field]: targetCard[field] }));
         setMoveError('保存修改失败，请刷新页面');
       }
     }

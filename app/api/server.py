@@ -45,6 +45,7 @@ from app.api.schemas import (
     SourceRefCreateRequest,
 )
 from app.canvas.service import (
+    CanvasCardConfirmationRequiredError,
     CanvasCardNotFoundError,
     CanvasMessageValidationError,
     CanvasRelationNotFoundError,
@@ -363,6 +364,16 @@ def create_app(task_service: TaskService | None = None):
         payload = request.model_dump(exclude_none=True) if hasattr(request, "model_dump") else request.dict(exclude_none=True)
         try:
             return canvas_service.patch_card(workspace_id, card_id, payload)
+        except CanvasCardConfirmationRequiredError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "workspace_id": workspace_id,
+                    "card_id": card_id,
+                    "reason": "chat_confirmation_required",
+                    "message": str(exc),
+                },
+            )
         except CanvasCardNotFoundError:
             raise HTTPException(status_code=404, detail="canvas card not found")
 

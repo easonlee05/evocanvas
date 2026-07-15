@@ -123,13 +123,16 @@ unverified / valid / warning / invalid
 | --- | --- |
 | `confirmation_id` | 确认记录 ID |
 | `workspace_id / package_id` | 作用范围 |
-| `proposal_message_refs` | Assistant 提出判断和范围的消息引用 |
-| `user_message_refs` | User 确认、否定或修正的消息引用 |
+| `confirmation_path` | `assistant_proposal_then_user_response / direct_user_statement` |
+| `proposal_message_refs` | Assistant 提出判断和范围的消息引用；用户直接陈述时可空 |
+| `user_message_refs` | User 直接陈述、确认、否定或修正的消息引用 |
 | `confirmed_claims` | 被确认的具体判断 |
 | `scope_refs` | 对象、字段、版本或时间范围 |
 | `confirmation_kind` | `confirmed / partial / rejected / corrected / withdrawn` |
 | `remaining_unresolved_refs` | 未随本次确认一起解决的事项 |
 | `recorded_at` | 记录时间 |
+
+确认可以来自“Assistant 明确提议后 User 确认或修正”，也可以来自 User 主动给出的明确、完整且带范围的产品判断。后一种情况不要求 Assistant 先复述、再让 User 重复确认；但试探表达、举例、转述、反问和范围不清的陈述不得按直接确认记录。
 
 确认记录本身不可改写。用户撤回时追加 `confirmation_withdrawn` 和新的确认记录或状态变化，不覆盖旧原文。
 
@@ -177,6 +180,8 @@ unverified / valid / warning / invalid
 
 - `governance_class = unresolved` 且仍活跃的对象可以投影到 Active Todos。
 - 对象进入稳定或历史状态后，对应 Todo 失效。
+- 待澄清进入 `clarified / closed` 后退出主画布默认当前视图，但对象、确认和结果关系继续保留；重新打开后才恢复默认显影。
+- 待决策进入 `decided` 后退出 Active Todos，但继续作为稳定决策结构显影，直到重新打开、替代或归档。
 - 里程碑只消费一组对象状态变化，不独立宣布事实。
 - 交接模块只引用当前版本中真实存在的对象。
 

@@ -24,7 +24,7 @@ try:
 except Exception:  # pragma: no cover
     TestClient = None
 
-from app.api.server import create_app
+from app.api.server import create_app, get_canvas_service
 
 
 class CanvasL3DomainTests(unittest.TestCase):
@@ -230,6 +230,10 @@ class CanvasL3ServiceTests(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertTrue(records[0].proposal_message_refs)
             self.assertTrue(records[0].user_message_refs)
+            self.assertEqual(
+                records[0].confirmation_path.value,
+                "assistant_proposal_then_user_response",
+            )
             self.assertFalse((workspace_dir / "confirmation_queue.json").exists())
 
     def test_confirmation_records_post_confirmation_unresolved_refs(self) -> None:
@@ -287,9 +291,112 @@ class CanvasL3ServiceTests(unittest.TestCase):
             self.assertEqual(record.remaining_unresolved_refs, [])
             self.assertEqual(service.get_canvas_view("demo")["cards"][0]["status"], "clarified")
 
+    def test_direct_user_statement_confirmation_path(self) -> None:
+        """用户直接陈述路径下 confirmation_path 为 direct_user_statement，proposal_message_refs 为空。"""
+
+        with TemporaryDirectory() as tmpdir:
+            service = CanvasService(storage=FakeStorage(Path(tmpdir)))
+            service.get_workspace("demo")
+            service.repository.save_cards(
+                "demo",
+                [
+                    CanvasCard(
+                        card_id="card_clarification_direct",
+                        kind=CanvasCardKind.CLARIFICATION,
+                        title="确认首版是否支持导出",
+                        status="open",
+                    )
+                ],
+            )
+            # 构造一个没有 assistant_message_ref 的待确认提案，
+            # 模拟用户直接给出清晰、完整且带范围的产品判断。
+            proposal = CanvasMutationProposal(
+                proposal_id="proposal_direct_statement",
+                workspace_id="demo",
+                turn_id="turn_direct",
+                status=CanvasMutationStatus.PENDING_CONFIRMATION,
+                mutations=[
+                    CanvasMutation(
+                        mutation_id="mutation_direct",
+                        action=CanvasMutationAction.UPDATE,
+                        target=CanvasMutationTarget.CARD,
+                        target_id="card_clarification_direct",
+                        payload={"resolution": "首版只支持 CSV 导出"},
+                        metadata={"mutation_type": "resolve_clarification"},
+                    )
+                ],
+                metadata={"awaiting_chat_confirmation": True},
+            )
+            service.repository.append_proposal_history("demo", proposal)
+
+            service.start_turn(
+                workspace_id="demo",
+                message="确认，首版只做 CSV 导出",
+                selected_card_ids=[],
+                material_ids=[],
+            )
+
+            record = service.repository.list_confirmation_records("demo")[0]
+            self.assertEqual(record.confirmation_path.value, "direct_user_statement")
+            self.assertEqual(record.proposal_message_refs, [])
+            self.assertTrue(record.user_message_refs)
+
 
 class CanvasL3ApiTests(unittest.TestCase):
     """验证 API 不再暴露第二条可写状态通道。"""
+
+    def test_card_patch_requires_chat_confirmation_for_stable_content(self) -> None:
+        """稳定态卡片的标题或摘要不能绕过普通 Chat 确认被直接改写。"""
+
+        if TestClient is None:
+            self.skipTest("FastAPI not installed")
+        with TemporaryDirectory() as tmpdir:
+            service = CanvasService(storage=FakeStorage(Path(tmpdir)))
+            service.get_workspace("demo")
+            stable_constraint = CanvasCard(
+                card_id="card_effective_constraint",
+                kind=CanvasCardKind.CONSTRAINT,
+                title="首版不做多人协作",
+                summary="一期范围约束。",
+                status="effective",
+            )
+            service.repository.save_cards("demo", [stable_constraint])
+
+            app = create_app()
+            app.dependency_overrides[get_canvas_service] = lambda: service
+            client = TestClient(app)
+            response = client.patch(
+                "/api/canvas/workspaces/demo/cards/card_effective_constraint",
+                json={"title": "首版支持多人协作"},
+            )
+
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.json()["reason"], "chat_confirmation_required")
+            persisted = service.repository.load_cards("demo")[0]
+            self.assertEqual(persisted.title, "首版不做多人协作")
+
+    def test_card_patch_rejects_kind_writes(self) -> None:
+        """对象类型不可通过 patch 修改；待澄清卡不得改类型变成约束卡或待决策卡。"""
+
+        with TemporaryDirectory() as tmpdir:
+            service = CanvasService(storage=FakeStorage(Path(tmpdir)))
+            service.get_workspace("demo")
+            clarification = CanvasCard(
+                card_id="card_clarify_kind",
+                kind=CanvasCardKind.CLARIFICATION,
+                title="确认首版目标用户",
+                status="open",
+            )
+            service.repository.save_cards("demo", [clarification])
+
+            with self.assertRaises(ValueError):
+                service.patch_card(
+                    "demo",
+                    "card_clarify_kind",
+                    {"kind": "constraint"},
+                )
+            persisted = service.repository.load_cards("demo")[0]
+            self.assertEqual(persisted.kind, CanvasCardKind.CLARIFICATION)
 
     def test_card_patch_rejects_direct_status_writes(self) -> None:
         """状态升级只能由受控提案及普通 Chat 确认完成。"""
@@ -416,6 +523,77 @@ class CanvasL3StableCardSupersedeTests(unittest.TestCase):
             # constraint 的过时态是 superseded
             self.assertEqual(original.status, "superseded")
             self.assertEqual(original.governance_class, "historical")
+
+
+class CanvasL3ConfirmationPathTests(unittest.TestCase):
+    """验证确认记录的 confirmation_path 字段序列化与旧数据兼容。"""
+
+    def _build_record(self, **overrides) -> "ConfirmationRecord":
+        from app.canvas.domain.confirmation import (
+            ConfirmationKind,
+            ConfirmationPath,
+            ConfirmationRecord,
+            ConfirmedClaim,
+        )
+
+        defaults = dict(
+            confirmation_id="confirmation_test",
+            workspace_id="demo",
+            package_id="pkg_demo",
+            proposal_message_refs=["msg_assistant"],
+            user_message_refs=["msg_user"],
+            confirmed_claims=[ConfirmedClaim(claim="首版只做 CSV")],
+            scope_refs=["card_constraint_csv"],
+            confirmation_kind=ConfirmationKind.CONFIRMED,
+            remaining_unresolved_refs=[],
+            recorded_at="2026-07-14T00:00:00Z",
+            confirmation_path=ConfirmationPath.ASSISTANT_PROPOSAL_THEN_USER_RESPONSE,
+        )
+        defaults.update(overrides)
+        return ConfirmationRecord(**defaults)
+
+    def test_confirmation_path_serializes_to_dict(self) -> None:
+        """confirmation_path 正确序列化为字符串值。"""
+
+        record = self._build_record()
+        data = record.to_dict()
+        self.assertEqual(data["confirmation_path"], "assistant_proposal_then_user_response")
+
+    def test_direct_user_statement_path_round_trips(self) -> None:
+        """直接陈述路径下 proposal_message_refs 可为空，且能往返序列化。"""
+
+        from app.canvas.domain.confirmation import ConfirmationPath, ConfirmationRecord
+
+        record = self._build_record(
+            confirmation_path=ConfirmationPath.DIRECT_USER_STATEMENT,
+            proposal_message_refs=[],
+        )
+        restored = ConfirmationRecord.from_dict(record.to_dict())
+        self.assertEqual(restored.confirmation_path, ConfirmationPath.DIRECT_USER_STATEMENT)
+        self.assertEqual(restored.proposal_message_refs, [])
+
+    def test_legacy_record_without_confirmation_path_defaults_to_assistant_proposal(self) -> None:
+        """旧持久化数据缺失 confirmation_path 时按 assistant 提议路径恢复。"""
+
+        from app.canvas.domain.confirmation import ConfirmationPath, ConfirmationRecord
+
+        legacy_data = {
+            "confirmation_id": "confirmation_legacy",
+            "workspace_id": "demo",
+            "package_id": "pkg_demo",
+            "proposal_message_refs": ["msg_assistant"],
+            "user_message_refs": ["msg_user"],
+            "confirmed_claims": [{"claim": "旧确认"}],
+            "scope_refs": [],
+            "confirmation_kind": "confirmed",
+            "remaining_unresolved_refs": [],
+            "recorded_at": "2026-01-01T00:00:00Z",
+        }
+        restored = ConfirmationRecord.from_dict(legacy_data)
+        self.assertEqual(
+            restored.confirmation_path,
+            ConfirmationPath.ASSISTANT_PROPOSAL_THEN_USER_RESPONSE,
+        )
 
 
 if __name__ == "__main__":

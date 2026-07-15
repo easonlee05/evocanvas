@@ -7,7 +7,12 @@ from uuid import uuid4
 
 from app.canvas.agent.supervisor import CanvasSupervisor
 from app.canvas.domain.cards import CanvasCard, CanvasCardKind
-from app.canvas.domain.confirmation import ConfirmationKind, ConfirmationRecord, ConfirmedClaim
+from app.canvas.domain.confirmation import (
+    ConfirmationKind,
+    ConfirmationPath,
+    ConfirmationRecord,
+    ConfirmedClaim,
+)
 from app.canvas.domain.handoff import StructuredHandoff, TodoItem, TodoProjection
 from app.canvas.domain.ledger import LedgerActorType, LedgerEvent, LedgerEventType
 from app.canvas.domain.object_status import (
@@ -53,6 +58,10 @@ class CanvasTurnInProgressError(RuntimeError):
 
 class CanvasCardNotFoundError(KeyError):
     """表示请求修订的画布卡片不存在。"""
+
+
+class CanvasCardConfirmationRequiredError(ValueError):
+    """表示稳定态卡片的语义修订必须回到普通 Chat 确认。"""
 
 
 class CanvasRelationValidationError(ValueError):
@@ -578,10 +587,29 @@ class CanvasService:
         cards = self.repository.load_cards(workspace_id)
         if "status" in patch:
             raise ValueError("canvas card status is not directly writable")
+        # L3 规格要求对象类型不可通过 patch 修改：待澄清卡不得通过改类型变成约束卡
+        # 或待决策卡，澄清结果应创建或更新关联的结果对象并保留原对象身份。
+        if "kind" in patch:
+            raise ValueError("canvas card kind is not directly writable")
         updated_card = None
         for card in cards:
             if card.card_id != card_id:
                 continue
+            title_changed = (
+                "title" in patch
+                and patch["title"] is not None
+                and str(patch["title"]).strip() != card.title.strip()
+            )
+            summary_changed = (
+                "summary" in patch
+                and patch["summary"] is not None
+                and str(patch["summary"]).strip() != card.summary.strip()
+            )
+            kind_value = card.kind.value if hasattr(card.kind, "value") else str(card.kind)
+            if is_stable_status(kind_value, card.status) and (title_changed or summary_changed):
+                raise CanvasCardConfirmationRequiredError(
+                    "稳定态卡片的标题或摘要修改需要在普通 Chat 中明确确认。"
+                )
             if "title" in patch and patch["title"] is not None:
                 card.title = str(patch["title"]).strip()
             if "summary" in patch and patch["summary"] is not None:
@@ -1516,13 +1544,17 @@ class CanvasService:
         self,
         workspace_id: str,
     ) -> Optional[CanvasMutationProposal]:
-        """返回尚待普通 Chat 明确确认的最新高影响提议。"""
+        """返回尚待普通 Chat 明确确认的最新高影响提议。
+
+        L3 规格允许两条确认路径：Assistant 提议后用户确认，以及用户直接陈述。
+        因此 proposal 可以没有 assistant_message_ref（直接陈述路径），
+        只要有 awaiting_chat_confirmation 标记即视为待确认。
+        """
 
         for proposal in reversed(self.repository.load_proposal_history(workspace_id)):
             if (
                 proposal.status == CanvasMutationStatus.PENDING_CONFIRMATION
                 and proposal.metadata.get("awaiting_chat_confirmation")
-                and proposal.metadata.get("assistant_message_ref")
             ):
                 return proposal
         return None
@@ -1567,11 +1599,22 @@ class CanvasService:
         }
         self._materialize_confirmation_approval(proposal)
         scope_refs = [mutation.target_id for mutation in proposal.mutations if mutation.target_id]
+        # L3 规格要求确认记录显式区分两条路径：
+        # - Assistant 提议后用户确认：proposal_message_refs 必填；
+        # - 用户直接给出清晰、完整且带范围的产品判断：proposal_message_refs 可空。
+        assistant_message_ref = proposal.metadata.get("assistant_message_ref")
+        if assistant_message_ref:
+            confirmation_path = ConfirmationPath.ASSISTANT_PROPOSAL_THEN_USER_RESPONSE
+            proposal_message_refs = [str(assistant_message_ref)]
+        else:
+            confirmation_path = ConfirmationPath.DIRECT_USER_STATEMENT
+            proposal_message_refs = []
         confirmation = ConfirmationRecord(
             confirmation_id=f"confirmation_{uuid4().hex[:12]}",
             workspace_id=workspace.workspace_id,
             package_id=package_id,
-            proposal_message_refs=[str(proposal.metadata["assistant_message_ref"])],
+            confirmation_path=confirmation_path,
+            proposal_message_refs=proposal_message_refs,
             user_message_refs=[user_message_ref],
             confirmed_claims=[
                 ConfirmedClaim(

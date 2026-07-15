@@ -380,8 +380,14 @@ export default function Workspace() {
   function handleSend() {
     const text = input.trim();
     if (!text) return;
-    setChatMessages(prev => [...prev, { id: 'usr_' + Date.now(), role: 'user', text }]);
+    handleSendText(text);
     setInput('');
+  }
+
+  // 供 approve/reject 等需要直接发送指定文本的场景调用，绕过 input 状态。
+  function handleSendText(text) {
+    if (!text || !text.trim()) return;
+    setChatMessages(prev => [...prev, { id: 'usr_' + Date.now(), role: 'user', text }]);
 
     if (taskId && taskId !== 'demo') {
       const selectedIds = selectedCardId ? [selectedCardId] : [];
@@ -531,15 +537,20 @@ export default function Workspace() {
                       );
                     })}
                     <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button className="arb-option-btn" style={{ background: 'var(--clr-red-soft)', color: 'var(--clr-red)' }} onClick={async () => {
-                        await apiPost(`/api/canvas/workspaces/${taskId}/confirmations/${proposal.proposal_id}/reject`, {});
-                        loadCanvasData(taskId);
+                      <button className="arb-option-btn" style={{ background: 'var(--clr-red-soft)', color: 'var(--clr-red)' }} onClick={() => {
+                        // L3 规格：确认/拒绝必须走普通 Chat 消息触发，不通过 REST 路由直接写入。
+                        // 拒绝的实质是不确认并给出新方向，由用户在 Chat 中补充理由后发送。
+                        const reason = window.prompt('请简要说明拒绝理由（将作为新方向提交到对话）', '不同意，需要调整方案');
+                        if (!reason) return;
+                        setConfirmations([]);
+                        handleSendText(reason);
                       }}>
                         拒绝提案
                       </button>
-                      <button className="arb-option-btn" onClick={async () => {
-                        await apiPost(`/api/canvas/workspaces/${taskId}/confirmations/${proposal.proposal_id}/approve`, {});
-                        loadCanvasData(taskId);
+                      <button className="arb-option-btn" onClick={() => {
+                        // L3 规格：同意也走普通 Chat 消息触发，service._is_explicit_confirmation 识别确认意图。
+                        setConfirmations([]);
+                        handleSendText('确认按这个提案执行');
                       }}>
                         同意应用
                       </button>

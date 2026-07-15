@@ -672,6 +672,189 @@ class CanvasService:
             "todo_projection": todo_projection.to_dict(),
         }
 
+    def create_card(
+        self,
+        workspace_id: str,
+        kind: str,
+        title: str,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        source_refs: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """用户在画布上直接新增卡片。
+
+        L3 规格：对象类型不可绕过校验，kind 必须是五类合法枚举之一；
+        status 取该类型的默认初始状态，不允许调用方传入。
+        本方法只承载展示字段，不涉及业务状态升级，故无需 Chat 确认。
+        metadata 仅承载展示辅助信息（如 section_hint），不写入业务状态。
+        """
+
+        workspace = self.get_workspace(workspace_id)
+        # 拒绝旧 handoff/option 等已下线类型，强制走 L3 五类合法枚举
+        try:
+            card_kind = CanvasCardKind(kind)
+        except ValueError as exc:
+            raise ValueError(f"unsupported canvas card kind: {kind}") from exc
+        card_metadata = {"created_by": "user", "source": "manual_create"}
+        if metadata:
+            card_metadata.update(metadata)
+        card = CanvasCard(
+            card_id=f"card_{uuid4().hex[:10]}",
+            kind=card_kind,
+            title=str(title).strip(),
+            summary=str(summary or "").strip(),
+            tags=[str(tag).strip() for tag in (tags or []) if str(tag).strip()],
+            source_refs=list(source_refs or []),
+            metadata=card_metadata,
+        )
+        cards = self.repository.load_cards(workspace_id)
+        cards.append(card)
+        proposal = CanvasMutationProposal(
+            proposal_id=f"proposal_{uuid4().hex[:12]}",
+            workspace_id=workspace_id,
+            turn_id=f"turn_user_create_{uuid4().hex[:8]}",
+            mutations=[
+                CanvasMutation(
+                    mutation_id=f"mutation_{uuid4().hex[:10]}",
+                    action=CanvasMutationAction.ADD,
+                    target=CanvasMutationTarget.CARD,
+                    target_id=card.card_id,
+                    payload={"card": card.to_dict()},
+                    metadata={"mutation_type": "user_manual_create"},
+                )
+            ],
+            status=CanvasMutationStatus.APPLIED,
+            metadata={"user_edit": True},
+        )
+        self._commit_canvas_state(
+            workspace,
+            cards,
+            self.repository.load_relations(workspace_id),
+            self.repository.load_handoff(workspace_id),
+            proposal,
+            None,
+        )
+        self.repository.append_proposal_history(workspace_id, proposal)
+        todo_projection = self._build_todo_projection(workspace_id, cards)
+        self._touch_workspace(workspace)
+        self._publish_event(
+            workspace_id,
+            "canvas.card.created",
+            {
+                "workspace_id": workspace_id,
+                "card_id": card.card_id,
+                "card": card.to_dict(),
+            },
+            status="created",
+        )
+        return {
+            "workspace_id": workspace_id,
+            "card": card.to_dict(),
+            "todo_projection": todo_projection.to_dict(),
+        }
+
+    def delete_card(self, workspace_id: str, card_id: str) -> Dict[str, Any]:
+        """用户在画布上直接删除卡片。
+
+        L3 规格：对象不物理删除，按 kind 派生 archive/superseded 终态；
+        稳定态卡片删除视为治理动作，仍走终态归档以保留可追溯性。
+        关联关系在归档后由调用方或后续回合清理，本方法只负责对象状态。
+        """
+
+        workspace = self.get_workspace(workspace_id)
+        cards = self.repository.load_cards(workspace_id)
+        target_card: Optional[CanvasCard] = None
+        for card in cards:
+            if card.card_id == card_id:
+                target_card = card
+                break
+        if target_card is None:
+            raise CanvasCardNotFoundError(card_id)
+        kind_value = (
+            target_card.kind.value if hasattr(target_card.kind, "value") else str(target_card.kind)
+        )
+        # 约束卡归档走 superseded，其余走 archived，与稳定态替代规则一致
+        if kind_value == "constraint":
+            target_card.status = "superseded"
+        else:
+            target_card.status = "archived"
+        target_card.metadata = {
+            **dict(target_card.metadata or {}),
+            "archived_by": "user",
+            "archived_at": utc_now_iso(),
+        }
+        proposal = CanvasMutationProposal(
+            proposal_id=f"proposal_{uuid4().hex[:12]}",
+            workspace_id=workspace_id,
+            turn_id=f"turn_user_delete_{uuid4().hex[:8]}",
+            mutations=[
+                CanvasMutation(
+                    mutation_id=f"mutation_{uuid4().hex[:10]}",
+                    action=CanvasMutationAction.UPDATE,
+                    target=CanvasMutationTarget.CARD,
+                    target_id=card_id,
+                    payload={"status": target_card.status, "metadata": dict(target_card.metadata)},
+                    metadata={"mutation_type": "user_manual_delete"},
+                )
+            ],
+            status=CanvasMutationStatus.APPLIED,
+            metadata={"user_edit": True},
+        )
+        self._commit_canvas_state(
+            workspace,
+            cards,
+            self.repository.load_relations(workspace_id),
+            self.repository.load_handoff(workspace_id),
+            proposal,
+            None,
+        )
+        self.repository.append_proposal_history(workspace_id, proposal)
+        todo_projection = self._build_todo_projection(workspace_id, cards)
+        self._touch_workspace(workspace)
+        self._publish_event(
+            workspace_id,
+            "canvas.card.deleted",
+            {
+                "workspace_id": workspace_id,
+                "card_id": card_id,
+                "card": target_card.to_dict(),
+            },
+            status="deleted",
+        )
+        return {
+            "workspace_id": workspace_id,
+            "card_id": card_id,
+            "card": target_card.to_dict(),
+            "todo_projection": todo_projection.to_dict(),
+        }
+
+    def list_chat_confirmation_proposals(
+        self, workspace_id: str
+    ) -> Dict[str, Any]:
+        """返回当前所有尚待普通 Chat 明确确认的高影响提议投影。
+
+        仅作只读投影，不产生新的确认路径；确认仍由普通 Chat 消息触发。
+        """
+
+        self.get_workspace(workspace_id)
+        items: List[Dict[str, Any]] = []
+        for proposal in self.repository.load_proposal_history(workspace_id):
+            if (
+                proposal.status == CanvasMutationStatus.PENDING_CONFIRMATION
+                and proposal.metadata.get("awaiting_chat_confirmation")
+            ):
+                items.append(
+                    {
+                        "proposal_id": proposal.proposal_id,
+                        "turn_id": proposal.turn_id,
+                        "risk_level": proposal.risk_level.value,
+                        "mutations": [mutation.to_dict() for mutation in proposal.mutations],
+                        "metadata": dict(proposal.metadata),
+                    }
+                )
+        return {"workspace_id": workspace_id, "items": items}
+
     def patch_workspace(self, workspace_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
         """原地修订工作区本身的基础属性，例如 title。"""
         workspace = self.get_workspace(workspace_id)

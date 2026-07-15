@@ -19,7 +19,7 @@ import {
   Type,
 } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS, DEMO_PERSONA_AVATARS } from './demoScenario.js';
-import { apiPost, apiDelete, apiUrl } from '../../api';
+import { apiPost, apiPatch, apiDelete, apiUrl } from '../../api';
 import {
   applyConnectionToSections,
   buildConnectionPortMap,
@@ -1720,8 +1720,11 @@ export default function Canvas({
       if (card.kind === 'problem') sectionKey = 'problems';
       else if (card.kind === 'clarification') sectionKey = 'clarify';
       else if (card.kind === 'constraint') sectionKey = 'rules';
-      else if (card.kind === 'decision' || card.kind === 'option') sectionKey = 'options';
-      else if (card.kind === 'handoff') sectionKey = 'planning';
+      else if (card.kind === 'decision' || card.kind === 'option') {
+        // L3 规格：handoff 不是对象类型，planning section 的卡片在后端统一存为 decision。
+        // 通过 metadata.section_hint 区分其归属 section，未标记时默认归 options。
+        sectionKey = card.metadata?.section_hint === 'planning' ? 'planning' : 'options';
+      }
 
       const mappedTags = (card.tags || []).map(t => {
         let col = 'slate';
@@ -2530,11 +2533,11 @@ export default function Canvas({
 
     if (workspaceId && workspaceId !== 'demo') {
       try {
-        await apiPost(`/api/canvas/workspaces/${workspaceId}/cards/${cardId}`, {
+        // L3 规格：patch_card 只接受展示字段 title/summary/tags，kind/status 不可写。
+        // 稳定态卡片修订会触发 409 chat_confirmation_required，由调用方按需引导走 Chat 流。
+        await apiPatch(`/api/canvas/workspaces/${workspaceId}/cards/${cardId}`, {
           title: field === 'title' ? newValue : targetCard.title,
           summary: field === 'desc' ? newValue : targetCard.desc,
-          kind: targetCard.kind,
-          status: targetCard.status,
         }, null);
         if (onRefresh) onRefresh();
       } catch (err) {
@@ -2657,7 +2660,8 @@ export default function Canvas({
     else if (kind === 'clarify') backendKind = 'clarification';
     else if (kind === 'rules') backendKind = 'constraint';
     else if (kind === 'options') backendKind = 'decision';
-    else if (kind === 'planning') backendKind = 'handoff';
+    else if (kind === 'planning') backendKind = 'decision';
+    // L3 规格：handoff 不是对象类型，planning section 复用 decision 类型承载待决策项。
 
     const tempId = `temp-${Date.now()}`;
     const newLocalCard = {
@@ -2683,12 +2687,17 @@ export default function Canvas({
 
     if (workspaceId && workspaceId !== 'demo') {
       try {
-        const res = await apiPost(`/api/canvas/workspaces/${workspaceId}/cards`, {
+        // L3 规格：stage 字段已下线，不再传给后端；kind 必须是五类合法枚举之一。
+        // planning section 用 section_hint 标记归属，后端统一存为 decision 类型。
+        const payload = {
           kind: backendKind,
           title,
           summary: desc,
-          stage: mapSectionToBackendStage(kind)
-        });
+        };
+        if (kind === 'planning') {
+          payload.metadata = { section_hint: 'planning' };
+        }
+        const res = await apiPost(`/api/canvas/workspaces/${workspaceId}/cards`, payload);
         if (res && res.card_id) {
           setCardOffsets(prev => {
             const next = { ...prev };

@@ -38,6 +38,25 @@ class CanvasCardPatchRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 
+class CanvasCardCreateRequest(BaseModel):
+    """画布卡片新建请求，仅承载展示字段。
+
+    L3 规格：kind 必须是五类合法枚举之一；status 由后端按类型默认值写入，
+    不允许调用方传入；stage 字段已下线，不再接受。
+    metadata 仅承载展示辅助信息（如 section_hint），不写入业务状态。
+    """
+
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    title: constr(strip_whitespace=True, min_length=1, max_length=200)
+    summary: str = ""
+    tags: Optional[List[str]] = None
+    source_refs: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 class CanvasRelationCreateRequest(BaseModel):
     """画布卡片关系创建请求，用于显性化卡片之间的语义连接。"""
 

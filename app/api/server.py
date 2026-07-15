@@ -31,6 +31,7 @@ except Exception:  # pragma: no cover - 允许在无 fastapi 等 Web 依赖时�
     Body = DummyBody()
 
 from app.api.canvas_schemas import (
+    CanvasCardCreateRequest,
     CanvasCardMoveRequest,
     CanvasCardPatchRequest,
     CanvasMessageRequest,
@@ -374,6 +375,45 @@ def create_app(task_service: TaskService | None = None):
                     "message": str(exc),
                 },
             )
+        except CanvasCardNotFoundError:
+            raise HTTPException(status_code=404, detail="canvas card not found")
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/confirmations")
+    async def list_canvas_confirmations(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        # L3 只读投影：返回尚待普通 Chat 明确确认的高影响提议。
+        # 确认仍由普通 Chat 消息触发，本路由不产生新的确认路径。
+        return canvas_service.list_chat_confirmation_proposals(workspace_id)
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/cards")
+    async def create_canvas_card(
+        workspace_id: str,
+        request: CanvasCardCreateRequest,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.create_card(
+                workspace_id=workspace_id,
+                kind=request.kind,
+                title=request.title,
+                summary=request.summary,
+                tags=request.tags,
+                source_refs=request.source_refs,
+                metadata=request.metadata,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.delete("/api/canvas/workspaces/{workspace_id}/cards/{card_id}")
+    async def delete_canvas_card(
+        workspace_id: str,
+        card_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        try:
+            return canvas_service.delete_card(workspace_id, card_id)
         except CanvasCardNotFoundError:
             raise HTTPException(status_code=404, detail="canvas card not found")
 

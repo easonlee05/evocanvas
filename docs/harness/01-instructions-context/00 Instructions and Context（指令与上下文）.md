@@ -52,12 +52,7 @@ System Message 与 Runtime Developer Message 中的指令分区是模型可见�
 
 ## 4. 当前稳定结论
 
-1. 主对话不采用 `System Base / Stage Prompt / Object Prompt / Receipt Prompt` 四模块设计。
-2. 稳定产品原则进入 System Message；动态权限、能力、工具规则和独立标记的当前结构化包进入 Runtime Developer Message。
-3. 结构化包是受治理的上下文数据，不是新的行为指令；用户输入保持原样并与运行时数据分开传入。
-4. 主对话保持正常 Chat 体验，不要求每轮套用固定回执结构。
-5. 阶段、对象、结构化包生成、画布显影和治理放行不由主对话 Prompt 编排。
-6. System Prompt 的具体长度暂不冻结，应在形成初稿并完成评测后再决定。
+主对话 Prompt 架构已完成首轮收敛。设计结论以 [Prompt Control（提示控制）](./05%20Prompt%20Control%EF%BC%88%E6%8F%90%E7%A4%BA%E6%8E%A7%E5%88%B6%EF%BC%89.md) 为权威，本节不再重述规则。
 
 ## 5. 核心阅读入口
 

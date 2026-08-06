@@ -81,6 +81,28 @@ started / applied / duplicate / stale / failed / unknown
 - `unknown` 必须先查询提交结果，不能直接重试。
 - 提交尝试失败不回退或改写已经完成的 Chat。
 
+### 3.5 Structured Package Input 派生快照
+
+Structured Package Input 是运行期派生快照，不是第五类权威记录，也不拥有独立业务状态机。
+
+1. 同一 `package_id + package_version + state_version + assembly_policy_version` 在关联推进链中只生成一份不可变快照。
+2. Chat、实际调用模型的判断与收敛共用该快照的 ID 和内容哈希，不每次重建。
+3. 关联判断以 `skip / defer / failed` 终止且未创建收敛回合，或关联收敛回合进入任一技术终态后，该推进链视为终止。
+4. 推进链终止后，快照正文可按保留策略过期或物理清理；输入 ID、内容哈希、Context Manifest、装配策略版本和权威引用继续保留。
+5. 快照过期不改变包版本、状态账本、对象地位或画布投影，也不触发新收敛。
+6. 活跃期间快照丢失时，可从 Manifest 所指权威版本、来源和装配策略重建；只有内容哈希相同才能继续原推进链，否则关联收敛不得稳定写入。
+
+### 3.6 History Compaction Artifact（历史压缩产物）
+
+History Compaction Artifact 是模型可见历史的运行期派生表示，不是业务事实、确认记录或结构化包版本。
+
+1. Conversation History 命中 Token 触发线时，基于明确的原始消息范围生成一份不可变压缩产物。
+2. 新压缩产物成为后续调用的活动检查点；旧压缩产物保留 Trace 引用，但不与新产物重复进入模型工作面。
+3. 压缩不删除、合并或改写原始 `user / assistant / tool` 消息；原始记录继续用于回放、确认取证与精确复水。
+4. 压缩产物可以随运行保留策略过期，但 `history_compaction_id`、来源消息范围、内容哈希、压缩策略版本和 Context Manifest 引用继续保留。
+5. 活动压缩产物丢失时，只能从 Manifest 指向的原始消息范围和相同压缩策略重建；内容哈希不一致时不得冒充原产物。
+6. 供应商原生压缩项可以作为传输引用附着于该产物，但不能取代供应商中立的压缩记录或阻止后续切换 Adapter。
+
 ## 4. 结构化包生命周期
 
 一个活跃工作上下文保持稳定 `package_id`，每次正文发生结构化变化时创建不可变 `package_version`：
@@ -170,3 +192,5 @@ package_id
 - 画布出现对象不等于对象已经生效。
 - 已确认版本不等于当前版本不会继续演化。
 - 运行失败、取消或过时不抹除原始输入与 trace。
+- Structured Package Input 是可过期的运行期派生快照，其过期不删除权威包版本、来源、Manifest 或 Trace。
+- History Compaction Artifact 只替换模型可见历史表示，其生成或过期不删除原始消息，也不改变业务事实与确认状态。

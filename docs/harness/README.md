@@ -78,6 +78,7 @@ Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Li
 - `01-instructions-context/03 Context Assembly（上下文装配）.md`：定义上下文装配和复水规则。
 - `01-instructions-context/04 AI Assistant Working Surface（AI 助手工作面）.md`：定义右侧 AI 助手如何以正常 Chat 引导收敛，并与后台收敛回合协作。
 - `01-instructions-context/05 Prompt Control（提示控制）.md`：定义主对话 System、Runtime Developer 与 Raw User 三类指令面的职责、边界和写法。
+- `01-instructions-context/06 Context Budget and Compaction（上下文预算与压缩）.md`：L2 规格，定义已确认的 272K 共享上下文池、历史压缩阈值、分别记账规则，以及借鉴 Codex 但保留完整近期对话链的 History 压缩结果。
 
 - `02-memory-state/00 Memory and State（记忆与状态）.md`：L3 主文档，定义原始记录、不可变包版本和状态账本三类权威记录及其边界。
 - `02-memory-state/01 Memory（记忆）.md`：L3 规格，定义包身份、统一包 Schema、不可变版本、轻量索引、复水和保留策略。

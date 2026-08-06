@@ -153,7 +153,7 @@ started / applied / duplicate / stale / failed / unknown
 ### 4.1 正常 Chat
 
 1. 先持久化 User 消息并分配 `message_seq`。
-2. 创建 Chat 回合并读取当前结构化包与相关历史消息。
+2. 创建 Chat 回合并读取当前结构化包；Conversation History 读取完整活动窗口，达到 Token 阈值时先生成受治理的历史压缩产物，当前 Raw User Message 不重复进入历史。
 3. 按会话顺序生成主 Assistant 回复；读取类工具结果保存为原始 `tool` 消息。
 4. 持久化 Assistant 回复并结束 Chat 回合。
 5. 创建或更新后置判断请求。
@@ -309,6 +309,8 @@ projection.requested
 - `conversation_id`
 - `package_id`
 - `chat_turn_id`、`judgement_id`、`convergence_run_id`、`operation_id` 中适用的字段
+- `context_manifest_id`、`model_call_id` 中适用的字段
+- Adapter / 协议版本，以及供应商请求 ID、响应 ID 中可取得的字段
 - `message_seq` 或消息范围
 - `state_version`、`package_version` 中适用的字段
 - `created_at`
@@ -316,7 +318,34 @@ projection.requested
 
 事件用于追踪、通知和投影，不替代领域记录。
 
-## 11. 与现有底座的迁移关系
+## 11. 多供应商 Runtime Adapter
+
+EvoCanvas 1.0 将多供应商作为正式运行时能力。首批正式协议至少包括 OpenAI Responses API 与 Anthropic Messages API；后续供应商或兼容网关只有登记明确的 `provider_id`、`adapter_version`、`protocol_version` 与 `capability_profile_version`，并通过统一一致性套件后，才能加入正式支持矩阵。
+
+多供应商不产生多套上下文装配。Context Assembly 先按同一规则确定五个逻辑输入面、工具集合、输出 Schema 与调用约束，再把这些仍保持来源分离的输入直接交给选定 Adapter。它们不是通用供应商请求 DTO；Adapter 只负责：
+
+- 构造供应商原生临时请求，并映射角色、内容块和调用参数。
+- 映射工具定义、工具调用、工具结果与结构化输出约束。
+- 归一化流式事件、停止原因、用量、错误和供应商请求 / 响应 ID。
+- 暴露本 Adapter 与协议实际支持的能力，不用静默降级伪装完整支持。
+
+Adapter 不得重新选择、裁剪或总结 Conversation History，不得重建 Structured Package Input，不得改变 System、Runtime Developer、Structured Package Input 与 Raw User Message 的逻辑地位。不同供应商不保证生成相同文本，但必须接收语义等价、来源边界一致且可由 Context Manifest 解释的输入。
+
+共享 `context_budget_profile` 也由 Context Assembly 在 Adapter 之前确定。所有输入面、Tool / Schema 与模型输出共同受该档位约束；Adapter 只能按供应商协议计数并报告差异，不能建立供应商私有的 History 配额或静默使用更大的原生窗口。
+
+命中共享压缩线时，Runtime 只允许替换 Conversation History 的模型可见表示。System、Runtime Developer、Structured Package、Raw User Message 和本次 Tool / Schema 不参与压缩；若 History 已压到最低安全表示仍无法调用，Runtime 必须显式失败并重新装配，不能把其他输入面交给 Adapter 静默摘要或截断。
+
+一个供应商与协议版本只有同时满足以下条件，才算正式支持：
+
+1. 固定序列化样例覆盖五个逻辑输入面的存在性、顺序和来源隔离。
+2. 工具定义、工具调用与工具结果可以完整往返，不丢失调用身份。
+3. 结构化输出约束、流式事件、停止原因、用量和错误可以归一化到运行时契约。
+4. Context Manifest、`model_call_id`、供应商、Adapter / 协议 / 能力配置版本及供应商 ID 可以完整关联。
+5. 不支持的能力会在调用前显式拒绝或选择已声明的降级路径，不在 Adapter 内静默改变任务语义。
+
+协议兼容声明本身不等于正式支持。现有 OpenAI-compatible、Anthropic 格式重试或备用模型逻辑属于迁移资产；在完成上述注册与测试前，不作为 EvoCanvas 1.0 的供应商保证。
+
+## 12. 与现有底座的迁移关系
 
 继续复用：
 
@@ -335,7 +364,7 @@ projection.requested
 
 旧能力通过适配器逐步迁移，不要求为了达到 L3 文档一次性重写全部代码。
 
-## 12. L3 验收场景
+## 13. L3 验收场景
 
 至少验证：
 
@@ -349,3 +378,12 @@ projection.requested
 8. Chat 中已有明确确认时，收敛直接写入正确信息地位，不二次审批。
 9. 确认不足时只保留候选或未决，不伪装成已确认。
 10. 画布投影失败不会回滚已提交事实，并可从事件重建。
+11. Conversation History 不按固定轮数裁剪；未命中阈值时保留完整活动窗口，命中阈值时生成可追溯的 History Compaction Artifact，原始消息仍完整保留。
+12. 引用工具调用或工具结果时会补齐最小完整工具链；压缩或复水后链条仍必须完整，缺失或超预算时记录遗漏与降级。
+13. 当前 Raw User Message 不会在 Conversation History 中重复出现；用户明确回指压缩前内容时复水精确原文，无法唯一解析时回到 Chat 澄清，而不是自动检索猜选。
+14. 相同权威状态、消息范围和装配策略在选择不同供应商时只执行一套 Context Assembly，并向各 Adapter 提供语义等价的五个逻辑输入面。
+15. 五个逻辑输入面以分离字段直接进入当前 Runtime Adapter，不创建通用请求 DTO；OpenAI Responses Adapter 生成临时 `ResponsesApiRequest`，Anthropic Adapter 生成临时 Messages API 原生请求，调用完成后均不持久化。
+16. Adapter 契约测试能发现字段遗漏、角色错映射、顺序漂移、Structured Package Input 被并入 Runtime Developer Message，以及 Adapter 擅自改变消息范围。
+17. OpenAI 与 Anthropic Adapter 都能完成工具调用往返、结构化输出、流式事件、停止原因、用量和错误归一化；未支持能力不会被静默忽略。
+18. Trace 能从 `context_manifest_id` 直接关联到 `model_call_id`、供应商、Adapter / 协议 / 能力配置版本及可取得的供应商请求 / 响应 ID，无需保存供应商原生请求、最终响应载荷或双层请求内容哈希。
+19. 未通过统一一致性套件的兼容网关、协议版本或备用模型不会被标记为正式支持供应商。

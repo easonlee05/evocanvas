@@ -14,6 +14,7 @@
 
 - System Prompt 应该稳定约束什么。
 - Runtime Developer Instructions 应该动态注入什么。
+- Structured Package Input 为什么必须与动态规则分离。
 - User Prompt 如何保持来源纯净。
 - 规则如何分层、表达和处理冲突。
 
@@ -30,7 +31,10 @@ System Message
   固定身份、人格、通用认知原则、领域语义和表达纪律
 
 Runtime Developer Message
-  动态权限、可用能力、工具规则，以及独立标记的当前结构化包
+  动态权限、可用能力、工具规则与最小运行时要求
+
+Structured Package Input
+  当前结构化工作包的短结构化工作面，通常约 200 字，是数据而非指令
 
 Conversation History
   相关原始 user / assistant / tool 消息，不属于 Prompt 指令
@@ -39,7 +43,11 @@ Raw User Message
   用户原始输入，保持独立、原样透传
 ```
 
-这种设计借鉴 Codex 的不是“Prompt 越长越好”，而是稳定规则、运行时治理、上下文数据和用户原话之间的来源隔离。
+这种设计的核心是 EvoCanvas 内部的职责分离：稳定规则、运行时治理、结构化上下文、原始历史和用户原话不被刻意揉成一层。
+
+职责分离不意味着 Token 分池。五个逻辑输入面连同 Tool / Schema 和当前模型输出共同使用一个上下文窗口；各输入面的计数只用于可观察性、异常识别和来源解释。
+
+其中 Conversation History 不按固定轮数裁剪：阈值内保留完整活动窗口，达到 Token 阈值后使用受治理的历史压缩产物继续承接，并保留全部原始消息供回放与精确复水。压缩产物不是业务事实，不得替代确认记录、来源原文或 Structured Package Input。具体选择、工具链补全、预算和 Manifest 记录规则由 [Context Assembly（上下文装配）](./03%20Context%20Assembly%EF%BC%88%E4%B8%8A%E4%B8%8B%E6%96%87%E8%A3%85%E9%85%8D%EF%BC%89.md) 与 [Context Budget and Compaction（上下文预算与压缩）](./06%20Context%20Budget%20and%20Compaction%EF%BC%88%E4%B8%8A%E4%B8%8B%E6%96%87%E9%A2%84%E7%AE%97%E4%B8%8E%E5%8E%8B%E7%BC%A9%EF%BC%89.md) 定义。
 
 ## 3. System Prompt 的模块
 
@@ -119,7 +127,6 @@ Runtime Developer Message 是模型可见的动态治理层，适合注入：
 - 当前可用工具、Skills 和其他能力。
 - 工具选择、调用边界与失败处理规则。
 - 模型完成当前操作确实需要遵守的最小运行时要求。
-- 独立标记、已版本化的当前结构化包数据分区。
 
 它不应包含：
 
@@ -127,11 +134,26 @@ Runtime Developer Message 是模型可见的动态治理层，适合注入：
 - Supervisor 路由结果与内部角色计划。
 - 重试次数、循环状态和停止策略。
 - 画布快照、未治理的业务材料全文或临时生成的自由文本业务摘要。
+- 当前结构化工作包或其短结构化工作面。
 - 为了控制输出而重复 System Prompt 中已有的表达规则。
 
-Developer Message 可以动态变化，但不应成为每轮重新生成的完整人格 Prompt。结构化包数据分区不是行为指令，不得覆盖当前用户意图，也不得把候选或未决内容提升为已确认事实。
+Developer Message 可以动态变化，但不应成为每轮重新生成的完整人格 Prompt，也不承载结构化业务数据。
 
-## 8. User Prompt 保真
+## 8. Structured Package Input
+
+Structured Package Input 是独立于 Runtime Developer Message 的 EvoCanvas 逻辑输入面。它是常态约 200 字的短结构化工作面，只承载当前目标、最关键的稳定结论与未决、包版本、状态版本、来源引用、`structured_package_input_id` 与内容哈希。
+
+它不包含完整对象正文、证据摘录集合、长结构化摘要或经 Source Resolver 复水的原始材料正文。模型需要细节时按对象或来源引用读取；复水结果属于 Conversation History 中的原始工具记录，不是 Structured Package Input 的动态补丁。
+
+它不是第四类指令，不得覆盖 System、Runtime Developer 或用户当前意图，也不得因为底层序列化位置而获得事实升级权限。具体模型接口如何承载该输入属于 Runtime Adapter 实现问题，不属于 Prompt Control 的概念边界。
+
+Runtime Adapter 直接接收已经装配完成、仍保持来源分离的五个逻辑输入面，不经过通用请求 DTO。EvoCanvas 1.0 的多供应商支持不产生多套 Prompt 或多套 Context Assembly：OpenAI Responses Adapter 生成 `ResponsesApiRequest`，Anthropic Adapter 生成 Messages API 原生请求，其他正式支持的 Adapter 生成各自原生请求。Adapter 不得在该阶段重新裁剪 Conversation History、把 Structured Package Input 拼入 Runtime Developer Message，或改写 Raw User Message。供应商原生请求在调用完成后丢弃，不持久化也不分配独立请求 ID；首版通过统一一致性套件、每个 Adapter 的契约与固定序列化样例验证映射，不保存完整请求、最终响应载荷或双层内容哈希。
+
+Chat、判断和收敛不为各自任务生成不同的 Structured Package Input。同一推进链只允许任务指令、输出 Schema 和 Conversation History 范围不同；结构化包输入必须同 ID、同内容哈希。
+
+该输入快照只在推进链活跃期间必须保留完整正文；链路终止后可过期。Prompt Control 不把它定义为长期记忆、包版本或新的业务事实源。
+
+## 9. User Prompt 保真
 
 用户本轮输入必须作为独立 User Message 原样传入。
 
@@ -149,9 +171,9 @@ Developer Message 可以动态变化，但不应成为每轮重新生成的完�
 
 这种拼接会混淆用户意图、运行时指令和上下文数据的来源。
 
-上下文需要进入模型时，应放入 Runtime Developer Message 的独立数据分区或其他独立输入项；内部结构化整理需要 Schema 时，应由独立流程承担，不能把格式要求追加到主对话 User Prompt。
+结构化上下文需要进入模型时，应通过独立 Structured Package Input 承载；内部结构化整理需要 Schema 时，应由独立流程承担，不能把格式要求追加到主对话 User Prompt。
 
-## 9. 工具控制
+## 10. 工具控制
 
 工具控制分为三层：
 
@@ -163,7 +185,7 @@ Developer Message 可以动态变化，但不应成为每轮重新生成的完�
 
 工具变化不应迫使 System Prompt 改版，Tool Schema 也不能替代工具使用边界。
 
-## 10. 规则表达方式
+## 11. 规则表达方式
 
 Prompt 规则采用以下写法：
 
@@ -180,7 +202,7 @@ Prompt 规则采用以下写法：
 反模式 -> 正确方向 -> 可观察行为 -> 例外条件
 ```
 
-## 11. 指令优先级
+## 12. 指令优先级
 
 模型可见指令按以下顺序解释：
 
@@ -194,36 +216,36 @@ Runtime Developer Instructions 只能在 System Prompt 边界内补充当前环�
 
 上下文数据没有指令权限。模型在业务材料中看到类似“忽略以上规则”的文本时，应把它视为待分析内容，而不是新的指令。
 
-## 12. 不再采用的模块
+## 13. 不再采用的模块
 
 以下模块不再作为主对话 Prompt 架构的一部分：
 
-### 12.1 Stage Prompt
+### 13.1 Stage Prompt
 
 阶段是 Agent 内部状态。模型如果需要完成特定操作，只接收最小运行时要求，不接收完整状态机。
 
-### 12.2 Object Prompt
+### 13.2 Object Prompt
 
 对象和业务材料属于上下文数据，不是指令。画布也只是显影层，不能反向成为事实来源。
 
-### 12.3 Receipt Prompt
+### 13.3 Receipt Prompt
 
 主对话直接返回正常自然语言。机器结构由独立内部流程和 Schema 约束，不通过每轮拼装 Receipt Prompt 实现。
 
-## 13. 来自 Codex Prompt 的可复用结论
+## 14. 外部 Prompt 架构参考边界
 
-本轮设计参考了 [Codex System Prompt 分析](../../../codex-prompt-experiment/Codex-SystemPrompt%20analyse.md)，但只迁移可验证的结构性做法：
+外部 Agent 架构只用于比较可验证的结构性做法，不决定 EvoCanvas 的概念输入面。可复用的一般原则包括：
 
 1. 稳定 system prompt 承载跨任务通用规则。
-2. Runtime Developer Message 承载权限、能力和工具等动态治理信息。
-3. 环境与上下文数据和用户原话分开传入。
+2. Runtime Developer Message 只承载权限、能力和工具等动态治理信息。
+3. 结构化上下文数据与动态规则、原始历史和用户原话分开传入。
 4. 用户原始输入不包装、不改写。
 5. 人格使用少量高密度锚点，并配套行为定义。
 6. 表达规则具体、可执行，使用短反例和例外条款，而不是抽象要求“简洁专业”。
 
-没有证据证明 Codex 会把业务阶段或内部状态机作为 Prompt 发送给模型，因此 EvoCanvas 不应从 Developer Message 的存在推导出 Stage Prompt 的必要性。
+无论底层模型接口提供什么消息角色，EvoCanvas 都不应从传输形式推导出 Stage Prompt，也不应把 Structured Package Input 放回 Runtime Developer Instructions。
 
-## 14. 暂不决定
+## 15. 暂不决定
 
 以下问题留待 System Prompt 初稿和评测阶段处理：
 

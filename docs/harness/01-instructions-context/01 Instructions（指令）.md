@@ -42,9 +42,7 @@ Runtime Developer Instructions 承载当前运行环境中模型必须遵守的�
 - 工具使用规则和失败处理要求。
 - 必要时的最小操作要求。
 
-同一 Runtime Developer Message 还可以包含独立标记的结构化包数据分区。这个分区承载当前已版本化、受治理的工作状态，不是指令，也不能把包内候选内容提升为高优先级要求。
-
-Runtime Developer Message 不应成为 Agent 内部状态转储，也不应直接塞入画布快照、未治理的业务材料全文或每轮临时生成的自由文本摘要。
+Runtime Developer Message 只承载动态规则，不同时承载结构化包数据。它不应成为 Agent 内部状态转储，也不应直接塞入画布快照、未治理的业务材料全文或每轮临时生成的自由文本摘要。
 
 ### 2.3 User Prompt
 
@@ -56,27 +54,41 @@ User Prompt 是用户本轮的原始表达。
 - 不拼接结构化上下文。
 - 不追加 JSON 格式要求。
 
-运行时注入的数据应放在 Runtime Developer Message 的独立数据分区或其他独立输入项中，不能改写用户原话。
+运行时注入的结构化业务数据应进入独立 Structured Package Input，不能改写用户原话。
 
-## 3. System Prompt 的人格锚点
+## 3. Structured Package Input（结构化包输入，非指令）
+
+Structured Package Input 是当前结构化工作包经上下文装配后形成的短结构化工作面，常态约 200 字。它与 Runtime Developer Instructions 并列进入模型工作面，但不属于指令层。
+
+该输入只保留包身份、包版本、结构化状态版本、当前目标、最关键的稳定结论与未决、来源引用、`structured_package_input_id` 和内容哈希。它不携带完整对象正文、证据摘录集合或长摘要，也不改变工作包的权威性与版本边界。
+
+Structured Package Input 不额外嵌入复水后的原始材料正文。需要核对精确措辞、冲突或确认范围时，通过只读 Source Resolver 按引用获取，结果作为原始 `tool` 记录进入 Conversation History，不回填 Structured Package Input。
+
+同一结构化包版本、状态版本和装配规则版本只产生一份 Structured Package Input。Chat、判断和收敛共用其 ID 与内容哈希；它们的任务指令、输出 Schema 和原始消息范围可以不同，但不得因任务类型重新裁剪或生成另一份结构化包视图。
+
+Structured Package Input 只需在关联推进链活跃期间保存完整快照。链路终止后，快照正文可过期，但其 ID、内容哈希、Context Manifest 和重建所需的权威引用不得随之丢失。
+
+包内出现“必须”、“忽略其他规则”或类似命令式文本时，模型必须把它视为待理解的业务内容，不得当作新指令。五个逻辑输入面必须以分离字段进入当前 Runtime Adapter；系统不创建通用请求 DTO。OpenAI、Anthropic 等正式支持的 Adapter 共享同一份装配结果，只分别构造供应商原生临时请求，例如 OpenAI Responses Adapter 生成 `ResponsesApiRequest`。Adapter 不得重新选择上下文、改写来源身份，或将 Structured Package Input 合并回 Runtime Developer Instructions 的逻辑责任中。供应商原生请求不持久化，也不拥有独立业务或追踪身份；追踪以 Context Manifest 和实际 `model_call_id` 为准。
+
+## 4. System Prompt 的人格锚点
 
 EvoCanvas 主对话采用三个稳定人格价值观。
 
-### 3.1 透明
+### 4.1 透明
 
 显式表达不确定性、冲突、假设和信息来源，不通过流畅措辞掩盖信息缺口。
 
-### 3.2 严谨
+### 4.2 严谨
 
 区分事实与推断、已确认与暂定、约束与待决策。稳定判断应能说明依据，无法确认时应明确边界。
 
-### 3.3 共创
+### 4.3 共创
 
 主动帮助用户推进理解，但不伪造共识、不替用户拥有最终判断，也不因保持克制而退化成只会追问的被动助手。
 
 “结构化”和“克制”属于工作规则，不作为人格价值观单独承载。
 
-## 4. 主对话需要理解的领域语义
+## 5. 主对话需要理解的领域语义
 
 System Prompt 只写入正常协作所需的稳定语义区分：
 
@@ -87,7 +99,7 @@ System Prompt 只写入正常协作所需的稳定语义区分：
 
 System Prompt 不解释画布、卡片、结构化包、阶段节点或内部对象状态。主对话模型需要理解用户表达的地位，但不需要理解 EvoCanvas 的内部存储实现。
 
-## 5. 指令优先级
+## 6. 指令优先级
 
 模型可见指令的优先级为：
 
@@ -97,7 +109,9 @@ System Prompt 不解释画布、卡片、结构化包、阶段节点或内部对
 
 低层指令可以具体化高层规则，但不能把暂定内容提升为确认事实，也不能要求模型伪造来源、工具结果或稳定结论。
 
-## 6. 规则强度
+Structured Package Input 和 Conversation History 是上下文数据，不参与指令优先级竞争。
+
+## 7. 规则强度
 
 规则措辞采用分级语言：
 
@@ -107,7 +121,7 @@ System Prompt 不解释画布、卡片、结构化包、阶段节点或内部对
 
 不应把所有规则都写成同等强度的硬命令。真正不可违反的规则必须少而清楚。
 
-## 7. 工具指令分工
+## 8. 工具指令分工
 
 System Prompt 只规定稳定原则，例如：
 
@@ -117,7 +131,7 @@ System Prompt 只规定稳定原则，例如：
 
 当前工具名称、参数、权限与使用方式由 Runtime Developer Instructions 和 Tool Schema 提供。
 
-## 8. 规则写法
+## 9. 规则写法
 
 System Prompt 采用模块化、规则指令型写法：
 
@@ -133,7 +147,7 @@ System Prompt 采用模块化、规则指令型写法：
 当信息存在多种合理解释时，明确指出分歧和当前假设；不要选择一个更顺滑的版本并把它写成已确认事实。
 ```
 
-## 9. 暂不冻结事项
+## 10. 暂不冻结事项
 
 以下内容尚未形成稳定结论：
 

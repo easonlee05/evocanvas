@@ -49,7 +49,7 @@ draft / pending_confirmation / confirmed / outdated
 5. 仍未解决的问题引用。
 6. 待确认决策引用。
 7. 推荐后续动作及其对象、来源引用。
-8. 当前里程碑依据，可空。
+8. 当前里程碑依据（1.0 不实现，字段预留恒空）。
 
 交接视图不得复制对象正文成为第二份可独立编辑内容。需要更新正文时，修改源对象并创建新包版本；视图随后重算。
 
@@ -75,7 +75,7 @@ draft / pending_confirmation / confirmed / outdated
 - 交接目标和使用范围。
 - 用户认可的核心内容或模块。
 - 仍存未决与风险。
-- Assistant 提议和 User 确认消息引用。
+- 确认依据：可来自「Assistant 提议后 User 明确确认」路径（`proposal_message_refs` 必填），或 User 主动给出的明确、完整且带范围的直接陈述（`proposal_message_refs` 可空）。含糊、保留、举例或范围不明的表达不构成有效确认。
 
 正常 Chat 已经完成上述确认时，收敛回合可以在同一原子提交中创建版本、记录确认并推进 `latest_confirmed_version`，不再要求用户确认“是否生成交接物”。
 

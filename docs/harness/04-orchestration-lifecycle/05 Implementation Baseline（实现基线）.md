@@ -58,9 +58,35 @@ no_committable_change
 insufficient_confirmation_scope
 insufficient_source
 conflict_preserved
-rejected_by_policy
-base_version_changed
+rejected_by_governance
 ```
+
+`base_version_changed` 不是业务正常结束原因；版本检查失败进入技术 `stale`（见 §4）。
+
+**原因码 → 业务结果映射：**
+
+| 原因码 | 业务结果 | 说明 |
+| --- | --- | --- |
+| `already_covered` | `no_change` | 增量已被当前包覆盖 |
+| `no_committable_change` | `no_change` | 无新业务语义或结构变化 |
+| `insufficient_confirmation_scope` | `not_ready` | 有待升级目标但确认不足 |
+| `insufficient_source` | `not_ready` | 有待升级目标但来源不足 |
+| `conflict_preserved` | `applied` | 冲突已作为候选或标记提交 |
+| `rejected_by_governance` | `rejected_by_governance` | 治理裁决拒绝 |
+
+`no_change` = 无可推进目标；`not_ready` = 有目标但条件未满足。
+
+**具体判定时机（提案生成步骤完成后）：**
+
+```
+提案生成结果
+├── 产出零个可提交目标 → no_change（原因码 already_covered 或 no_committable_change）
+└── 产出一个或多个目标
+    ├── 所有目标均被验证 / 门禁拒绝 → not_ready（原因码 insufficient_confirmation_scope 或 insufficient_source）
+    └── 至少一个目标被放行 → applied（其余目标可降级）
+```
+
+`no_committable_change`（无新内容）与 `already_covered`（已被包覆盖）保留为两个独立原因码，均映射 `no_change`，不合并。
 
 ### 3.3 可配置参数
 
@@ -71,6 +97,21 @@ base_version_changed
 - 是否调用小模型的规则阈值。
 - 提案结构修复次数与时间预算。
 - 租约时长和恢复扫描间隔。
+
+**基线默认值（初版起点，上线后按评测调整）：**
+
+| 参数 | 默认值 |
+| --- | --- |
+| 连续消息短合并窗口 | 5 秒 |
+| 弱信号累积阈值 | 3 条消息 |
+| 调用小模型阈值 | 强信号直接触发；弱信号 ≥ 2 条才调用 |
+| 提案结构修复次数上限 | 2 次 |
+| 提案时间预算 | 10 秒 |
+| 收敛租约时长 | 30 秒 |
+| 心跳续租间隔 | 10 秒 |
+| 恢复扫描间隔 | 15 秒 |
+
+每次实际使用的参数版本必须写入 trace，保证可回放。收敛租约的续租与过期判定规则见 [Runtime §6](../03-runtime-tools/01%20Runtime%EF%BC%88%E8%BF%90%E8%A1%8C%E6%97%B6%EF%BC%89.md#6-并发与租约)。
 
 ## 4. 提交前必检
 
@@ -84,7 +125,7 @@ base_version_changed
 6. 部分放行后的操作依赖是否仍然完整。
 7. `operation_id` 是否已经提交。
 
-任一版本检查失败时整次提交进入 `stale`，不得把部分结果写入当前包。
+任一版本检查失败（规则 2、3）时，以 `base_version_changed` 为原因整次提交进入技术 `stale`，不得把部分结果写入当前包。
 
 ## 5. 迁移边界
 

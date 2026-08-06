@@ -55,14 +55,17 @@
 
 ### 4.2 对象准备升级状态
 
-包括进入：
+**对象状态升级**（对应 [State Ledger §4.1](../02-memory-state/02%20State%20Ledger%EF%BC%88%E7%8A%B6%E6%80%81%E8%B4%A6%E6%9C%AC%EF%BC%89.md) 的 `object_status` 枚举）：
 
-- 待确认
-- 已生效
-- 已决定
-- 已确认
-- 已过时
-- 已关闭 / 已阻塞 / 已澄清
+- `pending_confirmation`（待澄清、待决策适用）
+- `effective`（已生效，约束）
+- `decided`（已决定，待决策）
+- `clarified / closed / blocked`（已澄清 / 已关闭 / 已阻塞，待澄清）
+
+**包版本治理状态升级**（对应 [Handoff Governance §4](../05-safety-governance/06%20Handoff%20Governance%EF%BC%88%E4%BA%A4%E6%8E%A5%E7%89%A9%E6%B2%BB%E7%90%86%EF%BC%89.md) 的包版本治理状态）：
+
+- `confirmed`（已确认，包版本）
+- `outdated`（已过时，包版本）
 
 ### 4.3 高影响信息地位准备升级
 

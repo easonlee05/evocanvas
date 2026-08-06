@@ -127,6 +127,14 @@ created / running / succeeded / failed / denied / timed_out / cancelled
 
 Chat 中的读取工具结果必须先作为原始 `tool` 消息保存。只有后续收敛引用了其中与当前主题相关的部分，它们才进入来源或证据链。
 
+### 8.1 Source Resolver（来源解析器）
+
+Source Resolver 是读取与验证类的只读能力，用于按已存在的 `source_ref` 和具体位置取回需要核对的原始片段。它不接受自由业务语义作为新来源，不总结原文，也不裁决信息地位。
+
+最小输入包括 `source_ref`、位置或范围、期望内容指纹和读取上限；最小结果包括实际来源 ID、实际位置、原始片段或不可变数据引用、内容指纹、读取时间和结构化错误。
+
+Source Resolver 的结果必须先保存为原始 `tool` 消息或不可变工具结果，再进入 Conversation History 与 Context Manifest。它不回填 Structured Package Input，不因读取成功而自动生成证据对象，也不因读取失败而改写已有包快照。
+
 结构整理工具只能：
 
 - 形成结构化候选。

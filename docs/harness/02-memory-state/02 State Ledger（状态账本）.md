@@ -78,7 +78,9 @@ confirmation_withdrawn
 | 约束 `constraint` | `effective / superseded / archived` |
 | 待决策 `decision` | `pending_decision / pending_confirmation / decided / archived` |
 
-交接有效性属于包版本治理状态，不是第六类独立对象状态。画布中的交接物承接卡由包版本和 `handoff` 引用模块确定性投影。不得再维护一套可以独立修改的“通用卡片状态”；界面需要通用分组时，使用下述确定性映射。
+交接有效性属于包版本治理状态，不是第六类独立对象状态。画布中的交接物承接卡由包版本和 `handoff` 引用模块确定性投影。不得再维护一套可以独立修改的”通用卡片状态”；界面需要通用分组时，使用下述确定性映射。
+
+包版本治理状态（草稿中 / 待确认 / 已确认 / 已过时）不属于上述对象状态枚举；治理规则见 [Handoff Governance §4](../05-safety-governance/06%20Handoff%20Governance%EF%BC%88%E4%BA%A4%E6%8E%A5%E7%89%A9%E6%B2%BB%E7%90%86%EF%BC%89.md)。
 
 ### 4.2 通用治理地位
 
@@ -111,6 +113,8 @@ unverified / valid / warning / invalid
 1. 每次 `object_status_changed` 必须记录原状态、新状态、来源和原因。
 2. 对象进入 `effective / decided / clarified` 必须关联有效确认记录；包版本进入 `confirmed` 由独立包版本事件表达，也必须关联有效确认记录。
 3. Chat 已经包含完整确认时，同一原子提交可以创建处于稳定状态的对象；约束卡不得为了经过候选态而额外持久化 `draft` 或 `pending_confirmation`。
+
+   **注：`pending_confirmation` 持久化规则因对象类型而异。** 约束不得持久化（直接生效或回 Chat）；待澄清和待决策允许持久化 `pending_confirmation`，表示对象已具备足够信息但仍需用户确认范围。这与「不允许建立长期占用运行权的确认队列」（见 Gate Adjudication §8）不同——后者禁止的是阻塞运行时的确认队列，不禁止对象本身的待确认状态。
 4. 同提交升级不要求持久化一版等待确认的中间包，但账本事件顺序必须完整。
 5. 确认只覆盖明确范围；未覆盖字段和对象保持原状态。
 6. 替代、撤回和过时通过新事件表达，不删除旧事件。
@@ -161,6 +165,8 @@ unverified / valid / warning / invalid
 
 确认记录、治理事件、版本指针与 Outbox 必须一起成功或一起失败。纯治理提交同样使用 `operation_id`、目标版本和期望版本做幂等与过期校验。
 
+纯治理提交不推进 `state_version`；账本事件的 `state_version_before` 与 `state_version_after` 相等（取当前值）；`CommitAttempt` 的 `result_state_version` 和 `result_package_version` 为空。
+
 ### 7.3 当前版本
 
 `current_version` 总是指向当前 Chat 和收敛默认读取的最新工作版本。回退不是把指针直接拨回旧版本，而是基于旧版本创建一个新的当前版本。
@@ -182,7 +188,7 @@ unverified / valid / warning / invalid
 - 对象进入稳定或历史状态后，对应 Todo 失效。
 - 待澄清进入 `clarified / closed` 后退出主画布默认当前视图，但对象、确认和结果关系继续保留；重新打开后才恢复默认显影。
 - 待决策进入 `decided` 后退出 Active Todos，但继续作为稳定决策结构显影，直到重新打开、替代或归档。
-- 里程碑只消费一组对象状态变化，不独立宣布事实。
+- 里程碑投影 1.0 不实现；相关字段预留但不产出，不作为交接依据。
 - 交接模块只引用当前版本中真实存在的对象。
 
 投影失败时由 Outbox 重放或当前包版本重建，不追加虚假的事实事件。

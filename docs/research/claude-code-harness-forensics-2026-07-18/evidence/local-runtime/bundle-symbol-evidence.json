@@ -1,0 +1,21 @@
+{
+  "note": "Counts only prove symbol presence in the checked bundle, not public API stability.",
+  "source_path": "/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+  "source_sha256": "bc3358282800e3e99daa8e71ac5b7b1566bd0d7ca7eb94f714a7859365d3163f",
+  "symbols": {
+    "--bare": 3,
+    "InstructionsLoaded": 14,
+    "PermissionRequest": 85,
+    "PostCompact": 30,
+    "PostToolUse": 89,
+    "PostToolUseFailure": 25,
+    "PreCompact": 25,
+    "PreToolUse": 59,
+    "SessionStart": 40,
+    "ToolSearch": 39,
+    "autoCompact": 45,
+    "compact_boundary": 28,
+    "fileCheckpointingEnabled": 8,
+    "queryChainId": 33
+  }
+}

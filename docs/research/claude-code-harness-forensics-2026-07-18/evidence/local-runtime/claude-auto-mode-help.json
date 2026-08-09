@@ -1,0 +1,10 @@
+{
+  "command": [
+    "/usr/local/bin/claude",
+    "auto-mode",
+    "--help"
+  ],
+  "exit_code": 0,
+  "stderr": "",
+  "stdout": "Usage: claude auto-mode [options] [command]\n\nInspect auto mode classifier configuration\n\nOptions:\n  -h, --help          Display help for command\n\nCommands:\n  config              Print the effective auto mode config as JSON: your\n                      settings where set, defaults otherwise\n  critique [options]  Get AI feedback on your custom auto mode rules\n  defaults            Print the default auto mode environment, allow, and deny\n                      rules as JSON\n  help [command]      display help for command\n"
+}

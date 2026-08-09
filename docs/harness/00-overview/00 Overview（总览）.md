@@ -44,6 +44,21 @@ Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Li
 - 暴露不确定性
 - 让结构逐步成形
 
+### 2.1 系统架构视图与 Harness 视图
+
+[System Architecture（系统总架构）](<../../technical-specs/03 System Architecture（系统总架构）.md>) 用 User Interfaces、EvoCanvas Agent Core、Domain & Harness Rules、State & Projection、Tools & Providers、Evaluation Control Plane 六个一级子系统解释系统职责与依赖。
+
+Harness 则继续使用 Instructions、Context、Memory、Runtime、Tools、Orchestration、Lifecycle、Safety、Governance、Observability、Verification、Evaluation 十二项控制规格，解释这些系统能力如何被约束、验证和追溯。
+
+两种视图不得互相替代：
+
+- 系统架构图不把六个子系统变成六个 Harness 目录。
+- Harness 目录不要求和部署单元、代码包或页面模块一一对应。
+- 架构节点可以聚合多个 Harness 文档，但不能反向创造新对象、状态机、确认流或事实写入路径。
+- 架构节点的成熟度以完成其职责所需的最低成熟度为准；L2 语义不能借用相邻 L3 底座直接进入实现。
+
+节点和关键依赖的成熟度核对见 [Architecture Traceability（架构可追溯矩阵）](<../../technical-specs/04 Architecture Traceability（架构可追溯矩阵）.md>)。
+
 ## 3. 为什么不再用 ETCLOVG 作为主骨架
 
 `ETCLOVG` 是有价值的参考分类法，但它过于抽象，不适合直接充当 EvoCanvas 的文档主骨架。
@@ -51,7 +66,7 @@ Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Li
 本轮重构后：
 
 - `ETCLOVG` 保留在 `09-reference-models/`。
-- 主路径改为实践型 harness 架构。
+- Harness 文档主路径改为实践型控制规格结构。
 - 文档重点从“七层分类是否完整”转向“后端能力如何落地、如何分责、如何验证”。
 
 ## 4. EvoCanvas 1.0 的产品主链
@@ -94,6 +109,8 @@ Harness 的作用不是替用户直接生成完整 PRD，而是让这条收敛�
 
 ## 6. 核心阅读入口
 
+- [System Architecture（系统总架构）](<../../technical-specs/03 System Architecture（系统总架构）.md>)：定义六个一级子系统、控制权与系统级依赖。
+- [Architecture Traceability（架构可追溯矩阵）](<../../technical-specs/04 Architecture Traceability（架构可追溯矩阵）.md>)：区分已有 L3、L2、边界、目标假设与冲突。
 - [System Boundaries（系统边界）](./01%20System%20Boundaries%EF%BC%88%E7%B3%BB%E7%BB%9F%E8%BE%B9%E7%95%8C%EF%BC%89.md)：定义 1.0 做什么和不做什么。
 - [Core Object Model（核心对象模型）](./02%20Core%20Object%20Model%EF%BC%88%E6%A0%B8%E5%BF%83%E5%AF%B9%E8%B1%A1%E6%A8%A1%E5%9E%8B%EF%BC%89.md)：定义 harness 需要治理的核心对象。
 - [Main Runtime Loop（运行主链）](./03%20Main%20Runtime%20Loop%EF%BC%88%E8%BF%90%E8%A1%8C%E4%B8%BB%E9%93%BE%EF%BC%89.md)：定义一次受控推进如何发生。

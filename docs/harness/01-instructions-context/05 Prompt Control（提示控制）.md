@@ -20,6 +20,8 @@
 
 这里不讨论 Agent 的执行与编排，包括阶段推进、路由、结构化包生成时机、上下文压缩阈值、画布显影、治理放行和重试策略。
 
+本文也不定义 Policy / Prompt 的发布审批、灰度或回退流程。Prompt、Schema、装配策略和 Adapter 的版本引用用于选择、识别和追溯本次运行使用的制品或规则版本，不表示离线评估可以直接修改线上 Prompt、收敛规则或治理规则。离线评估的语义与权限边界见 [Evaluation（评估）](<../08-evaluation/00 Evaluation（评估）.md>)；架构节点和版本化发布依赖的成熟度统一见 [Architecture Traceability（架构可追溯矩阵）](<../../technical-specs/04 Architecture Traceability（架构可追溯矩阵）.md>)。
+
 ## 2. 核心架构
 
 EvoCanvas 不采用 `System Base / Stage Prompt / Object Prompt / Receipt Prompt` 四模块设计。

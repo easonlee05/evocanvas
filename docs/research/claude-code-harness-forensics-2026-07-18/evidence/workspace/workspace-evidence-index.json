@@ -1,0 +1,194 @@
+[
+  {
+    "claim": "产品定位",
+    "file_sha256": "bde45dc9dac36f07d3feeaccd0da979cd86a77a366834301a52834a9878edea9",
+    "id": "W-PRD-001",
+    "line_end": 16,
+    "line_start": 16,
+    "path": "docs/vision/EvoCanvas1.0-PRD.md"
+  },
+  {
+    "claim": "产品旅程与内层闭环",
+    "file_sha256": "bde45dc9dac36f07d3feeaccd0da979cd86a77a366834301a52834a9878edea9",
+    "id": "W-PRD-002",
+    "line_end": 107,
+    "line_start": 95,
+    "path": "docs/vision/EvoCanvas1.0-PRD.md"
+  },
+  {
+    "claim": "信任分级与约束候选",
+    "file_sha256": "bde45dc9dac36f07d3feeaccd0da979cd86a77a366834301a52834a9878edea9",
+    "id": "W-PRD-003",
+    "line_end": 1268,
+    "line_start": 1242,
+    "path": "docs/vision/EvoCanvas1.0-PRD.md"
+  },
+  {
+    "claim": "唯一状态与约束状态",
+    "file_sha256": "bde45dc9dac36f07d3feeaccd0da979cd86a77a366834301a52834a9878edea9",
+    "id": "W-PRD-004",
+    "line_end": 1897,
+    "line_start": 1838,
+    "path": "docs/vision/EvoCanvas1.0-PRD.md"
+  },
+  {
+    "claim": "十二层 Harness 公式",
+    "file_sha256": "ceb112486bf98873212b7627958a26876f3c2152d015c3d8151f20fcfb3653c4",
+    "id": "W-HARNESS-001",
+    "line_end": 40,
+    "line_start": 21,
+    "path": "docs/harness/README.md"
+  },
+  {
+    "claim": "L2/L3 文档成熟度清单",
+    "file_sha256": "ceb112486bf98873212b7627958a26876f3c2152d015c3d8151f20fcfb3653c4",
+    "id": "W-HARNESS-002",
+    "line_end": 115,
+    "line_start": 82,
+    "path": "docs/harness/README.md"
+  },
+  {
+    "claim": "四来源、预算裁剪与失败回退",
+    "file_sha256": "e412ea5c0dfa6af517e88b397bb272f73292565231811af1af7d43bf88b7d2b3",
+    "id": "W-CONTEXT-001",
+    "line_end": 72,
+    "line_start": 11,
+    "path": "docs/harness/01-instructions-context/03 Context Assembly（上下文装配）.md"
+  },
+  {
+    "claim": "Chat 到 operation 的追踪链",
+    "file_sha256": "d9b33449f8a6e2b90f493d710116b73c243002513c1737a1bc5f030ac8d33739",
+    "id": "W-TRACE-001",
+    "line_end": 83,
+    "line_start": 11,
+    "path": "docs/harness/06-observability/02 Trace Model（追踪模型）.md"
+  },
+  {
+    "claim": "L3 对象状态与约束确认规则",
+    "file_sha256": "7abfcbd8f47f69fcb2ce3e34d2506ee293b538ed83fae95f780312a395662ba3",
+    "id": "W-STATE-001",
+    "line_end": 116,
+    "line_start": 69,
+    "path": "docs/harness/02-memory-state/02 State Ledger（状态账本）.md"
+  },
+  {
+    "claim": "L3 约束卡治理边界",
+    "file_sha256": "71623de2c7a96eeaa06ee0ae2cab02d7143e6646d302ba79a68c0907ee1d3541",
+    "id": "W-GOV-001",
+    "line_end": 81,
+    "line_start": 66,
+    "path": "docs/harness/05-safety-governance/05 Object Governance（对象治理）.md"
+  },
+  {
+    "claim": "当前 Prompt 拼接",
+    "file_sha256": "b9ad1cc4d74eab3684968e7e4344e3a41d0ca98cade45725b203692c96bdcbdc",
+    "id": "W-CODE-001",
+    "line_end": 1129,
+    "line_start": 1040,
+    "path": "app/canvas/service.py"
+  },
+  {
+    "claim": "Supervisor 非真实 subagent 调度",
+    "file_sha256": "68293fd2d1db9c25b430a4192b9a628c4d33eb4c72cda2a7efcc95574c60c0ce",
+    "id": "W-CODE-002",
+    "line_end": 5,
+    "line_start": 1,
+    "path": "app/canvas/agent/supervisor.py"
+  },
+  {
+    "claim": "Supervisor 上下文拼接",
+    "file_sha256": "68293fd2d1db9c25b430a4192b9a628c4d33eb4c72cda2a7efcc95574c60c0ce",
+    "id": "W-CODE-003",
+    "line_end": 136,
+    "line_start": 45,
+    "path": "app/canvas/agent/supervisor.py"
+  },
+  {
+    "claim": "ToolSpec 声明",
+    "file_sha256": "90aa5e65f5423885f4352ba85754c96b96a5d962b2533d7858c909ab2b122615",
+    "id": "W-CODE-004",
+    "line_end": 41,
+    "line_start": 16,
+    "path": "app/core/tools.py"
+  },
+  {
+    "claim": "ToolPolicy 与审批字段",
+    "file_sha256": "90aa5e65f5423885f4352ba85754c96b96a5d962b2533d7858c909ab2b122615",
+    "id": "W-CODE-005",
+    "line_end": 152,
+    "line_start": 99,
+    "path": "app/core/tools.py"
+  },
+  {
+    "claim": "当前工具执行链",
+    "file_sha256": "6b76c7d7740788081ab301a612d9b05575b6b544d94c94fe8ffd83ee512a6a0b",
+    "id": "W-CODE-006",
+    "line_end": 240,
+    "line_start": 194,
+    "path": "app/services/tool_service.py"
+  },
+  {
+    "claim": "有界 AgentRuntime",
+    "file_sha256": "9254b5c169274522f92bbf220751ac5b8bd23da025d3c56708286438e6efa594",
+    "id": "W-CODE-007",
+    "line_end": 180,
+    "line_start": 48,
+    "path": "app/services/agent_runtime/runtime.py"
+  },
+  {
+    "claim": "Subagent 限额",
+    "file_sha256": "70aaf40ecd823cb11c22a9506af15b35265e9ea8129787179f647d72e7f2900f",
+    "id": "W-CODE-008",
+    "line_end": 46,
+    "line_start": 33,
+    "path": "app/services/subagent_service.py"
+  },
+  {
+    "claim": "隔离运行与有界并发",
+    "file_sha256": "70aaf40ecd823cb11c22a9506af15b35265e9ea8129787179f647d72e7f2900f",
+    "id": "W-CODE-009",
+    "line_end": 199,
+    "line_start": 87,
+    "path": "app/services/subagent_service.py"
+  },
+  {
+    "claim": "包版本提交顺序",
+    "file_sha256": "8e308b479eef0efa5bf544d2347a02690711904e8f52dd12d9a6ece110d58a5c",
+    "id": "W-CODE-010",
+    "line_end": 321,
+    "line_start": 267,
+    "path": "app/canvas/repository.py"
+  },
+  {
+    "claim": "当前同步 start_turn 主链",
+    "file_sha256": "b9ad1cc4d74eab3684968e7e4344e3a41d0ca98cade45725b203692c96bdcbdc",
+    "id": "W-CODE-011",
+    "line_end": 390,
+    "line_start": 178,
+    "path": "app/canvas/service.py"
+  },
+  {
+    "claim": "当前确认识别与记录",
+    "file_sha256": "b9ad1cc4d74eab3684968e7e4344e3a41d0ca98cade45725b203692c96bdcbdc",
+    "id": "W-CODE-012",
+    "line_end": 1637,
+    "line_start": 1543,
+    "path": "app/canvas/service.py"
+  },
+  {
+    "claim": "Canvas workflow 仍为 definition_only",
+    "file_sha256": "ece247f5abd36e528667be0c546fcbd768abff72522992edd551600c0aebef29",
+    "id": "W-CODE-013",
+    "line_end": 89,
+    "line_start": 1,
+    "path": "app/workflows/canvas_session.py"
+  },
+  {
+    "claim": "当前 CanvasSnapshot 副本结构",
+    "file_sha256": "47cb993e586f405b4842140bb2e7ce0251fcefd017786e12d644d37fb43d50fc",
+    "id": "W-CODE-014",
+    "line_end": 62,
+    "line_start": 1,
+    "path": "app/canvas/domain/snapshots.py"
+  }
+]

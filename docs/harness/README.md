@@ -39,6 +39,21 @@ Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Li
 - 验证负责判断这一次是否做对。
 - 评估负责判断系统长期是否有价值。
 
+### 1.1 与系统目标架构的关系
+
+[System Architecture（系统总架构）](<../technical-specs/03 System Architecture（系统总架构）.md>) 使用六个一级子系统解释 EvoCanvas 1.0 的系统组成、控制权和依赖；本文档使用十二项 Harness 控制规格解释这些能力分别受什么规则约束。两种视图职责不同，六个子系统不是六个 Harness 目录，也不替代现有文档骨架。
+
+[Architecture Traceability（架构可追溯矩阵）](<../technical-specs/04 Architecture Traceability（架构可追溯矩阵）.md>) 负责核对每个架构节点和依赖当前属于 L3、L2、产品或技术边界、目标假设还是冲突。组合节点按完成其职责所需的最低成熟度判断，不能因为某个底层合同已达 L3，就把整个系统节点升级为 L3。
+
+| 系统目标架构视图 | 主要 Harness 承接 | 控制边界 |
+| --- | --- | --- |
+| User Interfaces（用户界面） | Governance、Observability 与 Verification 约束其确认、投影和事实权限 | 主体由 PRD 与技术契约定义，不形成独立 Harness 层 |
+| EvoCanvas Agent Core（核心运行层） | Context、Runtime、Orchestration、Lifecycle、Governance 与 Verification | 收敛、提交和运行底座已有可实现合同；对话行为与上下文装配仍需继续收敛 |
+| Domain & Harness Rules（领域与 Harness 规则） | Overview、Orchestration、Lifecycle、Governance 与 Verification | 是多个控制规格的聚合视图，不反向决定目录结构 |
+| State & Projection（状态与投影） | Memory、Lifecycle 与 Observability | 权威状态与版本已有可实现合同；完整投影合同仍需继续收敛 |
+| Tools & Providers（工具与能力提供方） | Runtime 与 Tools | Provider 和工具无业务事实裁决权，稳定状态仍只经统一提交器生效 |
+| Evaluation Control Plane（离线评估控制面） | Evaluation，并与 Prompt Control、Context 保持边界 | 仅保留后续演进边界，不属于 1.0 交付承诺，也不定义自动修改线上规则的闭环；成熟度见可追溯矩阵 |
+
 ## 2. 文档组织规范
 
 后续各组默认采用“分组目录 + 主文档 + 子文档”结构：

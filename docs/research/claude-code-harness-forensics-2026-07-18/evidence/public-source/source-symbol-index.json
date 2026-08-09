@@ -1,0 +1,142 @@
+[
+  {
+    "file_sha256": "74e0ce0d86cfd453add8dc1d15ccb6311b02964b8321e3721b8e71fbd87252ce",
+    "line_numbers": [
+      241
+    ],
+    "match_count": 1,
+    "path": "src/query.ts",
+    "symbol": "async function* queryLoop"
+  },
+  {
+    "file_sha256": "74e0ce0d86cfd453add8dc1d15ccb6311b02964b8321e3721b8e71fbd87252ce",
+    "line_numbers": [
+      207,
+      272,
+      314,
+      367,
+      1102,
+      1155,
+      1210,
+      1238,
+      1290,
+      1331,
+      1718
+    ],
+    "match_count": 11,
+    "path": "src/query.ts",
+    "symbol": "autoCompactTracking"
+  },
+  {
+    "file_sha256": "6958bcd46006785e241f7226b4f28aeaaec2206ccc93772d4e473aa6dbdd4293",
+    "line_numbers": [
+      26,
+      30,
+      84,
+      98,
+      101,
+      103,
+      109,
+      112
+    ],
+    "match_count": 8,
+    "path": "src/services/tools/toolOrchestration.ts",
+    "symbol": "isConcurrencySafe"
+  },
+  {
+    "file_sha256": "6958bcd46006785e241f7226b4f28aeaaec2206ccc93772d4e473aa6dbdd4293",
+    "line_numbers": [
+      26,
+      91
+    ],
+    "match_count": 2,
+    "path": "src/services/tools/toolOrchestration.ts",
+    "symbol": "partitionToolCalls"
+  },
+  {
+    "file_sha256": "77aae23a5b8b68aa1ee32b99eb25c6360071d7a4c4c46e6d2c95d584fb6e25e0",
+    "line_numbers": [
+      130,
+      800
+    ],
+    "match_count": 2,
+    "path": "src/services/tools/toolExecution.ts",
+    "symbol": "runPreToolUseHooks"
+  },
+  {
+    "file_sha256": "77aae23a5b8b68aa1ee32b99eb25c6360071d7a4c4c46e6d2c95d584fb6e25e0",
+    "line_numbers": [
+      128,
+      1700
+    ],
+    "match_count": 2,
+    "path": "src/services/tools/toolExecution.ts",
+    "symbol": "runPostToolUseFailureHooks"
+  },
+  {
+    "file_sha256": "a2c02fca0f84cfa8995a5c6dfa11f8527ad5bc3cfe39b355a98d2f166c3e034a",
+    "line_numbers": [
+      435
+    ],
+    "match_count": 1,
+    "path": "src/services/tools/toolHooks.ts",
+    "symbol": "runPreToolUseHooks"
+  },
+  {
+    "file_sha256": "a2c02fca0f84cfa8995a5c6dfa11f8527ad5bc3cfe39b355a98d2f166c3e034a",
+    "line_numbers": [
+      15,
+      27,
+      322,
+      332,
+      341,
+      514,
+      518,
+      536,
+      548
+    ],
+    "match_count": 9,
+    "path": "src/services/tools/toolHooks.ts",
+    "symbol": "PermissionDecision"
+  },
+  {
+    "file_sha256": "1946b5ea23fa2eda91955378641258fb8f19e7742f06ce17d6caae7f2d3c921a",
+    "line_numbers": [
+      40,
+      41,
+      42,
+      103,
+      105,
+      120,
+      157,
+      192,
+      241,
+      283,
+      291,
+      339
+    ],
+    "match_count": 12,
+    "path": "src/services/compact/autoCompact.ts",
+    "symbol": "autoCompact"
+  },
+  {
+    "file_sha256": "5d40784d73643a2f258751b624d99f6bee77b330e0a1af00d5ccd5b163b1789b",
+    "line_numbers": [
+      33,
+      116
+    ],
+    "match_count": 2,
+    "path": "src/context.ts",
+    "symbol": "getSystemContext"
+  },
+  {
+    "file_sha256": "5d40784d73643a2f258751b624d99f6bee77b330e0a1af00d5ccd5b163b1789b",
+    "line_numbers": [
+      32,
+      155
+    ],
+    "match_count": 2,
+    "path": "src/context.ts",
+    "symbol": "getUserContext"
+  }
+]

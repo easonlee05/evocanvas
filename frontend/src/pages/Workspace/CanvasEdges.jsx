@@ -1,35 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { getPortPosition, routeEdge } from './edgeRouter.js';
 
-function getCanvasRect(rect, containerRect, scale, id = null) {
-  return {
-    id,
-    left: (rect.left - containerRect.left) / scale,
-    right: (rect.right - containerRect.left) / scale,
-    top: (rect.top - containerRect.top) / scale,
-    bottom: (rect.bottom - containerRect.top) / scale,
-  };
-}
-
-function getElementCanvasRect(element, container, scale) {
-  return getCanvasRect(
-    element.getBoundingClientRect(),
-    container.getBoundingClientRect(),
-    scale,
-    element.id,
-  );
-}
-
-function getCanvasCardObstacles(container, scale) {
-  return [...document.querySelectorAll('.canvas-card')]
-    .filter((cardElement) => cardElement.id)
-    .map((cardElement) => getElementCanvasRect(cardElement, container, scale));
+function getGeometryCardObstacles(geometry) {
+  return Object.values(geometry || {}).filter((rect) => rect?.id);
 }
 
 export function CustomArrow({
   start,
   end,
-  transform,
   visualState = 'muted',
   accentColor,
   outIndex = 0,
@@ -40,6 +18,7 @@ export function CustomArrow({
   canDelete = false,
   startPort = null,
   endPort = null,
+  geometry = null,
 }) {
   const [path, setPath] = useState('');
   const [arrowHead, setArrowHead] = useState('');
@@ -47,35 +26,31 @@ export function CustomArrow({
   const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
-    const update = () => {
-      const sourceElement = document.getElementById(start);
-      const targetElement = document.getElementById(end);
-      const container = document.querySelector('.canvas-lanes');
-      if (!sourceElement || !targetElement || !container) return;
+    const sourceRect = geometry?.[start];
+    const targetRect = geometry?.[end];
+    if (!sourceRect || !targetRect) return;
 
-      const sourceRect = getElementCanvasRect(sourceElement, container, transform.scale);
-      const targetRect = getElementCanvasRect(targetElement, container, transform.scale);
-      const route = routeEdge({
-        sourceRect,
-        targetRect,
-        sourcePort: startPort,
-        targetPort: endPort,
-        sourceOffsetIndex: outIndex,
-        sourceOffsetTotal: outCount,
-        targetOffsetIndex: inIndex,
-        targetOffsetTotal: inCount,
-        obstacles: getCanvasCardObstacles(container, transform.scale),
-      });
+    const route = routeEdge({
+      sourceRect,
+      targetRect,
+      sourcePort: startPort,
+      targetPort: endPort,
+      sourceOffsetIndex: outIndex,
+      sourceOffsetTotal: outCount,
+      targetOffsetIndex: inIndex,
+      targetOffsetTotal: inCount,
+      obstacles: getGeometryCardObstacles(geometry),
+    });
 
-      setMidPoint(route.midPoint);
-      setPath(route.path);
-      setArrowHead(route.arrowHead);
-    };
-
-    update();
-    const interval = window.setInterval(update, 50);
-    return () => window.clearInterval(interval);
-  }, [start, end, transform, outIndex, outCount, inIndex, inCount, startPort, endPort]);
+    setMidPoint(route.midPoint);
+    setPath(route.path);
+    setArrowHead(route.arrowHead);
+  // 依赖只收窄为端点卡片的几何引用（geometry?.[start] / geometry?.[end]），
+  // 而非整个 geometry 对象。未变化的卡片在 refreshGeometry 中复用旧引用，
+  // 因此只有端点卡片几何变化才触发重算。
+  // 取舍：非端点卡片移动改变 obstacles 布局时，箭头不会重算避障路由。
+  // 箭头不会断裂，只是避障路径可能不是最优，1.0 阶段可接受。
+  }, [start, end, outIndex, outCount, inIndex, inCount, startPort, endPort, geometry?.[start], geometry?.[end]]);
 
   if (!path) return null;
 
@@ -182,30 +157,35 @@ export function CustomArrow({
   );
 }
 
-export function TempConnectionLine({ startCardId, startPort, targetCardId, endX, endY, endPort, transform }) {
+export function TempConnectionLine({
+  startCardId,
+  startPort,
+  targetCardId,
+  endX,
+  endY,
+  endPort,
+  geometry = null,
+}) {
   const [routePath, setRoutePath] = useState('');
   const [arrowHead, setArrowHead] = useState('');
 
   useEffect(() => {
-    const sourceElement = document.getElementById(startCardId);
-    const container = document.querySelector('.canvas-lanes');
-    if (!sourceElement || !container) return;
+    const sourceRect = geometry?.[startCardId];
+    const targetRect = geometry?.[targetCardId] || null;
+    if (!sourceRect) return;
 
-    const targetElement = targetCardId ? document.getElementById(targetCardId) : null;
-    const sourceRect = getElementCanvasRect(sourceElement, container, transform.scale);
-    const targetRect = targetElement ? getElementCanvasRect(targetElement, container, transform.scale) : null;
     const route = routeEdge({
       sourceRect,
       targetRect,
       targetPoint: { x: endX, y: endY },
       sourcePort: startPort,
       targetPort: endPort,
-      obstacles: getCanvasCardObstacles(container, transform.scale),
+      obstacles: getGeometryCardObstacles(geometry),
     });
 
     setRoutePath(route.path);
     setArrowHead(route.arrowHead);
-  }, [startCardId, startPort, targetCardId, endX, endY, endPort, transform.scale]);
+  }, [startCardId, startPort, targetCardId, endX, endY, endPort, geometry?.[startCardId], geometry?.[targetCardId]]);
 
   if (!routePath) return null;
 
@@ -241,12 +221,4 @@ export function getCardPorts(rect) {
     bottom: getPortPosition(rect, 'bottom'),
     left: getPortPosition(rect, 'left'),
   };
-}
-
-export function getPortPointByName(element, container, scale, port) {
-  return getPortPosition(getElementCanvasRect(element, container, scale), port || 'right');
-}
-
-export function getCardRectInCanvas(rect, containerRect, scale, id = null) {
-  return getCanvasRect(rect, containerRect, scale, id);
 }

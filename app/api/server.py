@@ -383,9 +383,9 @@ def create_app(task_service: TaskService | None = None):
         workspace_id: str,
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
-        # L3 只读投影：返回尚待普通 Chat 明确确认的高影响提议。
-        # 确认仍由普通 Chat 消息触发，本路由不产生新的确认路径。
-        return canvas_service.list_chat_confirmation_proposals(workspace_id)
+        # L3 规格已下线独立确认队列：高影响提案的确认/拒绝统一通过普通 Chat 消息触发，
+        # 不再提供独立的只读确认列表路由，避免形成第二条状态通道。
+        raise HTTPException(status_code=404, detail="confirmation queue removed")
 
     @app.post("/api/canvas/workspaces/{workspace_id}/cards")
     async def create_canvas_card(

@@ -156,7 +156,6 @@ export default function Workspace() {
   const [cards, setCards] = useState([]);
   const [relations, setRelations] = useState([]);
   const [todos, setTodos] = useState([]);
-  const [confirmations, setConfirmations] = useState([]);
   const [uploadedMaterials, setUploadedMaterials] = useState([]);
   const [knowledgeItems, setKnowledgeItems] = useState([]);
   const [sourceConnectors, setSourceConnectors] = useState([]);
@@ -192,11 +191,6 @@ export default function Workspace() {
         setTodos(res.todo_projection?.items || []);
       }
     });
-    apiGet(`/api/canvas/workspaces/${id}/confirmations`, null).then(res => {
-      if (res) {
-        setConfirmations(res.items || []);
-      }
-    });
     apiGet(`/api/canvas/workspaces/${id}/handoff`, null).then(res => {
       if (res && res.handoff) {
         setDoc(res.handoff.summary || '');
@@ -213,7 +207,6 @@ export default function Workspace() {
     setCards([]);
     setRelations([]);
     setTodos([]);
-    setConfirmations([]);
     const savedMaterials = taskId ? localStorage.getItem(`evocanvas_materials_${taskId}`) : null;
     if (savedMaterials) {
       try {
@@ -428,7 +421,6 @@ export default function Workspace() {
         cards={cards}
         relations={relations}
         todos={todos}
-        confirmations={confirmations}
         selectedCardId={selectedCardId}
         setSelectedCardId={setSelectedCardId}
         onRefresh={() => loadCanvasData(taskId)}
@@ -518,49 +510,9 @@ export default function Workspace() {
           <button className="suggestion-chip" onClick={() => setInput('整理并刷新交接物草稿')}><FileText size={12}/> 刷新交接物</button>
         </div>
 
-        {/* 输入区 / 确认提案队列卡 */}
+        {/* 输入区 */}
         <div className="ws-input-wrap">
-          {confirmations.length > 0 ? (
-            <div className="arbitration-card" style={{ maxHeight: 250, overflowY: 'auto' }}>
-              <div className="arb-title">⚠️ 待确认的画布修改提案</div>
-              <div className="arb-question" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>AI 生成了如下变更包，这包含需要产品经理决策的卡片操作：</div>
-              <div className="arb-options" style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '8px 0' }}>
-                {confirmations.map((proposal) => (
-                  <div key={proposal.proposal_id} style={{ border: '1px solid var(--clr-border)', borderRadius: 6, padding: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 'bold', marginBottom: 4 }}>提案 {proposal.proposal_id.substring(0, 10)}:</div>
-                    {proposal.mutations.map((m, idx) => {
-                      const mType = m.metadata?.mutation_type || m.mutation_type;
-                      return (
-                        <div key={idx} style={{ fontSize: 11, color: 'var(--text-secondary)', paddingLeft: 6 }}>
-                          • <strong>{mType === 'add_card' ? '新增' : mType}</strong>: {m.payload?.card?.title || m.target_id}
-                        </div>
-                      );
-                    })}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button className="arb-option-btn" style={{ background: 'var(--clr-red-soft)', color: 'var(--clr-red)' }} onClick={() => {
-                        // L3 规格：确认/拒绝必须走普通 Chat 消息触发，不通过 REST 路由直接写入。
-                        // 拒绝的实质是不确认并给出新方向，由用户在 Chat 中补充理由后发送。
-                        const reason = window.prompt('请简要说明拒绝理由（将作为新方向提交到对话）', '不同意，需要调整方案');
-                        if (!reason) return;
-                        setConfirmations([]);
-                        handleSendText(reason);
-                      }}>
-                        拒绝提案
-                      </button>
-                      <button className="arb-option-btn" onClick={() => {
-                        // L3 规格：同意也走普通 Chat 消息触发，service._is_explicit_confirmation 识别确认意图。
-                        setConfirmations([]);
-                        handleSendText('确认按这个提案执行');
-                      }}>
-                        同意应用
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="ws-input-box" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+          <div className="ws-input-box" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
               {uploadedMaterials.length > 0 && (
                 <div className="simple-attachments-list">
                   {uploadedMaterials.map((m) => (
@@ -721,7 +673,6 @@ export default function Workspace() {
                 </div>
               </div>
             </div>
-          )}
         </div>
       </div>
 

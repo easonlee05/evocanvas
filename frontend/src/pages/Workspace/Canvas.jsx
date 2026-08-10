@@ -1549,7 +1549,6 @@ export default function Canvas({
   cards = [],
   relations = [],
   todos = [],
-  confirmations = [],
   selectedCardId,
   setSelectedCardId,
   onRefresh,

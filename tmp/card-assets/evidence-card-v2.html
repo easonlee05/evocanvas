@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EvoCanvas Evidence Portrait Card Asset</title>
+  <style>
+    @font-face {
+      font-family: "Evo Jason Hand 1";
+      src: url("../../frontend/public/fonts/JasonHandwriting1.ttf") format("truetype");
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "Evo Xiaolai";
+      src: url("../../frontend/public/fonts/excalidraw/Xiaolai/Xiaolai-Regular-9544732d2e62d1a429674f8ee41b5d3a.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+
+    .stage {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 52% 56%, rgba(47, 109, 246, 0.06), transparent 38%),
+        transparent;
+    }
+
+    .card-wrap {
+      position: relative;
+      width: 430px;
+      height: 650px;
+      transform: rotate(-1.15deg);
+      filter: drop-shadow(0 42px 38px rgba(20, 28, 48, 0.052))
+              drop-shadow(0 9px 18px rgba(20, 28, 48, 0.034));
+    }
+
+    .card {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      border: 1px solid rgba(82, 116, 174, 0.28);
+      border-radius: 34px 31px 36px 32px;
+      background:
+        radial-gradient(circle at 14% 9%, rgba(255, 255, 255, 0.96), transparent 34%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.99), rgba(250, 253, 255, 0.955));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.98),
+        inset 0 -1px 0 rgba(47, 109, 246, 0.035);
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 13px;
+      border: 1px solid rgba(102, 140, 212, 0.13);
+      border-radius: 27px 25px 30px 26px;
+      transform: rotate(0.35deg);
+      pointer-events: none;
+    }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.26;
+      background-image: radial-gradient(rgba(70, 91, 129, 0.18) 0.72px, transparent 0.78px);
+      background-size: 22px 22px;
+      mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 78%, transparent 100%);
+      pointer-events: none;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      padding: 36px 34px 31px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .identity {
+      display: inline-flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .icon-shell {
+      width: 50px;
+      height: 50px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px 16px 19px 17px;
+      background: rgba(247, 250, 255, 0.74);
+      border: 1px solid rgba(47, 109, 246, 0.09);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    }
+
+    .icon-shell img {
+      width: 39px;
+      height: 39px;
+      object-fit: contain;
+      opacity: 0.9;
+      filter: saturate(0.82) contrast(1.01);
+    }
+
+    .type {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .eyebrow {
+      font: 600 10.5px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+      letter-spacing: 0.15em;
+      color: rgba(32, 45, 73, 0.38);
+      text-transform: uppercase;
+    }
+
+    .label {
+      font-family: "Evo Xiaolai", "Evo Jason Hand 1", "HanziPen SC", cursive;
+      font-size: 28px;
+      font-weight: 400;
+      letter-spacing: 0.015em;
+      line-height: 1;
+      color: rgba(35, 48, 70, 0.82);
+      transform: translateY(1px) rotate(-0.16deg);
+    }
+
+    .pill {
+      margin-top: 3px;
+      padding: 7px 11px 6px;
+      border: 1px solid rgba(47, 109, 246, 0.13);
+      border-radius: 999px;
+      background: rgba(247, 250, 255, 0.88);
+      color: rgba(45, 95, 210, 0.58);
+      font: 600 11px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .summary {
+      width: 100%;
+      margin-top: 10px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .line {
+      height: 9px;
+      border-radius: 999px;
+      background: rgba(39, 48, 66, 0.13);
+    }
+
+    .line.strong {
+      height: 11px;
+      width: 92%;
+      background: rgba(20, 30, 48, 0.26);
+    }
+
+    .line.mid {
+      width: 78%;
+    }
+
+    .line.short {
+      width: 56%;
+    }
+
+    .evidence-list {
+      margin-top: 4px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .evidence-row {
+      display: grid;
+      grid-template-columns: 13px 1fr;
+      grid-template-rows: auto auto;
+      align-items: start;
+      gap: 11px 13px;
+      min-height: 90px;
+      padding: 17px 18px 15px;
+      border: 1px solid rgba(102, 140, 212, 0.13);
+      border-radius: 20px 18px 22px 19px;
+      background: rgba(250, 252, 255, 0.7);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(47, 109, 246, 0.76);
+      box-shadow: 0 0 0 4px rgba(47, 109, 246, 0.055);
+    }
+
+    .row-lines {
+      display: grid;
+      gap: 8px;
+    }
+
+    .row-lines span {
+      display: block;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(49, 61, 82, 0.12);
+    }
+
+    .row-lines span:first-child {
+      width: 86%;
+      background: rgba(49, 61, 82, 0.19);
+    }
+
+    .row-lines span:last-child {
+      width: 58%;
+    }
+
+    .metric {
+      grid-column: 2;
+      width: 72px;
+      height: 22px;
+      border-radius: 999px;
+      background: rgba(47, 109, 246, 0.055);
+      border: 1px solid rgba(47, 109, 246, 0.08);
+    }
+
+    .footer {
+      margin-top: auto;
+      padding-top: 13px;
+      border-top: 1px solid rgba(47, 109, 246, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: rgba(32, 45, 73, 0.42);
+      font: 500 11.5px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+      letter-spacing: 0.04em;
+    }
+
+    .footer-mark {
+      font-family: "Evo Xiaolai", "Evo Jason Hand 1", cursive;
+      color: rgba(49, 95, 202, 0.42);
+      font-size: 15px;
+      letter-spacing: 0.02em;
+      transform: rotate(-0.28deg);
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" aria-label="EvoCanvas evidence card asset">
+    <div class="card-wrap">
+      <section class="card">
+        <div class="content">
+          <header class="top">
+            <div class="identity">
+              <span class="icon-shell">
+                <img src="../../frontend/public/card-type-icons/handdrawn/evidence.png" alt="">
+              </span>
+              <span class="type">
+                <span class="eyebrow">SOURCE POOL</span>
+                <span class="label">Evidence</span>
+              </span>
+            </div>
+            <span class="pill">verified</span>
+          </header>
+
+          <div class="summary" aria-hidden="true">
+            <span class="line strong"></span>
+            <span class="line mid"></span>
+            <span class="line short"></span>
+          </div>
+
+          <div class="evidence-list" aria-hidden="true">
+            <div class="evidence-row">
+              <span class="dot"></span>
+              <span class="row-lines"><span></span><span></span></span>
+              <span class="metric"></span>
+            </div>
+            <div class="evidence-row">
+              <span class="dot"></span>
+              <span class="row-lines"><span></span><span></span></span>
+              <span class="metric"></span>
+            </div>
+          </div>
+
+          <footer class="footer">
+            <span>2 sources · 84% signal</span>
+            <span class="footer-mark">clarity trace</span>
+          </footer>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

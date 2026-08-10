@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EvoCanvas Gallery Card Set</title>
+  <style>
+    @font-face {
+      font-family: "Evo Xiaolai";
+      src: url("../../frontend/public/fonts/excalidraw/Xiaolai/Xiaolai-Regular-9544732d2e62d1a429674f8ee41b5d3a.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "Evo Virgil";
+      src: url("../../frontend/public/fonts/excalidraw/Virgil/Virgil-Regular.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+    }
+
+    :root {
+      --accent: #2f6df6;
+      --accent-rgb: 47, 109, 246;
+      --ink: rgba(28, 34, 47, 0.82);
+      --muted: rgba(54, 66, 88, 0.45);
+      --soft-line: rgba(51, 64, 86, 0.13);
+      --paper: rgba(255, 255, 255, 0.985);
+    }
+
+    .stage {
+      width: 100vw;
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 50% 55%, rgba(var(--accent-rgb), 0.055), transparent 42%),
+        transparent;
+    }
+
+    .shot {
+      position: relative;
+      display: none;
+      filter:
+        drop-shadow(0 42px 38px rgba(20, 28, 48, 0.052))
+        drop-shadow(0 10px 18px rgba(20, 28, 48, 0.034));
+    }
+
+    body[data-card="evidence"] .evidence,
+    body[data-card="clarify"] .clarify,
+    body[data-card="rules"] .rules,
+    body[data-card="decision"] .decision,
+    body[data-card="handoff"] .handoff {
+      display: block;
+    }
+
+    body[data-card="clarify"] {
+      --accent: #4aaee8;
+      --accent-rgb: 74, 174, 232;
+    }
+
+    body[data-card="rules"] {
+      --accent: #519760;
+      --accent-rgb: 81, 151, 96;
+    }
+
+    body[data-card="decision"] {
+      --accent: #d79a24;
+      --accent-rgb: 215, 154, 36;
+    }
+
+    body[data-card="handoff"] {
+      --accent: #8b67d9;
+      --accent-rgb: 139, 103, 217;
+    }
+
+    .portrait {
+      width: 480px;
+      height: 640px;
+    }
+
+    .landscape {
+      width: 640px;
+      height: 480px;
+    }
+
+    .card {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      border: 1px solid rgba(var(--accent-rgb), 0.26);
+      border-radius: 34px 31px 36px 32px;
+      background:
+        radial-gradient(circle at 13% 8%, rgba(255, 255, 255, 0.98), transparent 32%),
+        linear-gradient(145deg, rgba(255, 255, 255, 0.992), rgba(250, 253, 255, 0.954));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.98),
+        inset 0 -1px 0 rgba(var(--accent-rgb), 0.035);
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 13px;
+      border: 1px solid rgba(var(--accent-rgb), 0.115);
+      border-radius: 27px 25px 30px 26px;
+      transform: rotate(0.35deg);
+      pointer-events: none;
+    }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.24;
+      background-image: radial-gradient(rgba(70, 91, 129, 0.18) 0.72px, transparent 0.78px);
+      background-size: 22px 22px;
+      mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 82%, transparent 100%);
+      pointer-events: none;
+    }
+
+    .shot.rotate-left {
+      transform: rotate(-1.05deg);
+    }
+
+    .shot.rotate-right {
+      transform: rotate(1.1deg);
+    }
+
+    .shot.rotate-soft {
+      transform: rotate(-0.35deg);
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      padding: 34px 34px 30px;
+    }
+
+    .landscape .content {
+      padding: 32px 36px 28px;
+      gap: 18px;
+    }
+
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .identity {
+      display: inline-flex;
+      align-items: center;
+      gap: 15px;
+      min-width: 0;
+    }
+
+    .icon-shell {
+      width: 50px;
+      height: 50px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 18px 16px 19px 17px;
+      background: rgba(var(--accent-rgb), 0.055);
+      border: 1px solid rgba(var(--accent-rgb), 0.09);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    }
+
+    .icon-shell img {
+      width: 39px;
+      height: 39px;
+      object-fit: contain;
+      opacity: 0.9;
+      filter: saturate(0.82) contrast(1.01);
+    }
+
+    .type {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .eyebrow {
+      font: 600 10.5px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+      letter-spacing: 0.15em;
+      color: rgba(32, 45, 73, 0.38);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .label {
+      font-family: "Evo Xiaolai", "Evo Virgil", "HanziPen SC", cursive;
+      font-size: 28px;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+      line-height: 1;
+      color: var(--ink);
+      transform: translateY(1px) rotate(-0.16deg);
+      white-space: nowrap;
+    }
+
+    .pill {
+      margin-top: 3px;
+      padding: 7px 11px 6px;
+      border: 1px solid rgba(var(--accent-rgb), 0.13);
+      border-radius: 999px;
+      background: rgba(var(--accent-rgb), 0.045);
+      color: rgba(var(--accent-rgb), 0.68);
+      font: 600 11px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .summary {
+      display: grid;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .line {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--soft-line);
+    }
+
+    .line.strong {
+      height: 10px;
+      width: 92%;
+      background: rgba(20, 30, 48, 0.24);
+    }
+
+    .line.mid {
+      width: 76%;
+    }
+
+    .line.short {
+      width: 54%;
+    }
+
+    .landscape-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 16px;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .portrait-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .rich-panel {
+      border: 1px solid rgba(var(--accent-rgb), 0.13);
+      border-radius: 20px 18px 22px 19px;
+      background: rgba(250, 252, 255, 0.7);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    }
+
+    .item {
+      display: grid;
+      grid-template-columns: 12px 1fr auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 76px;
+      padding: 15px 17px;
+    }
+
+    .portrait .item {
+      grid-template-columns: 12px 1fr;
+      grid-template-rows: auto auto;
+      min-height: 86px;
+      align-items: start;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(var(--accent-rgb), 0.78);
+      box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.055);
+      margin-top: 4px;
+    }
+
+    .row-lines {
+      display: grid;
+      gap: 8px;
+    }
+
+    .row-lines span {
+      display: block;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(49, 61, 82, 0.12);
+    }
+
+    .row-lines span:first-child {
+      width: 86%;
+      background: rgba(49, 61, 82, 0.19);
+    }
+
+    .row-lines span:last-child {
+      width: 58%;
+    }
+
+    .metric {
+      width: 48px;
+      height: 22px;
+      border-radius: 999px;
+      background: rgba(var(--accent-rgb), 0.055);
+      border: 1px solid rgba(var(--accent-rgb), 0.08);
+    }
+
+    .portrait .metric {
+      grid-column: 2;
+      width: 74px;
+    }
+
+    .mini-chart {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      align-items: end;
+      gap: 7px;
+      height: 104px;
+      padding: 18px 18px 16px;
+    }
+
+    .bar {
+      border-radius: 999px 999px 5px 5px;
+      background: rgba(var(--accent-rgb), 0.16);
+      border: 1px solid rgba(var(--accent-rgb), 0.075);
+    }
+
+    .bar:nth-child(1) { height: 42%; }
+    .bar:nth-child(2) { height: 68%; }
+    .bar:nth-child(3) { height: 52%; }
+    .bar:nth-child(4) { height: 82%; background: rgba(var(--accent-rgb), 0.25); }
+    .bar:nth-child(5) { height: 58%; }
+
+    .timeline {
+      display: grid;
+      gap: 13px;
+      padding: 18px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 11px;
+      align-items: start;
+    }
+
+    .node {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(var(--accent-rgb), 0.28);
+      box-shadow: inset 0 0 0 4px rgba(var(--accent-rgb), 0.08);
+    }
+
+    .step-lines {
+      display: grid;
+      gap: 7px;
+      padding-top: 2px;
+    }
+
+    .step-lines span {
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(49, 61, 82, 0.13);
+    }
+
+    .step-lines span:first-child {
+      width: 92%;
+      background: rgba(49, 61, 82, 0.2);
+    }
+
+    .step-lines span:last-child {
+      width: 62%;
+    }
+
+    .handoff-block {
+      display: grid;
+      gap: 11px;
+      padding: 18px;
+    }
+
+    .handoff-row {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 11px;
+      align-items: center;
+    }
+
+    .check {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(var(--accent-rgb), 0.12);
+      border: 1px solid rgba(var(--accent-rgb), 0.2);
+      position: relative;
+    }
+
+    .check::after {
+      content: "";
+      position: absolute;
+      width: 7px;
+      height: 4px;
+      left: 5px;
+      top: 5px;
+      border-left: 1.6px solid rgba(var(--accent-rgb), 0.72);
+      border-bottom: 1.6px solid rgba(var(--accent-rgb), 0.72);
+      transform: rotate(-45deg);
+    }
+
+    .footer {
+      margin-top: auto;
+      padding-top: 13px;
+      border-top: 1px solid rgba(var(--accent-rgb), 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: rgba(32, 45, 73, 0.42);
+      font: 500 11.5px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+      letter-spacing: 0.04em;
+    }
+
+    .footer-mark {
+      font-family: "Evo Xiaolai", "Evo Virgil", cursive;
+      color: rgba(var(--accent-rgb), 0.42);
+      font-size: 15px;
+      letter-spacing: 0.02em;
+      transform: rotate(-0.28deg);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body data-card="evidence">
+  <main class="stage">
+    <section class="shot portrait rotate-left evidence" aria-label="Evidence card">
+      <div class="card">
+        <div class="content">
+          <header class="top">
+            <div class="identity">
+              <span class="icon-shell"><img src="../../frontend/public/card-type-icons/handdrawn/evidence.png" alt=""></span>
+              <span class="type"><span class="eyebrow">SOURCE POOL</span><span class="label">Evidence</span></span>
+            </div>
+            <span class="pill">verified</span>
+          </header>
+          <div class="summary"><span class="line strong"></span><span class="line mid"></span><span class="line short"></span></div>
+          <div class="portrait-stack">
+            <div class="rich-panel item"><span class="dot"></span><span class="row-lines"><span></span><span></span></span><span class="metric"></span></div>
+            <div class="rich-panel item"><span class="dot"></span><span class="row-lines"><span></span><span></span></span><span class="metric"></span></div>
+            <div class="rich-panel mini-chart"><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span></div>
+          </div>
+          <footer class="footer"><span>2 sources · 84% signal</span><span class="footer-mark">clarity trace</span></footer>
+        </div>
+      </div>
+    </section>
+
+    <section class="shot landscape rotate-right clarify" aria-label="Clarify card">
+      <div class="card">
+        <div class="content">
+          <header class="top">
+            <div class="identity">
+              <span class="icon-shell"><img src="../../frontend/public/card-type-icons/handdrawn/clarify.png" alt=""></span>
+              <span class="type"><span class="eyebrow">OPEN QUESTIONS</span><span class="label">Clarify</span></span>
+            </div>
+            <span class="pill">pending</span>
+          </header>
+          <div class="landscape-grid">
+            <div class="rich-panel timeline">
+              <div class="step"><span class="node"></span><span class="step-lines"><span></span><span></span></span></div>
+              <div class="step"><span class="node"></span><span class="step-lines"><span></span><span></span></span></div>
+              <div class="step"><span class="node"></span><span class="step-lines"><span></span><span></span></span></div>
+            </div>
+            <div class="portrait-stack">
+              <div class="summary"><span class="line strong"></span><span class="line mid"></span><span class="line short"></span></div>
+              <div class="rich-panel item"><span class="dot"></span><span class="row-lines"><span></span><span></span></span><span class="metric"></span></div>
+            </div>
+          </div>
+          <footer class="footer"><span>3 issues · 1 owner</span><span class="footer-mark">ask before build</span></footer>
+        </div>
+      </div>
+    </section>
+
+    <section class="shot portrait rotate-soft rules" aria-label="Constraints card">
+      <div class="card">
+        <div class="content">
+          <header class="top">
+            <div class="identity">
+              <span class="icon-shell"><img src="../../frontend/public/card-type-icons/handdrawn/rules.png" alt=""></span>
+              <span class="type"><span class="eyebrow">BOUNDARY</span><span class="label">Constraints</span></span>
+            </div>
+            <span class="pill">locked</span>
+          </header>
+          <div class="summary"><span class="line strong"></span><span class="line mid"></span><span class="line short"></span></div>
+          <div class="portrait-stack">
+            <div class="rich-panel timeline">
+              <div class="step"><span class="node"></span><span class="step-lines"><span></span><span></span></span></div>
+              <div class="step"><span class="node"></span><span class="step-lines"><span></span><span></span></span></div>
+              <div class="step"><span class="node"></span><span class="step-lines"><span></span><span></span></span></div>
+            </div>
+            <div class="rich-panel mini-chart"><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span></div>
+          </div>
+          <footer class="footer"><span>5 rules · no drift</span><span class="footer-mark">scope guard</span></footer>
+        </div>
+      </div>
+    </section>
+
+    <section class="shot landscape rotate-left decision" aria-label="Decision card">
+      <div class="card">
+        <div class="content">
+          <header class="top">
+            <div class="identity">
+              <span class="icon-shell"><img src="../../frontend/public/card-type-icons/handdrawn/decision.png" alt=""></span>
+              <span class="type"><span class="eyebrow">TRADEOFF</span><span class="label">Decision</span></span>
+            </div>
+            <span class="pill">review</span>
+          </header>
+          <div class="landscape-grid">
+            <div class="portrait-stack">
+              <div class="summary"><span class="line strong"></span><span class="line mid"></span><span class="line short"></span></div>
+              <div class="rich-panel item"><span class="dot"></span><span class="row-lines"><span></span><span></span></span><span class="metric"></span></div>
+            </div>
+            <div class="rich-panel mini-chart"><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span></div>
+          </div>
+          <footer class="footer"><span>2 options · due today</span><span class="footer-mark">ship call</span></footer>
+        </div>
+      </div>
+    </section>
+
+    <section class="shot portrait rotate-right handoff" aria-label="Handoff card">
+      <div class="card">
+        <div class="content">
+          <header class="top">
+            <div class="identity">
+              <span class="icon-shell"><img src="../../frontend/public/card-type-icons/handdrawn/handoff.png" alt=""></span>
+              <span class="type"><span class="eyebrow">NEXT AGENT</span><span class="label">Handoff</span></span>
+            </div>
+            <span class="pill">ready</span>
+          </header>
+          <div class="summary"><span class="line strong"></span><span class="line mid"></span><span class="line short"></span></div>
+          <div class="portrait-stack">
+            <div class="rich-panel handoff-block">
+              <div class="handoff-row"><span class="check"></span><span class="row-lines"><span></span><span></span></span></div>
+              <div class="handoff-row"><span class="check"></span><span class="row-lines"><span></span><span></span></span></div>
+              <div class="handoff-row"><span class="check"></span><span class="row-lines"><span></span><span></span></span></div>
+            </div>
+            <div class="rich-panel item"><span class="dot"></span><span class="row-lines"><span></span><span></span></span><span class="metric"></span></div>
+          </div>
+          <footer class="footer"><span>4 tasks · clean handoff</span><span class="footer-mark">agent-ready</span></footer>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const selectedCard = new URLSearchParams(window.location.search).get("card") || "evidence";
+    document.body.dataset.card = selectedCard;
+  </script>
+</body>
+</html>

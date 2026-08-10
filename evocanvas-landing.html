@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EvoCanvas - 探索未来工作流</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 强制使用最高质量的系统级苹方和 SF Pro 字体 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            background-color: #fafafc;
+            color: #1d1d1f;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+
+        .ease-apple { transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+
+        /* ---------------- 背景氛围光效 (Aura) ---------------- */
+        .aura {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.5;
+            animation: float 12s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 0;
+            will-change: transform;
+        }
+        .aura-1 { width: 450px; height: 450px; background: rgba(224, 231, 255, 0.8); top: -10%; left: 15%; animation-delay: 0s; }
+        .aura-2 { width: 350px; height: 350px; background: rgba(252, 231, 243, 0.7); top: 30%; right: 10%; animation-delay: -4s; }
+        .aura-3 { width: 400px; height: 400px; background: rgba(224, 242, 254, 0.6); bottom: -10%; left: 30%; animation-delay: -8s; }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(40px, 60px) scale(1.15); }
+        }
+
+        .hero-title-gradient {
+            background: linear-gradient(135deg, #000000 0%, #434343 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* ---------------- 优雅入场动效 ---------------- */
+        .reveal-up {
+            opacity: 0;
+            transform: translateY(50px);
+            transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .reveal-up.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ---------------- 高级 UI 质感 ---------------- */
+        .premium-glass {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: saturate(180%) blur(20px);
+            -webkit-backdrop-filter: saturate(180%) blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.06), 0 10px 30px rgba(0, 0, 0, 0.03);
+            border-radius: 2.5rem;
+            padding: 12px;
+        }
+        .premium-glass img {
+            border-radius: 2rem;
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.02);
+        }
+        .premium-border {
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+        @keyframes pulse-subtle {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.9; transform: scale(0.99); }
+        }
+        .animate-pulse-subtle {
+            animation: pulse-subtle 3s infinite ease-in-out;
+        }
+
+            will-change: transform, opacity, filter;
+        }
+
+        /* ---------------- 首屏 Hero：EvoCanvas 画布卡片缩影 ---------------- */
+        .gallery-hero {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            background:
+                radial-gradient(circle at 50% 34%, rgba(154, 169, 191, 0.10), transparent 31%),
+                radial-gradient(circle at 74% 68%, rgba(223, 228, 236, 0.30), transparent 28%);
+        }
+
+        .gallery-hero-inner {
+            width: min(100%, 1280px);
+            margin: 0 auto;
+            padding: 12vh 24px 6vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+
+        .gallery-kicker {
+            margin-bottom: 28px;
+            color: #748195;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.18em;
+        }
+
+        .gallery-title {
+            max-width: 1060px;
+            color: #111827;
+            font-size: clamp(4.2rem, 7vw, 6.9rem);
+            font-weight: 750;
+            line-height: 0.95;
+            letter-spacing: -0.05em;
+            text-wrap: balance;
+        }
+
+        .gallery-title .headline-main {
+            display: block;
+            color: #171923;
+            font-size: clamp(4.8rem, 8.6vw, 8rem);
+            line-height: 0.9;
+        }
+
+        .gallery-title .accent {
+            display: block;
+            margin-top: 16px;
+            background: linear-gradient(180deg, #4a5568 0%, #7f8896 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: clamp(3.2rem, 6.1vw, 5.7rem);
+            line-height: 0.98;
+        }
+
+        .gallery-subtitle {
+            max-width: 580px;
+            margin-top: 24px;
+            color: #64748b;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            letter-spacing: 0.02em;
+        }
+
+        .hero-showcase {
+            --hero-showcase-transform: none;
+            position: relative;
+            width: min(1440px, calc(100vw + 80px));
+            height: clamp(360px, 38vw, 500px);
+            margin-top: 120px;
+            overflow: visible;
+            perspective: 1600px;
+            transform: var(--hero-showcase-transform);
+        }
+
+        .hero-showcase.reveal-up {
+            opacity: 1;
+            transform: var(--hero-showcase-transform);
+        }
+
+        @keyframes hero-card-float {
+            0%, 100% {
+                transform: translate3d(var(--card-shift-x, 0px), var(--card-shift-y, 0px), 0) rotate(var(--card-rotate, 0deg));
+            }
+
+            50% {
+                transform: translate3d(
+                    var(--card-shift-x, 0px),
+                    calc(var(--card-shift-y, 0px) - var(--card-float-offset, 10px)),
+                    0
+                ) rotate(calc(var(--card-rotate, 0deg) + var(--card-float-tilt, 0.45deg)));
+            }
+        }
+
+        .hero-gallery-card {
+            position: absolute;
+            height: auto;
+            display: block;
+            filter: saturate(0.985) contrast(1.03) drop-shadow(0 18px 36px rgba(15, 23, 42, 0.08));
+            user-select: none;
+            pointer-events: auto;
+            will-change: transform, filter;
+            transform-origin: center center;
+            transform: translate3d(var(--card-shift-x, 0px), var(--card-shift-y, 0px), 0) rotate(var(--card-rotate, 0deg));
+            transition:
+                transform 520ms cubic-bezier(0.16, 1, 0.3, 1),
+                filter 520ms cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 320ms ease;
+            animation: hero-card-float var(--card-duration, 8.4s) ease-in-out infinite;
+        }
+
+        .hero-gallery-card:hover {
+            animation-play-state: paused;
+            z-index: 10;
+            filter: saturate(1.02) contrast(1.04) drop-shadow(0 26px 52px rgba(15, 23, 42, 0.13));
+            transform: translate3d(
+                var(--card-shift-x, 0px),
+                calc(var(--card-shift-y, 0px) - 18px),
+                0
+            ) rotate(calc(var(--card-rotate, 0deg) + var(--card-hover-tilt, 0deg))) scale(1.026);
+        }
+
+        .story-kicker {
+            color: #7f8896;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+
+        .story-surface {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(250, 251, 253, 0.88) 100%);
+            backdrop-filter: saturate(180%) blur(26px);
+            -webkit-backdrop-filter: saturate(180%) blur(26px);
+            border: 1px solid rgba(219, 225, 234, 0.88);
+            box-shadow: 0 28px 80px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+        }
+
+        .story-frame {
+            position: relative;
+            overflow: hidden;
+            border-radius: 2.5rem;
+        }
+
+        .story-frame::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0));
+            pointer-events: none;
+        }
+
+        .story-image {
+            display: block;
+            width: 100%;
+            height: auto;
+            border-radius: 2rem;
+            border: 1px solid rgba(229, 233, 239, 0.9);
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.09);
+            transition: transform 700ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 700ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .story-frame:hover .story-image {
+            transform: translateY(-6px) scale(1.012);
+            box-shadow: 0 30px 72px rgba(15, 23, 42, 0.12);
+        }
+
+        .story-copy {
+            transition: transform 700ms cubic-bezier(0.16, 1, 0.3, 1), opacity 700ms cubic-bezier(0.16, 1, 0.3, 1);
+            will-change: transform, opacity;
+        }
+
+        .prelude-shell {
+            max-width: 1160px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
+            gap: 72px;
+            align-items: center;
+        }
+
+        .prelude-copy {
+            max-width: 640px;
+        }
+
+        .prelude-copy p {
+            color: #7d8593;
+            font-size: clamp(1.1rem, 1.5vw, 1.25rem);
+            line-height: 1.6;
+        }
+
+        .prelude-sources {
+            position: relative;
+            min-height: 388px;
+        }
+
+        .prelude-source-card {
+            position: absolute;
+            width: min(100%, 320px);
+            padding: 22px 24px;
+            border-radius: 28px;
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px solid rgba(224, 229, 236, 0.94);
+            box-shadow: 0 22px 54px rgba(15, 23, 42, 0.06);
+            backdrop-filter: blur(22px) saturate(165%);
+            -webkit-backdrop-filter: blur(22px) saturate(165%);
+        }
+
+        .prelude-source-card strong {
+            display: block;
+            margin-bottom: 10px;
+            color: #1f2937;
+            font-size: 15px;
+            font-weight: 650;
+            letter-spacing: 0.01em;
+        }
+
+        .prelude-source-card p {
+            color: #8b93a1;
+            font-size: 14px;
+            line-height: 1.68;
+        }
+
+        .prelude-source-meeting {
+            top: 8px;
+            right: 18px;
+            transform: rotate(-3.2deg);
+        }
+
+        .prelude-source-chat {
+            top: 126px;
+            left: 0;
+            transform: rotate(2.4deg);
+        }
+
+        .prelude-source-doc {
+            top: 246px;
+            right: 4px;
+            transform: rotate(-1.6deg);
+        }
+
+        .prelude-divider {
+            width: 72px;
+            height: 1px;
+            margin-top: 42px;
+            background: linear-gradient(90deg, rgba(23, 25, 35, 0.3), rgba(23, 25, 35, 0));
+        }
+
+        .prelude-section {
+            position: relative;
+            z-index: 10;
+            isolation: isolate;
+            margin-top: 0;
+            padding-top: 7.5rem;
+            padding-bottom: 10rem;
+        }
+
+        .hero-gallery-evidence {
+            width: clamp(270px, 22vw, 356px);
+            left: clamp(0px, 4.8vw, 72px);
+            top: clamp(-8px, -0.8vw, 6px);
+            z-index: 1;
+            --card-rotate: -2.6deg;
+            --card-shift-y: -8px;
+            --card-duration: 8.8s;
+            --card-float-offset: 9px;
+            --card-hover-tilt: -0.5deg;
+        }
+
+        .hero-gallery-clarify {
+            width: clamp(400px, 34vw, 560px);
+            left: clamp(172px, 17vw, 266px);
+            top: clamp(14px, 2vw, 34px);
+            z-index: 2;
+            --card-rotate: -2.2deg;
+            --card-shift-y: -6px;
+            --card-duration: 9.6s;
+            --card-float-offset: 11px;
+            --card-hover-tilt: -0.35deg;
+        }
+
+        .hero-gallery-rules {
+            width: clamp(300px, 25.8vw, 428px);
+            left: 53%;
+            top: clamp(-54px, -3vw, -26px);
+            z-index: 5;
+            --card-shift-x: -50%;
+            --card-rotate: 1.5deg;
+            --card-shift-y: -10px;
+            --card-duration: 7.9s;
+            --card-float-offset: 13px;
+            --card-float-tilt: 0.5deg;
+            --card-hover-tilt: 0.35deg;
+        }
+
+        .hero-gallery-decision {
+            width: clamp(400px, 34vw, 560px);
+            right: clamp(132px, 10.8vw, 192px);
+            top: clamp(18px, 2.2vw, 40px);
+            z-index: 3;
+            --card-rotate: 2.1deg;
+            --card-shift-y: -5px;
+            --card-duration: 9.2s;
+            --card-float-offset: 10px;
+            --card-hover-tilt: 0.35deg;
+        }
+
+        .hero-gallery-handoff {
+            width: clamp(272px, 22vw, 356px);
+            right: clamp(-8px, 1.6vw, 26px);
+            top: clamp(28px, 3vw, 52px);
+            z-index: 4;
+            --card-rotate: 3.1deg;
+            --card-shift-y: -2px;
+            --card-duration: 8.5s;
+            --card-float-offset: 8px;
+            --card-hover-tilt: 0.5deg;
+        }
+
+        @media (max-width: 900px) {
+            .gallery-hero-inner {
+                padding-top: 6vh;
+            }
+
+            .gallery-title {
+                font-size: clamp(3.25rem, 12vw, 5.8rem);
+            }
+
+            .hero-showcase {
+                width: min(100vw, 840px);
+                height: 420px;
+                margin-top: 64px;
+            }
+
+            .prelude-shell {
+                grid-template-columns: 1fr;
+                gap: 56px;
+            }
+
+            .prelude-section {
+                margin-top: 0;
+                padding-top: 7.5rem;
+            }
+
+            .prelude-copy {
+                max-width: 760px;
+                margin: 0 auto;
+                text-align: center;
+            }
+
+            .prelude-divider {
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .prelude-sources {
+                width: min(100%, 420px);
+                min-height: 420px;
+                margin: 0 auto;
+            }
+
+            .hero-gallery-evidence {
+                width: 226px;
+                left: -6px;
+                top: 122px;
+            }
+
+            .hero-gallery-clarify {
+                width: 398px;
+                left: 92px;
+                top: 128px;
+            }
+
+            .hero-gallery-rules {
+                width: 276px;
+                top: 48px;
+            }
+
+            .hero-gallery-decision {
+                width: 398px;
+                right: 52px;
+                top: 136px;
+            }
+
+            .hero-gallery-handoff {
+                width: 226px;
+                right: 2px;
+                top: 140px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .gallery-hero {
+                min-height: 880px;
+            }
+
+            .gallery-kicker {
+                margin-bottom: 20px;
+                max-width: 280px;
+                font-size: 11px;
+                line-height: 1.8;
+                letter-spacing: 0.11em;
+            }
+
+            .gallery-title {
+                width: 100%;
+                max-width: 284px;
+                font-size: clamp(1.92rem, 8.2vw, 2.22rem);
+                line-height: 1.04;
+                letter-spacing: -0.025em;
+            }
+
+            .gallery-title .headline-main,
+            .gallery-title .accent {
+                font-size: inherit;
+                line-height: inherit;
+            }
+
+            .gallery-subtitle {
+                max-width: 320px;
+                margin-top: 18px;
+                color: #7b8492;
+                font-size: 0.95rem;
+                line-height: 1.6;
+            }
+
+            .hero-showcase {
+                width: 660px;
+                height: 310px;
+                margin-top: 48px;
+                margin-left: -6vw;
+                margin-right: -6vw;
+                --hero-showcase-transform: scale(0.56);
+                transform-origin: top center;
+            }
+
+            .hero-gallery-evidence {
+                width: 214px;
+                left: 18px;
+                top: 96px;
+            }
+
+            .hero-gallery-clarify {
+                width: 332px;
+                left: 132px;
+                top: 108px;
+            }
+
+            .hero-gallery-rules {
+                width: 238px;
+                top: 32px;
+            }
+
+            .hero-gallery-decision {
+                width: 332px;
+                right: 72px;
+                top: 114px;
+            }
+
+            .hero-gallery-handoff {
+                width: 214px;
+                right: 12px;
+                top: 118px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 全局氛围光与噪点纹理 -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10 bg-[#fafafc]">
+        <div class="aura aura-1"></div>
+        <div class="aura aura-2"></div>
+        <div class="aura aura-3"></div>
+        <div class="absolute inset-0 opacity-[0.025]" style="background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noise%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.8%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noise)%22/%3E%3C/svg%3E');"></div>
+    </div>
+
+    <!-- ========== 第 1 篇章：首屏 Hero Section ========== -->
+    <section class="gallery-hero h-screen relative z-10 w-full">
+        <div class="gallery-hero-inner">
+            <div class="reveal-up" style="transition-delay: 0.1s;">
+                <p class="gallery-kicker uppercase">面向产品经理的对话驱动工作台</p>
+            </div>
+            <div class="reveal-up" style="transition-delay: 0.25s;">
+                <h1 class="gallery-title">
+                    <span class="headline-main">EvoCanvas</span>
+                </h1>
+            </div>
+            <div class="reveal-up" style="transition-delay: 0.35s;">
+                <p class="gallery-subtitle">
+                    将混杂零碎的输入，收束为清晰明确的结构化交接。
+                </p>
+            </div>
+            <figure class="hero-showcase reveal-up" style="transition-delay: 0.45s;" aria-label="EvoCanvas 澄清卡、约束卡与交接卡画廊预览">
+                <img class="hero-gallery-card hero-gallery-evidence" src="assets/card-assets/evidence-gallery-card.png" alt="Evidence card" loading="eager" decoding="async">
+                <img class="hero-gallery-card hero-gallery-clarify" src="assets/card-assets/clarify-gallery-card.png" alt="Clarify card" loading="eager" decoding="async">
+                <img class="hero-gallery-card hero-gallery-rules" src="assets/card-assets/rules-gallery-card.png" alt="Constraints card" loading="eager" decoding="async">
+                <img class="hero-gallery-card hero-gallery-decision" src="assets/card-assets/decision-gallery-card.png" alt="Decision card" loading="eager" decoding="async">
+                <img class="hero-gallery-card hero-gallery-handoff" src="assets/card-assets/handoff-gallery-card.png" alt="Handoff card" loading="eager" decoding="async">
+            </figure>
+        </div>
+    </section>
+
+    <!-- ========== 第 2 篇章：产品背景 (Prelude) ========== -->
+    <section id="product-origin" class="prelude-section px-6">
+        <div class="prelude-shell">
+            <div class="prelude-copy">
+                <h2 class="text-4xl md:text-5xl lg:text-6xl font-semibold tracking-tight text-[#1d1d1f] reveal-up leading-[1.16]">
+                    产品工作，往往不是从写文档开始
+                </h2>
+                <p class="reveal-up" style="transition-delay: 0.15s;">
+                    更常见的起点，是会议里的半句结论、聊天里的临时判断、文档里的零散背景，以及那些还没来得及整理清楚、却已经必须推进的模糊输入。
+                </p>
+                <div class="prelude-divider reveal-up" style="transition-delay: 0.25s;"></div>
+            </div>
+            <div class="prelude-sources reveal-up" style="transition-delay: 0.2s;">
+                <div class="prelude-source-card prelude-source-meeting">
+                    <strong>会议片段</strong>
+                    <p>一句还没被说完的结论，往往已经在推动下一轮判断。</p>
+                </div>
+                <div class="prelude-source-card prelude-source-chat">
+                    <strong>聊天判断</strong>
+                    <p>临时共识、口头约束和待确认项，经常散落在多个对话窗口里。</p>
+                </div>
+                <div class="prelude-source-card prelude-source-doc">
+                    <strong>文档背景</strong>
+                    <p>信息已经存在，但上下文仍然断裂，没人能一眼看清真正的缺口。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ========== 第 3 篇章：对话收敛 ========== -->
+    <section class="py-32 relative z-10">
+        <div class="container mx-auto px-6 lg:px-24">
+            <div class="flex flex-col lg:flex-row items-start justify-between gap-16 lg:gap-24">
+
+                <div class="lg:w-1/2 sticky top-40 z-20">
+                    <p class="story-kicker mb-4 reveal-up">第一步：暴露不确定性</p>
+                    <h2 class="text-5xl lg:text-7xl font-semibold tracking-tighter text-[#1d1d1f] mb-8 leading-[1.1] reveal-up" style="transition-delay: 0.1s;">
+                        从自然表达里，找出真正要澄清的问题
+                    </h2>
+                    <p class="text-xl text-[#86868b] font-medium leading-relaxed reveal-up" style="transition-delay: 0.2s;">
+                        你不需要先把信息整理成一份像样的说明。把零散背景、直觉判断、会议片段和一句没说完的话直接交给 EvoCanvas。<br><br>
+                        系统会像一个合格的产品同事一样，先把冲突、缺口和需要拍板的分支显出来，而不是抢先替你脑补结论。
+                    </p>
+                </div>
+
+                <div class="lg:w-1/2 w-full mt-12 lg:mt-0 relative z-10 flex justify-center lg:justify-end">
+                    <!-- Vibe-shaping 可视化面板 -->
+                    <div class="premium-glass w-full max-w-lg overflow-hidden relative shadow-[0_50px_100px_rgba(0,0,0,0.08)] bg-white/60" style="height: 480px;">
+
+                        <div class="p-10 h-full flex flex-col justify-center">
+                            <!-- 1. Raw Intuition 区域 -->
+                            <div class="mb-6 relative">
+                                <p class="text-[11px] font-medium tracking-[0.3em] text-[#86868b] uppercase mb-5 flex items-center gap-3">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-[#7f8896]"></span>
+                                    原始输入
+                                </p>
+                                <div class="relative">
+                                    <p class="max-w-[25rem] text-[18px] md:text-[20px] font-medium text-[#4b5563] leading-[1.7] tracking-tight opacity-35 transition-opacity duration-700" id="vibe-raw-text">
+                                        “夜里重复告警太多。先合并噪音，再把真正影响客户的故障推给值班群，但别漏掉高风险事件。”
+                                    </p>
+                                    <!-- 高级感扫描光效 -->
+                                    <div class="absolute inset-0 bg-gradient-to-b from-transparent via-[#1d1d1f]/10 to-transparent h-20 w-full opacity-0 pointer-events-none -translate-y-full blur-xl" id="vibe-scanner"></div>
+                                </div>
+                            </div>
+
+                            <!-- 2. AI 极简结构化图谱 -->
+                            <div class="flex-1 flex flex-col pt-4 relative overflow-hidden">
+
+                                <p class="text-[11px] font-medium tracking-[0.3em] text-[#86868b] uppercase mb-6 opacity-100 transition-opacity duration-500 flex items-center gap-3" id="vibe-shaping-title">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-black"></span>
+                                    结构显影
+                                </p>
+
+                                <!-- 结构化图谱节点，极简排版风格 -->
+                                <div class="space-y-5 relative before:absolute before:inset-y-2 before:left-[3px] before:w-[1px] before:bg-gradient-to-b before:from-gray-300 before:to-transparent">
+
+                                    <!-- 节点 1 -->
+                                    <div class="vibe-insight-group opacity-100 translate-x-0 transition-all duration-700 ease-apple relative pl-8">
+                                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[7px] flex justify-center">
+                                            <div class="w-2 h-2 rounded-full bg-black ring-[4px] ring-white"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <span class="text-[15px] font-medium text-[#1d1d1f]">重复告警</span>
+                                            <span class="px-2 py-0.5 rounded bg-gray-100 text-[#86868b] text-[12px] font-mono tracking-wider">== "同源 + 短时连续"</span>
+                                            <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                                            <span class="text-[15px] font-medium text-[#1d1d1f] border-b border-black/20 pb-0.5">合并为单条事件</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 节点 2 -->
+                                    <div class="vibe-insight-group opacity-100 translate-x-0 transition-all duration-700 ease-apple delay-200 relative pl-8">
+                                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[7px] flex justify-center">
+                                            <div class="w-2 h-2 rounded-full bg-black ring-[4px] ring-white"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <span class="text-[15px] font-medium text-[#1d1d1f]">客户影响</span>
+                                            <span class="px-2 py-0.5 rounded bg-gray-100 text-[#86868b] text-[12px] font-mono tracking-wider">IN (SLA 风险)</span>
+                                            <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                                            <span class="text-[15px] font-medium text-[#1d1d1f] border-b border-black/20 pb-0.5">升级到值班群</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 节点 3 -->
+                                    <div class="vibe-insight-group opacity-100 translate-x-0 transition-all duration-700 ease-apple delay-300 relative pl-8">
+                                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[7px] flex justify-center">
+                                            <div class="w-2 h-2 rounded-full bg-black ring-[4px] ring-white"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <span class="text-[15px] font-medium text-[#1d1d1f]">高风险事件</span>
+                                            <span class="px-2 py-0.5 rounded bg-gray-100 text-[#86868b] text-[12px] font-mono tracking-wider">>= P1</span>
+                                            <svg class="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                                            <span class="text-[15px] font-medium text-[#1d1d1f] border-b border-black/20 pb-0.5">保留单独通知</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- 隐含约束 4 -->
+                                    <div class="vibe-insight-group opacity-100 translate-x-0 transition-all duration-700 ease-apple delay-400 relative pl-8">
+                                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[7px] flex justify-center">
+                                            <div class="w-1.5 h-1.5 rounded-full bg-gray-300 ring-[4px] ring-white"></div>
+                                        </div>
+                                        <div class="flex items-center gap-3 opacity-55">
+                                            <span class="text-[13px] font-medium text-[#86868b] italic">待补口径：重复告警窗口、客户影响范围、升级阈值。</span>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 底部连接口装饰 -->
+                        <div class="absolute bottom-0 left-0 w-full h-1.5 bg-gradient-to-r from-transparent via-black/10 to-transparent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ========== 第 4 篇章：核心闭环 ========== -->
+    <section class="py-40 relative z-10">
+        <div class="container mx-auto px-6 lg:px-24">
+            <div class="max-w-3xl mx-auto mb-24 text-center">
+                <p class="story-kicker mb-4 reveal-up">一条更自然的产品收敛路径</p>
+                <h2 class="text-5xl lg:text-7xl font-semibold tracking-tighter text-[#1d1d1f] mb-8 reveal-up" style="transition-delay: 0.1s;">
+                    从输入编译，到结构化交接
+                </h2>
+                <p class="text-xl text-[#86868b] font-medium leading-relaxed reveal-up" style="transition-delay: 0.2s;">
+                    EvoCanvas 1.0 只专注验证一件事：能不能把混杂输入，稳定收束为待澄清问题、约束、待决策项，以及可继续推进的交接上下文。
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-12 lg:gap-16">
+                <!-- Step 1 -->
+                <div class="reveal-up border-t border-gray-100 pt-8">
+                    <p class="text-6xl font-semibold text-gray-100 mb-6 font-mono tracking-tighter">01</p>
+                    <h3 class="text-2xl font-semibold text-[#1d1d1f] mb-4 tracking-tight">多源输入编译</h3>
+                    <p class="text-lg text-[#86868b] leading-relaxed">把会议、聊天、文档、截图和临时想法放进同一个入口，先统一承接，再识别事实、冲突与缺口。</p>
+                </div>
+                <!-- Step 2 -->
+                <div class="reveal-up border-t border-gray-100 pt-8" style="transition-delay: 0.15s;">
+                    <p class="text-6xl font-semibold text-gray-100 mb-6 font-mono tracking-tighter">02</p>
+                    <h3 class="text-2xl font-semibold text-[#1d1d1f] mb-4 tracking-tight">澄清与决策拍板</h3>
+                    <p class="text-lg text-[#86868b] leading-relaxed">AI 不会静默合并矛盾信息。它会主动抛出待澄清问题、约束与待决策项，帮助你逐步把判断收稳。</p>
+                </div>
+                <!-- Step 3 -->
+                <div class="reveal-up border-t border-gray-100 pt-8" style="transition-delay: 0.3s;">
+                    <p class="text-6xl font-semibold text-gray-100 mb-6 font-mono tracking-tighter">03</p>
+                    <h3 class="text-2xl font-semibold text-[#1d1d1f] mb-4 tracking-tight">生成结构交接物</h3>
+                    <p class="text-lg text-[#86868b] leading-relaxed">当问题和约束逐渐稳定，画布会自然沉淀为可继续交接给研发或后续 AI 的结构化工作上下文。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ========== 第 5 篇章：从对话进入画布 ========== -->
+    <div class="flex flex-col gap-24 lg:gap-40 py-32 relative z-10">
+
+        <!-- 场景 A: Agent (展示步骤 1, 2) -->
+        <section class="relative">
+            <div class="container mx-auto px-6 lg:px-24 grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+                <div class="lg:col-span-5 z-20 reveal-up">
+                    <p class="story-kicker mb-5">第二步：把澄清留在工作面上</p>
+                    <h2 class="text-5xl lg:text-[4rem] font-semibold tracking-tighter text-[#1d1d1f] mb-8 leading-[1.1]">
+                        对话不是终点，它会继续长在画布里
+                    </h2>
+                    <p class="text-lg lg:text-xl text-[#86868b] font-medium leading-[1.7] max-w-md">
+                        每一次追问、每一条待确认的信息、每一个需要拍板的判断，都会被保留为可继续推进的结构，而不是散落在聊天记录里。
+                    </p>
+                </div>
+                <div class="lg:col-span-7 relative z-10 w-full flex justify-center lg:justify-end pr-0 lg:pr-12 reveal-up" style="transition-delay: 0.2s;">
+                    <div class="story-surface story-frame w-full max-w-[480px] p-4">
+                        <img src="./agent.png" alt="Agent Chat Interface" class="story-image">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 场景 B: Canvas (展示步骤 3) -->
+        <section class="relative">
+            <div class="container mx-auto px-6 lg:px-24 grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+                <div class="lg:col-span-8 relative z-10 w-full lg:w-[110%] max-w-none flex justify-center lg:justify-start order-2 lg:order-1 lg:-ml-[5%] reveal-up" style="transition-delay: 0.2s;">
+                    <div class="story-surface story-frame w-full max-w-[980px] p-5">
+                        <img src="./canvas.png" alt="EvoCanvas Board Interface" class="story-image">
+                    </div>
+                </div>
+                <div class="lg:col-span-4 z-20 lg:pl-10 order-1 lg:order-2 reveal-up">
+                    <p class="story-kicker mb-5">第三步：在画布里完成交接</p>
+                    <h2 class="text-5xl lg:text-[3.5rem] font-semibold tracking-tighter text-[#1d1d1f] mb-6 leading-[1.1]">
+                        最终交付，不必跳出当前上下文
+                    </h2>
+                    <p class="text-lg text-[#86868b] font-medium leading-[1.7]">
+                        当问题、约束与待决策项逐渐稳定，画布会自然收束为结构化交接物。不是重新整理一份文档，而是在同一工作面里把来龙去脉交代完整。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ==================== Bento Box Features Section ==================== -->
+    <section class="py-32 relative border-t border-gray-100/50">
+        <div class="container mx-auto px-6 lg:px-24">
+            <div class="text-center mb-24">
+                <p class="story-kicker mb-5">围绕同一个闭环而设计</p>
+                <h2 class="text-4xl md:text-5xl font-semibold tracking-tighter text-[#1d1d1f] mb-6">不是文档生成器，而是持续演化的产品工作台</h2>
+                <p class="text-xl text-[#86868b] font-medium max-w-2xl mx-auto">每一块能力都服务于同一件事：把混杂输入收束为能够被人和 AI 继续推进的结构化上下文。</p>
+            </div>
+
+            <!-- 使用 3 列网格，实现 2+1 和 1+2 的经典交错布局 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+
+                <!-- Card 1: 上排左侧 (宽卡片) -->
+                <div class="md:col-span-2 rounded-[2.5rem] bg-white p-10 md:p-12 flex flex-col justify-between group overflow-hidden relative min-h-[360px] shadow-[0_20px_60px_rgba(0,0,0,0.03)] border border-gray-100/50 transition-transform duration-700 hover:-translate-y-2 hover:shadow-[0_30px_80px_rgba(0,0,0,0.06)]">
+                    <div class="relative z-10">
+                        <h3 class="text-3xl font-semibold text-[#1d1d1f] mb-4">全自动结构化交接</h3>
+                        <p class="text-lg text-[#86868b] font-medium max-w-sm leading-relaxed">不用在流程尾声重新整理材料。你的推演、判断和约束，会直接收束成可继续传递的交接上下文。</p>
+                    </div>
+                    <!-- 高级感装饰图案 -->
+                    <div class="absolute right-0 bottom-0 translate-x-8 translate-y-8 group-hover:translate-x-2 group-hover:translate-y-2 transition-transform duration-700 ease-out">
+                        <div class="w-[320px] h-[220px] bg-[#f8f9fa] rounded-tl-[3rem] flex items-start justify-start p-8 gap-4 border-t border-l border-gray-200/60 shadow-[-20px_-20px_40px_rgba(0,0,0,0.03)]">
+                            <div class="flex flex-col gap-4 w-full opacity-80">
+                                <div class="h-8 w-2/3 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center px-4 gap-2">
+                                    <div class="w-3 h-3 rounded-full bg-emerald-400"></div>
+                                    <div class="h-2 w-16 bg-gray-200 rounded"></div>
+                                </div>
+                                <div class="h-16 w-full bg-white rounded-xl shadow-sm border border-gray-100 border-l-[6px] border-l-indigo-500 p-4 flex flex-col justify-center gap-2">
+                                    <div class="h-2 w-1/2 bg-gray-200 rounded"></div>
+                                    <div class="h-1.5 w-3/4 bg-gray-100 rounded"></div>
+                                </div>
+                                <div class="h-16 w-5/6 bg-white rounded-xl shadow-sm border border-gray-100 border-l-[6px] border-l-blue-500 p-4 flex flex-col justify-center gap-2">
+                                    <div class="h-2 w-1/3 bg-gray-200 rounded"></div>
+                                    <div class="h-1.5 w-2/3 bg-gray-100 rounded"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 2: 上排右侧 (窄卡片) -->
+                <div class="md:col-span-1 rounded-[2.5rem] bg-white p-10 md:p-12 flex flex-col justify-between group relative overflow-hidden min-h-[360px] shadow-[0_20px_60px_rgba(0,0,0,0.03)] border border-gray-100/50 transition-transform duration-700 hover:-translate-y-2 hover:shadow-[0_30px_80px_rgba(0,0,0,0.06)]">
+                    <div class="relative z-10">
+                        <h3 class="text-3xl font-semibold text-[#1d1d1f] mb-4">多模态感知</h3>
+                        <p class="text-lg text-[#86868b] font-medium leading-relaxed">会议、聊天、文档、截图与临时想法，都可以进入同一张工作面，被统一理解和收束。</p>
+                    </div>
+                    <div class="absolute right-8 bottom-8 text-[#1d1d1f]/[0.03] group-hover:text-[#1d1d1f]/[0.08] transition-colors duration-700">
+                        <svg class="w-32 h-32" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="0.8" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                    </div>
+                </div>
+
+                <!-- Card 3: 下排左侧 (窄卡片, 暗色) -->
+                <div class="md:col-span-1 rounded-[2.5rem] bg-[#1d1d1f] p-10 md:p-12 flex flex-col justify-between group relative overflow-hidden min-h-[360px] shadow-[0_20px_60px_rgba(0,0,0,0.15)] transition-transform duration-700 hover:-translate-y-2 hover:shadow-[0_30px_80px_rgba(0,0,0,0.25)]">
+                    <div class="relative z-10">
+                        <h3 class="text-3xl font-semibold text-white mb-4">本地优先</h3>
+                        <p class="text-lg text-gray-400 font-medium leading-relaxed">核心工作资产默认在本地隔离存储，让高敏感的产品语境也能安心沉淀与推进。</p>
+                    </div>
+                    <div class="absolute right-8 bottom-8 text-white/[0.03] group-hover:text-white/[0.08] transition-colors duration-700">
+                        <svg class="w-32 h-32" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="0.8" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    </div>
+                </div>
+
+                <!-- Card 4: 下排右侧 (宽卡片, 新增) -->
+                <div class="md:col-span-2 rounded-[2.5rem] bg-white p-10 md:p-12 flex flex-col justify-between group overflow-hidden relative min-h-[360px] shadow-[0_20px_60px_rgba(0,0,0,0.03)] border border-gray-100/50 transition-transform duration-700 hover:-translate-y-2 hover:shadow-[0_30px_80px_rgba(0,0,0,0.06)]">
+                    <div class="relative z-10">
+                        <h3 class="text-3xl font-semibold text-[#1d1d1f] mb-4">无界推演画布</h3>
+                        <p class="text-lg text-[#86868b] font-medium max-w-sm leading-relaxed">问题、约束、待决策项与交接结果会持续留在一张连续画布上，方便回看、比较和继续推进。</p>
+                    </div>
+                    <!-- 高级感装饰图案: 节点图 -->
+                    <div class="absolute right-0 bottom-0 translate-x-8 translate-y-8 group-hover:translate-x-4 group-hover:translate-y-4 transition-transform duration-700 ease-out">
+                        <div class="w-[360px] h-[220px] bg-[#f8f9fa] rounded-tl-[3rem] flex items-center justify-center p-8 border-t border-l border-gray-200/60 shadow-[-20px_-20px_40px_rgba(0,0,0,0.03)] relative overflow-hidden">
+                            <!-- 连线 -->
+                            <svg class="absolute inset-0 w-full h-full text-gray-200" style="stroke-width: 2px;"><path d="M80,110 L160,70 M80,110 L160,150" fill="none" stroke="currentColor"></path></svg>
+                            <!-- 节点群 -->
+                            <div class="absolute left-10 top-1/2 -translate-y-1/2 w-16 h-16 bg-white rounded-2xl shadow-md border border-gray-100 flex items-center justify-center">
+                                <div class="w-6 h-6 rounded-full bg-indigo-500/20 flex items-center justify-center"><div class="w-2.5 h-2.5 bg-indigo-500 rounded-full"></div></div>
+                            </div>
+                            <div class="absolute left-[160px] top-[40px] w-32 h-12 bg-white rounded-xl shadow-md border border-gray-100 flex items-center px-4">
+                                <div class="w-full h-2 bg-gray-100 rounded"></div>
+                            </div>
+                            <div class="absolute left-[160px] top-[120px] w-32 h-12 bg-white rounded-xl shadow-md border border-gray-100 flex items-center px-4">
+                                <div class="w-full h-2 bg-gray-100 rounded"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+
+    <script>
+        // 1. 首屏入场
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                document.querySelectorAll('section.h-screen .reveal-up').forEach(el => el.classList.add('active'));
+            }, 50);
+        });
+
+        // 2. 页面元素滚动触发 (Intersection Observer)
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                }
+            });
+        }, { threshold: 0.15, rootMargin: "0px 0px -50px 0px" });
+
+        document.querySelectorAll('.reveal-up').forEach(el => {
+            if (!el.closest('section.h-screen')) {
+                observer.observe(el);
+            }
+        });
+
+        // 3. 核心视差滚动 (已移除)
+
+        // --- 4. Vibe-shaping 动态模拟器脚本 ---
+        function runVibeScanner() {
+            const rawText = document.getElementById('vibe-raw-text');
+            const scanner = document.getElementById('vibe-scanner');
+            const shapingTitle = document.getElementById('vibe-shaping-title');
+            const groups = document.querySelectorAll('.vibe-insight-group');
+
+            if (!rawText || !scanner || !shapingTitle || !groups.length) {
+                return;
+            }
+
+            rawText.classList.remove('opacity-20');
+            rawText.classList.add('opacity-45');
+            shapingTitle.classList.add('opacity-100');
+            groups.forEach(g => {
+                g.classList.remove('opacity-0', 'translate-x-6');
+                g.classList.add('opacity-100', 'translate-x-0');
+            });
+            scanner.style.transition = 'transform 1.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.45s ease';
+            scanner.style.opacity = '0.55';
+            scanner.style.transform = 'translateY(220px)';
+            window.setTimeout(() => {
+                scanner.style.opacity = '0';
+            }, 1200);
+        }
+
+        // 启动 Vibe-shaping 动画
+        setTimeout(runVibeScanner, 1000);
+    </script>
+</body>
+</html>

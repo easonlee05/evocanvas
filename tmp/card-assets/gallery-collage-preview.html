@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EvoCanvas Card Gallery Preview</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background:
+        radial-gradient(circle at 50% 62%, rgba(47, 109, 246, 0.05), transparent 38%),
+        #fff;
+    }
+
+    .card {
+      position: absolute;
+      display: block;
+      height: auto;
+      filter: saturate(0.98) contrast(1.02);
+      user-select: none;
+    }
+
+    .evidence {
+      width: 430px;
+      left: 8%;
+      top: 19%;
+      z-index: 1;
+      transform: rotate(-2deg);
+    }
+
+    .clarify {
+      width: 620px;
+      left: 24%;
+      top: 22%;
+      z-index: 2;
+      transform: rotate(-3.5deg);
+    }
+
+    .rules {
+      width: 470px;
+      left: 43%;
+      top: 10%;
+      z-index: 5;
+      transform: rotate(2deg);
+    }
+
+    .decision {
+      width: 620px;
+      right: 9%;
+      top: 24%;
+      z-index: 3;
+      transform: rotate(2.2deg);
+    }
+
+    .handoff {
+      width: 430px;
+      right: -2%;
+      top: 24%;
+      z-index: 4;
+      transform: rotate(3.5deg);
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <img class="card evidence" src="../../assets/card-assets/evidence-gallery-card.png" alt="">
+    <img class="card clarify" src="../../assets/card-assets/clarify-gallery-card.png" alt="">
+    <img class="card rules" src="../../assets/card-assets/rules-gallery-card.png" alt="">
+    <img class="card decision" src="../../assets/card-assets/decision-gallery-card.png" alt="">
+    <img class="card handoff" src="../../assets/card-assets/handoff-gallery-card.png" alt="">
+  </main>
+</body>
+</html>

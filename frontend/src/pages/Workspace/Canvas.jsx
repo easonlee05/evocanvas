@@ -51,7 +51,6 @@ import {
   getCanvasViewStateStorageKey,
   readStoredCanvasViewState,
 } from './workspaceSession';
-import { CARD_PORTS } from './edgeRouter.js';
 import {
   ActiveBacklogPanel,
   ClockWidget,
@@ -65,10 +64,22 @@ import CanvasTextLayer from './CanvasTextLayer.jsx';
 import {
   CustomArrow,
   TempConnectionLine,
-  getCardPorts,
-  getCardRectInCanvas,
-  getPortPointByName,
 } from './CanvasEdges.jsx';
+import {
+  collectCardGeometry,
+  getCanvasPortPoint,
+  normalizeCardGeometry,
+  resolveConnectionTargetAtPoint,
+} from './canvasEngine/geometry.js';
+import {
+  createDragSession,
+  getDraggedPosition,
+} from './canvasEngine/drag.js';
+import {
+  screenPointToCanvas,
+  translateViewport,
+  zoomViewportAtPoint,
+} from './canvasEngine/viewport.js';
 
 const LANE_DEFINITIONS = [
   { sectionKey: 'clarify', laneTitle: '待澄清项', clusterTitle: '问题与不确定性' },
@@ -1566,6 +1577,7 @@ export default function Canvas({
 
   const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const [cardGeometry, setCardGeometry] = useState({});
   const [hoveredCardId, setHoveredCardId] = useState(null);
   const [connectorTarget, setConnectorTarget] = useState(null);
   const [editingState, setEditingState] = useState(null);
@@ -1576,7 +1588,12 @@ export default function Canvas({
   const [hasHydratedCanvasView, setHasHydratedCanvasView] = useState(false);
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
+  const panFrame = useRef(null);
   const dragSession = useRef(null);
+  const containerRef = useRef(null);
+  const canvasLanesRef = useRef(null);
+  const cardGeometryRef = useRef({});
+  const cardGeometryVersionRef = useRef({});
   const hasRestoredViewStateRef = useRef(false);
   const pendingTextFocusIdRef = useRef(null);
 
@@ -1634,10 +1651,7 @@ export default function Canvas({
 
     const viewportX = containerRect.width * 0.68;
     const viewportY = 112 + slot * 28;
-    return {
-      x: (viewportX - transform.x) / transform.scale,
-      y: (viewportY - transform.y) / transform.scale,
-    };
+    return screenPointToCanvas({ x: viewportX, y: viewportY }, transform);
   };
 
   const buildPersonalWidget = (type) => {
@@ -2103,10 +2117,90 @@ export default function Canvas({
     setIsWidgetPanelOpen(false);
   };
 
-  const containerRef = useRef(null);
+  useLayoutEffect(() => {
+    const lanesElement = canvasLanesRef.current;
+    if (!lanesElement) return undefined;
+
+    let frameId = null;
+    const refreshGeometry = () => {
+      const containerRect = lanesElement.getBoundingClientRect();
+      const rawGeometry = collectCardGeometry(
+        lanesElement.querySelectorAll('.canvas-card[id]'),
+        containerRect,
+        transform.scale,
+      );
+
+      const nextGeometry = {};
+      const nextVersions = {};
+      Object.entries(rawGeometry).forEach(([cardId, rawGeom]) => {
+        const prevVersion = cardGeometryVersionRef.current[cardId] || 0;
+        const prev = cardGeometryRef.current[cardId];
+        const moved = !prev
+          || prev.left !== rawGeom.left
+          || prev.top !== rawGeom.top
+          || prev.width !== rawGeom.width
+          || prev.height !== rawGeom.height;
+        if (!moved) {
+          nextVersions[cardId] = prevVersion;
+          nextGeometry[cardId] = prev;
+          return;
+        }
+        const version = prevVersion + 1;
+        nextVersions[cardId] = version;
+        nextGeometry[cardId] = normalizeCardGeometry(rawGeom, version);
+      });
+
+      cardGeometryVersionRef.current = nextVersions;
+      cardGeometryRef.current = nextGeometry;
+      setCardGeometry(nextGeometry);
+    };
+
+    const scheduleRefresh = () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(refreshGeometry);
+    };
+
+    scheduleRefresh();
+
+    const resizeObserver = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(scheduleRefresh)
+      : null;
+    resizeObserver?.observe(lanesElement);
+    lanesElement.querySelectorAll('.canvas-card[id]').forEach((element) => {
+      resizeObserver?.observe(element);
+    });
+
+    return () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      resizeObserver?.disconnect();
+    };
+  }, [canvasSections, cardOffsets, transform.x, transform.y, transform.scale]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    let wheelFrame = null;
+    let pendingDelta = 0;
+
+    const flushWheel = () => {
+      wheelFrame = null;
+      const delta = pendingDelta;
+      pendingDelta = 0;
+      if (delta === 0) return;
+      const rect = container.getBoundingClientRect();
+      setTransform((current) => zoomViewportAtPoint(
+        current,
+        {
+          x: lastWheelClientX - rect.left,
+          y: lastWheelClientY - rect.top,
+        },
+        delta,
+      ));
+    };
+
+    let lastWheelClientX = 0;
+    let lastWheelClientY = 0;
 
     const handleWheel = (event) => {
       if (event.target.closest?.('[data-canvas-wheel-region="true"]')) {
@@ -2114,33 +2208,21 @@ export default function Canvas({
       }
 
       event.preventDefault();
-      
-      const rect = container.getBoundingClientRect();
-      const mouseX = event.clientX - rect.left;
-      const mouseY = event.clientY - rect.top;
+      lastWheelClientX = event.clientX;
+      lastWheelClientY = event.clientY;
+      pendingDelta += event.deltaY;
 
-      const canvasX = (mouseX - transform.x) / transform.scale;
-      const canvasY = (mouseY - transform.y) / transform.scale;
-
-      const scaleFactor = 1.1;
-      let newScale = transform.scale;
-      if (event.deltaY < 0) {
-        newScale = Math.min(newScale * scaleFactor, 3);
-      } else {
-        newScale = Math.max(newScale / scaleFactor, 0.2);
+      if (wheelFrame === null) {
+        wheelFrame = requestAnimationFrame(flushWheel);
       }
-
-      const newX = mouseX - canvasX * newScale;
-      const newY = mouseY - canvasY * newScale;
-
-      setTransform({ x: newX, y: newY, scale: newScale });
     };
 
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
       container.removeEventListener('wheel', handleWheel);
+      if (wheelFrame !== null) cancelAnimationFrame(wheelFrame);
     };
-  }, [transform]);
+  }, []);
 
   const handlePointerDown = (event) => {
     setActiveCardMenuId(null);
@@ -2157,8 +2239,10 @@ export default function Canvas({
       const rect = containerRef.current.getBoundingClientRect();
       const clientX = event.clientX;
       const clientY = event.clientY;
-      const canvasX = (clientX - rect.left - transform.x) / transform.scale;
-      const canvasY = (clientY - rect.top - transform.y) / transform.scale;
+      const { x: canvasX, y: canvasY } = screenPointToCanvas(
+        { x: clientX - rect.left, y: clientY - rect.top },
+        transform,
+      );
       
       let stage = 'discovery';
       if (canvasX > 400 && canvasX < 850) stage = 'define';
@@ -2180,8 +2264,10 @@ export default function Canvas({
       const rect = containerRef.current.getBoundingClientRect();
       const clientX = event.clientX;
       const clientY = event.clientY;
-      const canvasX = (clientX - rect.left - transform.x) / transform.scale;
-      const canvasY = (clientY - rect.top - transform.y) / transform.scale;
+      const { x: canvasX, y: canvasY } = screenPointToCanvas(
+        { x: clientX - rect.left, y: clientY - rect.top },
+        transform,
+      );
       const textId = 'text-' + Date.now();
 
       const newText = {
@@ -2227,20 +2313,42 @@ export default function Canvas({
       x: event.clientX - transform.x,
       y: event.clientY - transform.y
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // setPointerCapture 在指针已失效（合成事件、边缘场景）时会抛
+    // NotFoundError，用 try-catch 保护避免整页崩溃
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch (_e) { /* 指针已失效，平移仍可正常工作 */ }
   };
+
+  const panLatest = useRef({ x: 0, y: 0 });
 
   const handlePointerMove = (event) => {
     if (!isDragging.current) return;
-    const newX = event.clientX - dragStart.current.x;
-    const newY = event.clientY - dragStart.current.y;
-    setTransform(prev => ({ ...prev, x: newX, y: newY }));
+    panLatest.current = {
+      x: event.clientX - dragStart.current.x,
+      y: event.clientY - dragStart.current.y,
+    };
+    if (panFrame.current !== null) return;
+    panFrame.current = requestAnimationFrame(() => {
+      panFrame.current = null;
+      const { x: newX, y: newY } = panLatest.current;
+      setTransform((current) => translateViewport(current, {
+        x: newX - current.x,
+        y: newY - current.y,
+      }));
+    });
   };
 
   const handlePointerUp = (event) => {
     if (isDragging.current) {
       isDragging.current = false;
-      event.currentTarget.releasePointerCapture(event.pointerId);
+      if (panFrame.current !== null) {
+        cancelAnimationFrame(panFrame.current);
+        panFrame.current = null;
+      }
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch (_e) { /* 指针已释放，无需操作 */ }
     }
   };
 
@@ -2296,15 +2404,13 @@ export default function Canvas({
       source = textItem ? { x: textItem.x, y: textItem.y } : { x: 0, y: 0 };
     }
 
-    dragSession.current = {
+    dragSession.current = createDragSession({
       type,
       id,
-      pointerX: event.clientX,
-      pointerY: event.clientY,
-      startX: source.x,
-      startY: source.y,
+      pointer: { x: event.clientX, y: event.clientY },
+      start: source,
       coordinateSpace,
-    };
+    });
   };
 
   const hoveredCardIdRef = useRef(null);
@@ -2313,68 +2419,27 @@ export default function Canvas({
   }, [hoveredCardId]);
 
   const resolveConnectionTarget = (clientX, clientY, startCardId) => {
-    const lanesEl = document.querySelector('.canvas-lanes');
-    if (!lanesEl) return null;
+    const lanesElement = canvasLanesRef.current;
+    if (!lanesElement) return null;
 
-    const scale = transform.scale;
-    const containerRect = lanesEl.getBoundingClientRect();
-    const pointerX = (clientX - containerRect.left) / scale;
-    const pointerY = (clientY - containerRect.top) / scale;
+    const lanesRect = lanesElement.getBoundingClientRect();
+    const point = screenPointToCanvas(
+      {
+        x: clientX - lanesRect.left,
+        y: clientY - lanesRect.top,
+      },
+      { x: 0, y: 0, scale: transform.scale },
+    );
 
-    let closestCardId = null;
-    let closestPort = null;
-    let closestDistance = Number.POSITIVE_INFINITY;
-    let strongestExplicitMatch = null;
-
-    document.querySelectorAll('.canvas-card').forEach((cardElement) => {
-      const cardId = cardElement.id;
-      if (!cardId || cardId === startCardId) return;
-
-      const cardRect = cardElement.getBoundingClientRect();
-      const cardLeft = (cardRect.left - containerRect.left) / scale;
-      const cardRight = (cardRect.right - containerRect.left) / scale;
-      const cardTop = (cardRect.top - containerRect.top) / scale;
-      const cardBottom = (cardRect.bottom - containerRect.top) / scale;
-      const ports = getCardPorts(getCardRectInCanvas(cardRect, containerRect, scale, cardId));
-
-      const edgeCandidates = [
-        { port: 'left', distance: Math.abs(pointerX - cardLeft), aligned: pointerY >= cardTop - CONNECT_SNAP_RADIUS && pointerY <= cardBottom + CONNECT_SNAP_RADIUS },
-        { port: 'right', distance: Math.abs(pointerX - cardRight), aligned: pointerY >= cardTop - CONNECT_SNAP_RADIUS && pointerY <= cardBottom + CONNECT_SNAP_RADIUS },
-        { port: 'top', distance: Math.abs(pointerY - cardTop), aligned: pointerX >= cardLeft - CONNECT_SNAP_RADIUS && pointerX <= cardRight + CONNECT_SNAP_RADIUS },
-        { port: 'bottom', distance: Math.abs(pointerY - cardBottom), aligned: pointerX >= cardLeft - CONNECT_SNAP_RADIUS && pointerX <= cardRight + CONNECT_SNAP_RADIUS },
-      ];
-
-      edgeCandidates.forEach((candidate) => {
-        if (!candidate.aligned || candidate.distance > EXPLICIT_PORT_SNAP_RADIUS) return;
-        if (!strongestExplicitMatch || candidate.distance < strongestExplicitMatch.distance) {
-          strongestExplicitMatch = { cardId, port: candidate.port, distance: candidate.distance };
-        }
-      });
-
-      CARD_PORTS.forEach((port) => {
-        const point = ports[port];
-        const distance = Math.hypot(pointerX - point.x, pointerY - point.y);
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestCardId = cardId;
-          closestPort = port;
-        }
-      });
-    });
-
-    if (strongestExplicitMatch) {
-      return strongestExplicitMatch;
-    }
-
-    if (!closestCardId || !closestPort || closestDistance > CONNECT_SNAP_RADIUS) {
-      return null;
-    }
-
-    return {
-      cardId: closestCardId,
-      port: closestPort,
-      distance: closestDistance,
-    };
+    return resolveConnectionTargetAtPoint(
+      point,
+      cardGeometryRef.current,
+      startCardId,
+      {
+        connectSnapRadius: CONNECT_SNAP_RADIUS,
+        explicitPortSnapRadius: EXPLICIT_PORT_SNAP_RADIUS,
+      },
+    );
   };
 
   useEffect(() => {
@@ -2382,13 +2447,13 @@ export default function Canvas({
       const session = dragSession.current;
       if (!session) return;
 
-      const usesScreenSpace = session.coordinateSpace === 'screen';
-      const deltaX = usesScreenSpace
-        ? event.clientX - session.pointerX
-        : (event.clientX - session.pointerX) / transform.scale;
-      const deltaY = usesScreenSpace
-        ? event.clientY - session.pointerY
-        : (event.clientY - session.pointerY) / transform.scale;
+      const nextPosition = getDraggedPosition(
+        session,
+        { x: event.clientX, y: event.clientY },
+        transform.scale,
+      );
+      const deltaX = nextPosition.x - session.startX;
+      const deltaY = nextPosition.y - session.startY;
 
       if (session.type === 'card') {
         setCardOffsets((current) => ({
@@ -2446,14 +2511,14 @@ export default function Canvas({
           y: session.startY + deltaY,
         } : t));
       } else if (session.type === 'connector') {
-        const lanesEl = document.querySelector('.canvas-lanes');
+        const lanesEl = canvasLanesRef.current;
         if (lanesEl) {
           const resolvedTarget = resolveConnectionTarget(event.clientX, event.clientY, session.startCardId);
           if (resolvedTarget?.cardId) {
             setConnectorTarget(resolvedTarget);
-            const targetEl = document.getElementById(resolvedTarget.cardId);
-            if (targetEl) {
-              const snappedPoint = getPortPointByName(targetEl, lanesEl, transform.scale, resolvedTarget.port);
+            const targetRect = cardGeometryRef.current[resolvedTarget.cardId];
+            if (targetRect) {
+              const snappedPoint = getCanvasPortPoint(targetRect, resolvedTarget.port);
               setActiveConnector(prev => prev ? {
                 ...prev,
                 endX: snappedPoint.x,
@@ -2466,8 +2531,13 @@ export default function Canvas({
 
           setConnectorTarget(null);
           const lanesRect = lanesEl.getBoundingClientRect();
-          const endX = (event.clientX - lanesRect.left) / transform.scale;
-          const endY = (event.clientY - lanesRect.top) / transform.scale;
+          const { x: endX, y: endY } = screenPointToCanvas(
+            {
+              x: event.clientX - lanesRect.left,
+              y: event.clientY - lanesRect.top,
+            },
+            { x: 0, y: 0, scale: transform.scale },
+          );
           setActiveConnector(prev => prev ? { ...prev, endX, endY, endPort: null } : null);
         }
       }
@@ -2633,12 +2703,17 @@ export default function Canvas({
   const handleConnectStart = (cardId, port, event) => {
     event.stopPropagation();
     event.preventDefault();
-    const lanesEl = document.querySelector('.canvas-lanes');
+    const lanesEl = canvasLanesRef.current;
     if (!lanesEl) return;
 
     const lanesRect = lanesEl.getBoundingClientRect();
-    const currentX = (event.clientX - lanesRect.left) / transform.scale;
-    const currentY = (event.clientY - lanesRect.top) / transform.scale;
+    const { x: currentX, y: currentY } = screenPointToCanvas(
+      {
+        x: event.clientX - lanesRect.left,
+        y: event.clientY - lanesRect.top,
+      },
+      { x: 0, y: 0, scale: transform.scale },
+    );
 
     setActiveConnector({
       startCardId: cardId,
@@ -3225,6 +3300,7 @@ export default function Canvas({
       {/* 无限缩放平面 */}
       <div 
         className="canvas-lanes"
+        ref={canvasLanesRef}
         style={{
           transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
           transformOrigin: '0 0'
@@ -3279,7 +3355,6 @@ export default function Canvas({
                 key={i}
                 start={arr.start}
                 end={arr.end}
-                transform={transform}
                 visualState={
                   !shouldRevealArrows
                     ? 'hidden'
@@ -3296,6 +3371,7 @@ export default function Canvas({
                 inCount={arr.endOffsetTotal}
                 startPort={arr.startPort}
                 endPort={arr.endPort}
+                geometry={cardGeometry}
                 onDelete={handleDeleteConnection}
                 canDelete={activeTool === 'connector'}
               />
@@ -3310,7 +3386,7 @@ export default function Canvas({
               endX={activeConnector.endX}
               endY={activeConnector.endY}
               endPort={activeConnector.endPort}
-              transform={transform}
+              geometry={cardGeometry}
             />
           )}
 

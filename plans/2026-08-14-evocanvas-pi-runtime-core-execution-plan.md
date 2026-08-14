@@ -28,7 +28,7 @@ Python 继续拥有产品事实、上下文装配、判断、治理、确认、�
 1. 产品边界：[EvoCanvas 1.0 PRD](../docs/vision/EvoCanvas1.0-PRD.md)。
 2. 运行、工具、失败、治理和提交规则：`docs/harness/` 中达到 L3 的规格，尤其是 [Runtime](../docs/harness/03-runtime-tools/01%20Runtime（运行时）.md)、[Tool Contract](../docs/harness/03-runtime-tools/02%20Tool%20Contract（工具契约）.md)、[Failure and Recovery](../docs/harness/03-runtime-tools/03%20Failure%20and%20Recovery（失败与恢复）.md) 和 [Implementation Baseline](../docs/harness/04-orchestration-lifecycle/05%20Implementation%20Baseline（实现基线）.md)。
 3. 架构选择和迁移范围：[重构设计](./2026-08-13-evocanvas-pi-runtime-core-refactor-design.md)。
-4. 本轮新增接口合同：[Pi Runtime Interface Contract](../docs/technical-specs/05%20Pi%20Runtime%20Contract（Pi%20运行时接口契约）.md)、[阶段 0 矩阵](../docs/technical-specs/06%20Pi%20Runtime%20Phase%200%20Matrices（Pi%20运行时阶段%200%20矩阵）.md) 及 [JSON Schema](../docs/technical-specs/schemas/pi-runtime/v1-contracts.json)。
+4. 本轮新增接口合同：[Pi Runtime Interface Contract](../docs/technical-specs/05%20Pi%20Runtime%20Contract（Pi%20运行时接口契约）.md)、[阶段 0 矩阵](../docs/technical-specs/06%20Pi%20Runtime%20Phase%200%20Matrices（Pi%20运行时阶段%200%20矩阵）.md)、[迁移前置核对](../docs/technical-specs/07%20Pi%20Runtime%20Migration%20Preflight（Pi%20运行时迁移前置核对）.md) 及 [JSON Schema](../docs/technical-specs/schemas/pi-runtime/v1-contracts.json)。
 
 ### 2.2 明确不做
 
@@ -81,7 +81,7 @@ Python 继续拥有产品事实、上下文装配、判断、治理、确认、�
    - `operation_id`、`message_seq`、版本检查和 stale/unknown 语义。
 3. 建立机器可读 [v1 JSON Schema](../docs/technical-specs/schemas/pi-runtime/v1-contracts.json)。
 4. 从 L3 Harness 和现有测试整理首批失败样本与硬门场景，不把旧实现的输出文本当作基线。
-5. 对当前代码做消费者清单：哪些是通用底座，哪些是旧产品执行适配层，哪些必须迁入 Product Kernel，哪些可在阶段 7 删除。
+5. 对当前代码做消费者清单：哪些是通用底座，哪些是旧产品执行适配层，哪些必须迁入 Product Kernel，哪些可在阶段 7 删除；结果记录在 [迁移前置核对](../docs/technical-specs/07%20Pi%20Runtime%20Migration%20Preflight（Pi%20运行时迁移前置核对）.md)。
 6. 补齐阶段 0 的配套矩阵（已形成初稿，待测试/代码核对）：
    - 生命周期/状态矩阵（四类运行记录、租约、水位、stale、unknown、Outbox）；
    - Provider/Adapter 兼容矩阵（至少 OpenAI Responses 与 Anthropic Messages）；

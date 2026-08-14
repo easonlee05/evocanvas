@@ -1,6 +1,6 @@
 ---
-status: 执行准备中
-stage: 阶段 0：冻结产品合同
+status: 阶段 1 实施中
+stage: 阶段 1：建立 Pi Runtime
 branch: codex/pi-runtime-core-refactor
 updated_at: 2026-08-14
 ---
@@ -68,7 +68,7 @@ Python 继续拥有产品事实、上下文装配、判断、治理、确认、�
 | 7 | 清理旧链 | 删除在线旧 Provider、AgentRuntime、WorkflowEngine 依赖、active turn 和旧夹具 | 全仓只有一个真实 Agent 执行路径 |
 | 8 | 最终验收 | Python/TS/前端/E2E、安全、故障注入、全新环境演练、文档同步 | 全部硬门通过，才允许合并分支 |
 
-## 4. 阶段 0：冻结产品合同（当前阶段）
+## 4. 阶段 0：冻结产品合同（已完成）
 
 ### 4.1 工作项
 
@@ -95,10 +95,11 @@ Python 继续拥有产品事实、上下文装配、判断、治理、确认、�
 - [x] 执行计划已落盘。
 - [x] Python/TS 接口与事件合同已落盘。
 - [x] 机器可读 Schema 已落盘并通过 JSON 解析校验。
-- [ ] 失败样本矩阵进入测试文件。
-- [ ] 生命周期、Provider、工具、错误恢复和迁移清单完成核对。
-- [ ] 当前代码消费者清单与阶段 7 删除清单完成核对。
-- [ ] Pi 包安装基线和真实 SDK 导出在阶段 1 开始前核对。
+- [x] 合同 Schema fixture 测试已加入并通过（6 tests）。
+- [x] 产品失败样本/L3 场景 fixture 已加入并通过（7 tests）。
+- [x] 生命周期、Provider、工具、错误恢复和迁移清单完成阶段 0 核对。
+- [x] 当前代码消费者与阶段 7 删除边界完成只读核对。
+- [x] Pi 包安装基线、Node 要求和 SDK exports 已完成核对；阶段 1 已生成 lockfile 并固定 `pi-telemetry` 到 `0.84.2`。
 
 ## 5. 后续阶段的详细执行顺序
 
@@ -149,7 +150,7 @@ Python 继续拥有产品事实、上下文装配、判断、治理、确认、�
 
 ## 6. 提交拆分与验证节奏
 
-同一分支内按以下可审查提交推进；本轮只完成第 0 项文档准备：
+同一分支内按以下可审查提交推进；当前已完成第 0 项，并完成第 1 项的最小运行时骨架：
 
 1. `docs: freeze Pi runtime execution plan and contracts`
 2. `test: freeze Pi runtime product contracts and L3 scenarios`
@@ -179,6 +180,6 @@ Python 继续拥有产品事实、上下文装配、判断、治理、确认、�
 
 ## 8. 当前交付与下一步
 
-当前已完成：新分支、执行计划、Python ↔ Pi 接口合同、Tool Gateway 约束、运行记录边界、事件/错误/恢复规则和机器可读 Schema。当前代码基线核对确认：`app/api/server.py` 仍直接装配 `OpenAILLM` + `WorkflowEngine`，`/api/canvas/workspaces/{id}/messages` 仍由 `CanvasService.start_turn()` 走工作区级 `active_turn`；仓库尚无 `pi-runtime/`、`AgentExecutionPort`、message_seq、包级租约、Outbox 或 Pi 合同测试。这些属于待迁移事实，不是本接口合同的兼容承诺。
+阶段 0 已完成：新分支、执行计划、Python ↔ Pi 接口合同、Tool Gateway 约束、运行记录边界、事件/错误/恢复规则、机器可读 Schema、13 个合同/L3 fixture 测试、旧链消费者与数据 preflight。阶段 1 已建立 `pi-runtime/` 的 ESM TypeScript 服务骨架、RunRegistry、Fake Provider、health/readiness/capabilities、三类运行端点、终态查询、取消和 Node 合同测试；当前仍未接入真实 Provider 或 Python Product Kernel。
 
-下一步固定为阶段 0 的剩余事项：把失败样本和配套矩阵写入合同测试/规格，完成当前代码消费者与数据 preflight 核对；通过后进入阶段 1，建立最小可用 Pi Runtime。
+下一步固定为阶段 1 的剩余事项：补齐 Pi Runtime 的真实 Provider Adapter/能力检查与跨语言合同调用，再进入阶段 2 实现 Python `AgentExecutionPort` + `PiRuntimeClient`；在此之前不改 Canvas 主链。

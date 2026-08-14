@@ -127,9 +127,9 @@ Context Assembly、Conversation Working Surface 和 Prompt Control 的部分规�
 - [x] 生命周期、Provider、工具、错误恢复和迁移矩阵已形成初稿。
 - [x] 当前在线入口、旧执行链消费者和主要语义冲突已核对。
 - [x] 仓库内测试/存储数据边界已完成只读 preflight。
-- [ ] 合同测试加入并通过。
+- [x] v1 Schema/请求/结果/事件/Proposal/Tool/Error 合同测试加入并通过（6 tests）。
 - [x] Pi 包版本、Node 要求和 SDK exports 完成网络/安装核对：Node `v22.23.1`、npm `10.9.8`；`@earendil-works/pi-agent-core@0.84.1` 与 `@earendil-works/pi-ai@0.84.1` 可解析、可 dry-run 安装，exports 可见且满足 Node `>=22.19.0`。
-- [ ] Pi 依赖 lockfile 完成；当前 `pi-agent-core` 的 `pi-telemetry:^0.84.1` 解析到 `0.84.2`，阶段 1 必须通过 lockfile/override 固定可复现版本。
-- [ ] 失败样本与 L3 场景进入合同测试 fixture。
+- [x] Pi 依赖 lockfile 已完成；`pi-runtime/package-lock.json` 已生成，并通过 package override 将 `pi-telemetry` 固定到 `0.84.2`，避免 `^0.84.1` 的漂移。
+- [x] 失败样本与 L3 场景已进入合同测试 fixture；`tests/test_pi_runtime_l3_scenarios.py` 的 7 个场景测试通过。
 
 在最后三项通过前，不进入阶段 1 的真实 Pi SDK 接入，也不删除旧执行链。

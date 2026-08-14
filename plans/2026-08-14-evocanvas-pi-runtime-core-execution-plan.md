@@ -1,6 +1,6 @@
 ---
-status: 阶段 1 实施中
-stage: 阶段 1：建立 Pi Runtime
+status: 阶段 2 已完成，待进入阶段 3
+stage: 阶段 2：建立 Python 执行边界
 branch: codex/pi-runtime-core-refactor
 updated_at: 2026-08-14
 ---
@@ -180,6 +180,6 @@ Python 继续拥有产品事实、上下文装配、判断、治理、确认、�
 
 ## 8. 当前交付与下一步
 
-阶段 0 已完成：新分支、执行计划、Python ↔ Pi 接口合同、Tool Gateway 约束、运行记录边界、事件/错误/恢复规则、机器可读 Schema、13 个合同/L3 fixture 测试、旧链消费者与数据 preflight。阶段 1 已建立 `pi-runtime/` 的 ESM TypeScript 服务骨架、RunRegistry、Fake Provider、health/readiness/capabilities、三类运行端点、终态查询、取消和 Node 合同测试；当前仍未接入真实 Provider 或 Python Product Kernel。
+阶段 0 已完成：新分支、执行计划、Python ↔ Pi 接口合同、Tool Gateway 约束、运行记录边界、事件/错误/恢复规则、机器可读 Schema、13 个合同/L3 fixture 测试、旧链消费者与数据 preflight。阶段 1 已建立 `pi-runtime/` 的 ESM TypeScript 服务骨架、RunRegistry、Fake Provider、health/readiness/capabilities、三类运行端点、终态查询、取消和 Node 合同测试。阶段 2 已建立 `app/canvas/agent_execution/` 的强类型合同、`AgentExecutionPort`、唯一 `PiRuntimeClient`、NDJSON/终态查询/稳定错误映射/取消，并完成 5 个 Python 跨语言边界测试和一次真实本地 Fake Runtime 联调；当前仍未接入真实 Provider 或 Python Product Kernel。
 
-下一步固定为阶段 1 的剩余事项：补齐 Pi Runtime 的真实 Provider Adapter/能力检查与跨语言合同调用，再进入阶段 2 实现 Python `AgentExecutionPort` + `PiRuntimeClient`；在此之前不改 Canvas 主链。
+下一步固定为阶段 3：从 `CanvasService` 拆出 Chat、Judgement、Scheduler、Convergence 与唯一 Commit 边界；继续保留旧执行链作为未切换的底座，直到阶段 6 主链联调完成。在阶段 3 之前不删除 `OpenAILLM`、`WorkflowEngine` 或 `active_turn`，也不把 Fake Provider 当作生产模型能力。

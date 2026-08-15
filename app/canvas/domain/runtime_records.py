@@ -195,3 +195,44 @@ class PackageLease:
             acquired_at=str(payload["acquired_at"]),
             expires_at=str(payload["expires_at"]),
         )
+
+
+@dataclass(frozen=True)
+class OutboxEntry:
+    """与包提交同一可见性边界的投影/通知待发送项。"""
+
+    outbox_id: str
+    workspace_id: str
+    package_id: str
+    operation_id: str
+    event_type: str
+    payload: Mapping[str, Any]
+    status: str
+    attempts: int
+    created_at: str
+    updated_at: str
+    last_error: str | None = None
+    record_type: ClassVar[str] = "outbox_entry"
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "outbox_id",
+            "workspace_id",
+            "package_id",
+            "operation_id",
+            "event_type",
+            "status",
+            "created_at",
+            "updated_at",
+        ):
+            _text(getattr(self, field_name), field_name)
+        _non_negative(self.attempts, "attempts")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"record_type": self.record_type, **asdict(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "OutboxEntry":
+        values = dict(payload)
+        values.pop("record_type", None)
+        return cls(**values)

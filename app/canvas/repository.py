@@ -19,7 +19,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol, Sequence
+from typing import Any, Dict, Mapping, Optional, Protocol, Sequence
 from uuid import uuid4
 
 from app.canvas.domain.cards import CanvasCard
@@ -34,6 +34,7 @@ from app.canvas.domain.runtime_records import (
     CommitAttemptRecord,
     ConvergenceJudgementRecord,
     ConvergenceRunRecord,
+    OutboxEntry,
     PackageLease,
 )
 from app.canvas.domain.snapshots import CanvasSnapshot
@@ -45,6 +46,23 @@ class CanvasStorage(Protocol):
 
     def canvas_root(self) -> Path:
         """返回 EvoCanvas 工作区持久化根目录。"""
+
+
+class PackageVersionStaleError(ValueError):
+    """提交基准版本已变化；不得重放旧提案。"""
+
+    code = "base_version_changed"
+
+    def __init__(self, package_id: str, expected_package_version: int, actual_package_version: int, expected_state_version: int, actual_state_version: int):
+        super().__init__(
+            f"package {package_id} base version changed: expected v{expected_package_version}/s{expected_state_version}, "
+            f"actual v{actual_package_version}/s{actual_state_version}"
+        )
+        self.package_id = package_id
+        self.expected_package_version = expected_package_version
+        self.actual_package_version = actual_package_version
+        self.expected_state_version = expected_state_version
+        self.actual_state_version = actual_state_version
 
 
 class CanvasRepository:
@@ -280,6 +298,7 @@ class CanvasRepository:
         version: PackageVersion,
         events: Sequence[LedgerEvent],
         confirmation: Optional[ConfirmationRecord] = None,
+        outbox_entries: Sequence[OutboxEntry] = (),
     ) -> Package:
         """原子可见地提交一个新的包版本、账本事件和可选确认记录。
 
@@ -304,17 +323,38 @@ class CanvasRepository:
             expected_version = (previous.current_version if previous is not None else 0) + 1
             expected_state_version = (previous.state_version if previous is not None else 0) + 1
             if version.package_version != expected_version:
-                raise ValueError(
-                    f"expected package version {expected_version}, got {version.package_version}"
+                raise PackageVersionStaleError(
+                    package.package_id,
+                    expected_version - 1,
+                    previous.current_version if previous is not None else 0,
+                    expected_state_version - 1,
+                    previous.state_version if previous is not None else 0,
                 )
             if version.state_version != expected_state_version:
-                raise ValueError(
-                    f"expected state version {expected_state_version}, got {version.state_version}"
+                raise PackageVersionStaleError(
+                    package.package_id,
+                    version.package_version - 1,
+                    previous.current_version if previous is not None else 0,
+                    expected_state_version - 1,
+                    previous.state_version if previous is not None else 0,
                 )
             if version.parent_version != (previous.current_version if previous else None):
-                raise ValueError("package version parent pointer does not match current package pointer")
+                raise PackageVersionStaleError(
+                    package.package_id,
+                    version.parent_version or 0,
+                    previous.current_version if previous is not None else 0,
+                    version.state_version - 1,
+                    previous.state_version if previous is not None else 0,
+                )
             if any(event.package_id != package.package_id for event in events):
                 raise ValueError("ledger event package_id does not match committed package")
+            if any(
+                entry.workspace_id != workspace_id
+                or entry.package_id != package.package_id
+                or entry.operation_id != version.operation_id
+                for entry in outbox_entries
+            ):
+                raise ValueError("outbox entry identity does not match committed package operation")
 
             package.current_version = version.package_version
             package.state_version = version.state_version
@@ -326,6 +366,8 @@ class CanvasRepository:
             if confirmation is not None:
                 self.save_confirmation_record(workspace_id, confirmation)
             self._append_ledger_events_atomically(workspace_id, events)
+            for entry in outbox_entries:
+                self.enqueue_outbox(entry)
             self.save_package(workspace_id, package)
             return package
 
@@ -672,6 +714,7 @@ class CanvasRepository:
         "convergence_judgement": "judgement_id",
         "convergence_run": "convergence_run_id",
         "commit_attempt": "commit_attempt_id",
+        "outbox_entry": "outbox_id",
     }
 
     def _runtime_records_file(self, workspace_id: str) -> Path:
@@ -767,6 +810,79 @@ class CanvasRepository:
             ),
             None,
         )
+
+    def enqueue_outbox(self, entry: OutboxEntry) -> OutboxEntry:
+        self._upsert_runtime_record(entry.workspace_id, entry.to_dict())
+        return entry
+
+    def load_outbox(self, workspace_id: str, status: str | None = None) -> list[OutboxEntry]:
+        return [
+            OutboxEntry.from_dict(payload)
+            for payload in self.load_runtime_records(workspace_id, "outbox_entry")
+            if status is None or payload.get("status") == status
+        ]
+
+    def mark_outbox(
+        self,
+        workspace_id: str,
+        outbox_id: str,
+        *,
+        status: str,
+        updated_at: str,
+        last_error: str | None = None,
+        increment_attempts: bool = False,
+    ) -> OutboxEntry:
+        """以同一 outbox_id 更新发送状态，恢复器可安全重复调用。"""
+
+        entries = self.load_outbox(workspace_id)
+        entry = next((item for item in entries if item.outbox_id == outbox_id), None)
+        if entry is None:
+            raise KeyError(f"outbox entry not found: {outbox_id}")
+        updated = OutboxEntry(
+            outbox_id=entry.outbox_id,
+            workspace_id=entry.workspace_id,
+            package_id=entry.package_id,
+            operation_id=entry.operation_id,
+            event_type=entry.event_type,
+            payload=entry.payload,
+            status=status,
+            attempts=entry.attempts + (1 if increment_attempts else 0),
+            created_at=entry.created_at,
+            updated_at=updated_at,
+            last_error=last_error,
+        )
+        self.enqueue_outbox(updated)
+        return updated
+
+    def load_judgement_watermark(self, workspace_id: str, conversation_id: str, package_id: str | None) -> int:
+        path = self._workspace_dir(workspace_id) / "runtime" / "judgement_watermarks.json"
+        if not path.exists():
+            return 0
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        key = f"{conversation_id}:{package_id or ''}"
+        return int(payload.get(key, 0))
+
+    def advance_judgement_watermark(
+        self,
+        workspace_id: str,
+        conversation_id: str,
+        package_id: str | None,
+        through_message_seq: int,
+    ) -> bool:
+        """只允许水位前进；旧判断结果返回 False，不能覆盖最新范围。"""
+
+        if through_message_seq < 0:
+            raise ValueError("through_message_seq must be >= 0")
+        with self._workspace_lock(workspace_id):
+            current = self.load_judgement_watermark(workspace_id, conversation_id, package_id)
+            if through_message_seq <= current:
+                return False
+            path = self._workspace_dir(workspace_id) / "runtime" / "judgement_watermarks.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            payload[f"{conversation_id}:{package_id or ''}"] = through_message_seq
+            self._write_json_atomic(path, payload)
+            return True
 
     @staticmethod
     def _utc_datetime(value: datetime | None = None) -> datetime:

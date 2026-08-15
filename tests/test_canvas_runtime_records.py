@@ -12,6 +12,7 @@ from app.canvas.domain.runtime_records import (
     CommitAttemptRecord,
     ConvergenceJudgementRecord,
     ConvergenceRunRecord,
+    OutboxEntry,
 )
 from app.canvas.repository import CanvasRepository
 from app.services.fakes import FakeStorage
@@ -61,6 +62,26 @@ class CanvasRuntimeRecordTests(unittest.TestCase):
             reclaimed = repository.acquire_package_lease("ws-1", "pkg-1", "run-2", ttl_seconds=30, now=now + timedelta(seconds=2))
             self.assertNotEqual(first.lease_id, reclaimed.lease_id)
             self.assertEqual(reclaimed.holder_run_id, "run-2")
+
+    def test_judgement_watermark_only_moves_forward(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            repository = CanvasRepository(FakeStorage(Path(temp_dir)))
+            self.assertTrue(repository.advance_judgement_watermark("ws-1", "conversation-1", "pkg-1", 4))
+            self.assertFalse(repository.advance_judgement_watermark("ws-1", "conversation-1", "pkg-1", 4))
+            self.assertFalse(repository.advance_judgement_watermark("ws-1", "conversation-1", "pkg-1", 3))
+            self.assertTrue(repository.advance_judgement_watermark("ws-1", "conversation-1", "pkg-1", 5))
+            self.assertEqual(repository.load_judgement_watermark("ws-1", "conversation-1", "pkg-1"), 5)
+
+    def test_outbox_entry_is_upserted_and_recovery_can_mark_sent(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            repository = CanvasRepository(FakeStorage(Path(temp_dir)))
+            entry = OutboxEntry("outbox-1", "ws-1", "pkg-1", "op-1", "projection.refresh", {"version": 2}, "pending", 0, NOW, NOW)
+            repository.enqueue_outbox(entry)
+            sent = repository.mark_outbox("ws-1", "outbox-1", status="sent", updated_at="2026-08-15T10:01:00Z", increment_attempts=True)
+
+            self.assertEqual(sent.status, "sent")
+            self.assertEqual(sent.attempts, 1)
+            self.assertEqual(repository.load_outbox("ws-1", status="pending"), [])
 
 
 if __name__ == "__main__":

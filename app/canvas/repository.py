@@ -603,9 +603,19 @@ class CanvasRepository:
             existing = self.load_chat_messages(workspace_id)
             if any(item.get("message_id") == message_id for item in existing):
                 raise FileExistsError(f"chat message already exists: {message_id}")
+            # message_seq 是会话内唯一的语义顺序；旧 JSONL 没有该字段时按历史
+            # 追加顺序补齐，但不接受调用方跳号或回写旧序号。
+            next_message_seq = max(
+                (int(item.get("message_seq", index + 1)) for index, item in enumerate(existing)),
+                default=0,
+            ) + 1
+            supplied_message_seq = message.get("message_seq")
+            if supplied_message_seq is not None and int(supplied_message_seq) != next_message_seq:
+                raise ValueError(f"message_seq must be the next workspace sequence: {next_message_seq}")
             existing.append(
                 {
                     "message_id": message_id,
+                    "message_seq": next_message_seq,
                     "role": role,
                     "content": content,
                     "turn_id": str(message.get("turn_id", "")),
@@ -625,11 +635,24 @@ class CanvasRepository:
         messages_file = self._workspace_dir(workspace_id) / "chat_messages.jsonl"
         if not messages_file.exists():
             return []
-        return [
-            dict(json.loads(line))
-            for line in messages_file.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        messages: list[Dict[str, Any]] = []
+        for index, line in enumerate(messages_file.read_text(encoding="utf-8").splitlines(), start=1):
+            if not line.strip():
+                continue
+            item = dict(json.loads(line))
+            # 只在内存视图中为旧记录补序号；下一次 append 会以同一顺序持久化。
+            item.setdefault("message_seq", index)
+            messages.append(item)
+        return messages
+
+    def last_message_seq(self, workspace_id: str) -> int:
+        """返回工作区 Chat 消息的最新语义序号；没有消息时返回 0。"""
+
+        messages = self.load_chat_messages(workspace_id)
+        return max(
+            (int(item.get("message_seq", index + 1)) for index, item in enumerate(messages)),
+            default=0,
+        )
 
     def load_proposal_history(self, workspace_id: str) -> list[CanvasMutationProposal]:
         """读取工作区提案历史。"""

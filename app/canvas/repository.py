@@ -16,9 +16,11 @@ from __future__ import annotations
 import json
 import os
 import threading
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, Optional, Protocol, Sequence
+from uuid import uuid4
 
 from app.canvas.domain.cards import CanvasCard
 from app.canvas.domain.confirmation import ConfirmationRecord
@@ -27,6 +29,13 @@ from app.canvas.domain.ledger import LedgerEvent
 from app.canvas.domain.mutations import CanvasMutationProposal
 from app.canvas.domain.package import InitialGovernanceStatus, Package, PackageVersion
 from app.canvas.domain.relations import CanvasRelation
+from app.canvas.domain.runtime_records import (
+    ChatTurnRecord,
+    CommitAttemptRecord,
+    ConvergenceJudgementRecord,
+    ConvergenceRunRecord,
+    PackageLease,
+)
 from app.canvas.domain.snapshots import CanvasSnapshot
 from app.canvas.domain.workspace import CanvasWorkspace
 
@@ -653,6 +662,186 @@ class CanvasRepository:
             (int(item.get("message_seq", index + 1)) for index, item in enumerate(messages)),
             default=0,
         )
+
+    # ------------------------------------------------------------------
+    # Pi 迁移运行记录与包级租约（阶段 4）
+    # ------------------------------------------------------------------
+
+    _RUNTIME_RECORD_ID_FIELDS = {
+        "chat_turn": "chat_turn_id",
+        "convergence_judgement": "judgement_id",
+        "convergence_run": "convergence_run_id",
+        "commit_attempt": "commit_attempt_id",
+    }
+
+    def _runtime_records_file(self, workspace_id: str) -> Path:
+        return self._workspace_dir(workspace_id) / "runtime_records.jsonl"
+
+    def load_runtime_records(
+        self,
+        workspace_id: str,
+        record_type: str | None = None,
+    ) -> list[Dict[str, Any]]:
+        """读取运行记录；不把记录投影为工作区或包状态。"""
+
+        records_file = self._runtime_records_file(workspace_id)
+        if not records_file.exists():
+            return []
+        records: list[Dict[str, Any]] = []
+        for line in records_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            payload = dict(json.loads(line))
+            if record_type is None or payload.get("record_type") == record_type:
+                records.append(payload)
+        return records
+
+    def _upsert_runtime_record(self, workspace_id: str, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        record_type = str(payload.get("record_type", ""))
+        id_field = self._RUNTIME_RECORD_ID_FIELDS.get(record_type)
+        if id_field is None:
+            raise ValueError(f"unsupported runtime record type: {record_type}")
+        record_id = str(payload.get(id_field, "")).strip()
+        if not record_id:
+            raise ValueError(f"runtime record requires {id_field}")
+        with self._workspace_lock(workspace_id):
+            records = self.load_runtime_records(workspace_id)
+            replaced = False
+            for index, existing in enumerate(records):
+                if existing.get("record_type") == record_type and existing.get(id_field) == record_id:
+                    records[index] = dict(payload)
+                    replaced = True
+                    break
+            if not replaced:
+                records.append(dict(payload))
+            records_file = self._runtime_records_file(workspace_id)
+            records_file.parent.mkdir(parents=True, exist_ok=True)
+            self._write_text_atomic(
+                records_file,
+                "".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in records),
+            )
+        return dict(payload)
+
+    def save_chat_turn(self, record: ChatTurnRecord) -> ChatTurnRecord:
+        self._upsert_runtime_record(record.workspace_id, record.to_dict())
+        return record
+
+    def load_chat_turn(self, workspace_id: str, chat_turn_id: str) -> ChatTurnRecord | None:
+        return next(
+            (
+                ChatTurnRecord.from_dict(payload)
+                for payload in self.load_runtime_records(workspace_id, "chat_turn")
+                if payload.get("chat_turn_id") == chat_turn_id
+            ),
+            None,
+        )
+
+    def save_convergence_judgement(self, record: ConvergenceJudgementRecord) -> ConvergenceJudgementRecord:
+        self._upsert_runtime_record(record.workspace_id, record.to_dict())
+        return record
+
+    def save_convergence_run(self, record: ConvergenceRunRecord) -> ConvergenceRunRecord:
+        self._upsert_runtime_record(record.workspace_id, record.to_dict())
+        return record
+
+    def load_convergence_run(self, workspace_id: str, convergence_run_id: str) -> ConvergenceRunRecord | None:
+        return next(
+            (
+                ConvergenceRunRecord.from_dict(payload)
+                for payload in self.load_runtime_records(workspace_id, "convergence_run")
+                if payload.get("convergence_run_id") == convergence_run_id
+            ),
+            None,
+        )
+
+    def save_commit_attempt(self, record: CommitAttemptRecord) -> CommitAttemptRecord:
+        self._upsert_runtime_record(record.workspace_id, record.to_dict())
+        return record
+
+    def load_commit_attempt(self, workspace_id: str, commit_attempt_id: str) -> CommitAttemptRecord | None:
+        return next(
+            (
+                CommitAttemptRecord.from_dict(payload)
+                for payload in self.load_runtime_records(workspace_id, "commit_attempt")
+                if payload.get("commit_attempt_id") == commit_attempt_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _utc_datetime(value: datetime | None = None) -> datetime:
+        current = value or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        return current.astimezone(timezone.utc)
+
+    def _package_leases_file(self, workspace_id: str) -> Path:
+        return self._workspace_dir(workspace_id) / "runtime" / "package_leases.json"
+
+    def load_package_lease(self, workspace_id: str, package_id: str) -> PackageLease | None:
+        leases_file = self._package_leases_file(workspace_id)
+        if not leases_file.exists():
+            return None
+        payload = json.loads(leases_file.read_text(encoding="utf-8"))
+        lease_payload = payload.get(package_id)
+        return PackageLease.from_dict(lease_payload) if isinstance(lease_payload, dict) else None
+
+    def acquire_package_lease(
+        self,
+        workspace_id: str,
+        package_id: str,
+        holder_run_id: str,
+        *,
+        ttl_seconds: int = 30,
+        now: datetime | None = None,
+    ) -> PackageLease | None:
+        """抢占包级租约；冲突时返回 None，不依赖 workspace active_turn。"""
+
+        if ttl_seconds < 1:
+            raise ValueError("ttl_seconds must be >= 1")
+        current = self._utc_datetime(now)
+        with self._workspace_lock(workspace_id):
+            existing = self.load_package_lease(workspace_id, package_id)
+            if existing is not None:
+                expires_at = self._utc_datetime(datetime.fromisoformat(existing.expires_at.replace("Z", "+00:00")))
+                if expires_at > current and existing.holder_run_id != holder_run_id:
+                    return None
+                lease_id = existing.lease_id if existing.holder_run_id == holder_run_id else f"lease_{uuid4().hex[:16]}"
+            else:
+                lease_id = f"lease_{uuid4().hex[:16]}"
+            lease = PackageLease(
+                workspace_id=workspace_id,
+                package_id=package_id,
+                lease_id=lease_id,
+                holder_run_id=holder_run_id,
+                acquired_at=current.isoformat().replace("+00:00", "Z"),
+                expires_at=(current + timedelta(seconds=ttl_seconds)).isoformat().replace("+00:00", "Z"),
+            )
+            leases_file = self._package_leases_file(workspace_id)
+            leases_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.loads(leases_file.read_text(encoding="utf-8")) if leases_file.exists() else {}
+            payload[package_id] = lease.to_dict()
+            self._write_json_atomic(leases_file, payload)
+            return lease
+
+    def release_package_lease(
+        self,
+        workspace_id: str,
+        package_id: str,
+        lease_id: str,
+        holder_run_id: str,
+    ) -> bool:
+        """仅允许原持有者释放租约；重复释放返回 False。"""
+
+        with self._workspace_lock(workspace_id):
+            lease = self.load_package_lease(workspace_id, package_id)
+            if lease is None or lease.lease_id != lease_id or lease.holder_run_id != holder_run_id:
+                return False
+            leases_file = self._package_leases_file(workspace_id)
+            payload = json.loads(leases_file.read_text(encoding="utf-8"))
+            payload.pop(package_id, None)
+            self._write_json_atomic(leases_file, payload)
+            return True
 
     def load_proposal_history(self, workspace_id: str) -> list[CanvasMutationProposal]:
         """读取工作区提案历史。"""

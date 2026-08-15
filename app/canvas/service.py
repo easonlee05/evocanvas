@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from app.canvas.agent.supervisor import CanvasSupervisor
+from app.canvas.agent_execution.contracts import (
+    ChatRunRequest,
+    ConvergenceRunRequest,
+    JudgementRunRequest,
+)
 from app.canvas.domain.cards import CanvasCard, CanvasCardKind
 from app.canvas.domain.confirmation import (
     ConfirmationKind,
@@ -34,6 +39,12 @@ from app.canvas.domain.relations import CanvasRelation, CanvasRelationKind
 from app.canvas.domain.snapshots import CanvasSnapshot
 from app.canvas.domain.workspace import CanvasWorkspace
 from app.canvas.governance import MutationGovernance
+from app.canvas.product_kernel import (
+    ChatKernelOutcome,
+    ConvergenceKernelOutcome,
+    JudgementKernelOutcome,
+    ProductKernel,
+)
 from app.canvas.repository import CanvasRepository
 from app.canvas.runtime_state import (
     apply_turn_runtime_state,
@@ -83,12 +94,36 @@ class CanvasMessageValidationError(ValueError):
 class CanvasService:
     """封装 EvoCanvas 工作区的读取、回合推进与确认流。"""
 
-    def __init__(self, storage: Any, llm: Any = None):
+    def __init__(self, storage: Any, llm: Any = None, product_kernel: ProductKernel | None = None):
         self.storage = storage
         self.llm = llm
+        # 阶段 3 仅提供可注入边界；在线 start_turn 仍保持旧链，待上下文装配和
+        # 生命周期记录完成后再由 API 装配 ProductKernel。
+        self.product_kernel = product_kernel
         self.repository = CanvasRepository(storage)
         self.supervisor = CanvasSupervisor(llm=llm or FakeLLM())
         self.governance = MutationGovernance(repository=self.repository)
+
+    async def run_product_kernel_chat(self, request: ChatRunRequest) -> ChatKernelOutcome:
+        """执行新 Chat 边界；未注入 ProductKernel 时明确失败，不静默回退旧 LLM。"""
+
+        if self.product_kernel is None:
+            raise RuntimeError("ProductKernel is not configured for this CanvasService")
+        return await self.product_kernel.run_chat(request)
+
+    async def run_product_kernel_judgement(self, request: JudgementRunRequest) -> JudgementKernelOutcome:
+        """执行独立 Judgement 边界；不在 Chat 路径中隐式触发。"""
+
+        if self.product_kernel is None:
+            raise RuntimeError("ProductKernel is not configured for this CanvasService")
+        return await self.product_kernel.run_judgement(request)
+
+    async def run_product_kernel_convergence(self, request: ConvergenceRunRequest) -> ConvergenceKernelOutcome:
+        """执行 Convergence 并交给唯一 Governed Commit port。"""
+
+        if self.product_kernel is None:
+            raise RuntimeError("ProductKernel is not configured for this CanvasService")
+        return await self.product_kernel.run_convergence(request)
 
     def get_workspace(self, workspace_id: str) -> CanvasWorkspace:
         workspace = self.repository.load_workspace(workspace_id)

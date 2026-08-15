@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Mapping
 
 from app.canvas.agent_execution.contracts import (
@@ -18,6 +20,8 @@ from app.canvas.agent_execution.contracts import (
     Usage,
 )
 from app.canvas.product_kernel import ProductKernel
+from app.canvas.service import CanvasService
+from app.services.fakes import FakeStorage
 
 
 USAGE = Usage(0, 0, 0, None)
@@ -145,6 +149,12 @@ class ProductKernelTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(outcome.commit_result)
         self.assertEqual(commits.proposals, [])
+
+    async def test_canvas_service_does_not_silently_fallback_when_kernel_is_unconfigured(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            service = CanvasService(storage=FakeStorage(Path(temp_dir)))
+            with self.assertRaisesRegex(RuntimeError, "ProductKernel is not configured"):
+                await service.run_product_kernel_chat(_request_fixture(ChatRunRequest))
 
 
 def _request_fixture(request_type: Any) -> Any:

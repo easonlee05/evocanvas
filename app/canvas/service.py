@@ -36,6 +36,7 @@ from app.canvas.domain.mutations import (
     CanvasMutationTarget,
 )
 from app.canvas.domain.relations import CanvasRelation, CanvasRelationKind
+from app.canvas.domain.runtime_records import OutboxEntry
 from app.canvas.domain.snapshots import CanvasSnapshot
 from app.canvas.domain.workspace import CanvasWorkspace
 from app.canvas.governance import MutationGovernance
@@ -1745,12 +1746,30 @@ class CanvasService:
             message_refs=message_refs,
             occurred_at=now,
         )
+        outbox_entry = OutboxEntry(
+            outbox_id=f"outbox_{version.operation_id}",
+            workspace_id=workspace.workspace_id,
+            package_id=version.package_id,
+            operation_id=version.operation_id,
+            event_type="package.version.created",
+            payload={
+                "package_id": version.package_id,
+                "package_version": version.package_version,
+                "state_version": version.state_version,
+                "created_by_run_id": version.created_by_run_id,
+            },
+            status="pending",
+            attempts=0,
+            created_at=now,
+            updated_at=now,
+        )
         committed = self.repository.commit_package_version(
             workspace.workspace_id,
             package,
             version,
             events,
             confirmation=confirmation,
+            outbox_entries=(outbox_entry,),
         )
         workspace.metadata = {
             **dict(workspace.metadata),

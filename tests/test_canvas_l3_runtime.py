@@ -170,6 +170,9 @@ class CanvasL3ServiceTests(unittest.TestCase):
                 len(service.repository.query_ledger_events("demo", package_id=package.package_id)) > 0,
                 True,
             )
+            pending_outbox = service.repository.load_outbox("demo", status="pending")
+            self.assertEqual(len(pending_outbox), 1)
+            self.assertEqual(pending_outbox[0].operation_id, "operation_" + result["proposal_id"])
             self.assertFalse((workspace_dir / "cards.json").exists())
             self.assertEqual(len(service.get_canvas_view("demo")["cards"]), 1)
 

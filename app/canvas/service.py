@@ -46,6 +46,7 @@ from app.canvas.product_kernel import (
     JudgementKernelOutcome,
     ProductKernel,
 )
+from app.canvas.pi_kernel import PiCanvasKernel
 from app.canvas.repository import CanvasRepository
 from app.canvas.runtime_state import (
     apply_turn_runtime_state,
@@ -95,15 +96,47 @@ class CanvasMessageValidationError(ValueError):
 class CanvasService:
     """封装 EvoCanvas 工作区的读取、回合推进与确认流。"""
 
-    def __init__(self, storage: Any, llm: Any = None, product_kernel: ProductKernel | None = None):
+    def __init__(
+        self,
+        storage: Any,
+        llm: Any = None,
+        product_kernel: ProductKernel | None = None,
+        execution: Any = None,
+        tool_gateway: Any = None,
+        tenant_id: str = "default",
+    ):
         self.storage = storage
         self.llm = llm
-        # 阶段 3 仅提供可注入边界；在线 start_turn 仍保持旧链，待上下文装配和
-        # 生命周期记录完成后再由 API 装配 ProductKernel。
-        self.product_kernel = product_kernel
+        self.canvas_tool_gateway = tool_gateway
+        self.tenant_id = tenant_id
+        self.pi_kernel = PiCanvasKernel(self, execution) if execution is not None else None
+        self.product_kernel = product_kernel or (self.pi_kernel.product_kernel if self.pi_kernel else None)
         self.repository = CanvasRepository(storage)
         self.supervisor = CanvasSupervisor(llm=llm or FakeLLM())
         self.governance = MutationGovernance(repository=self.repository)
+
+    async def run_pi_turn(
+        self,
+        *,
+        workspace_id: str,
+        message: str,
+        selected_card_ids: List[str],
+        material_ids: List[str],
+        source_ref_ids: Optional[List[str]] = None,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """执行新的 Pi 主链；未配置时明确失败，不回退旧 CanvasSupervisor。"""
+
+        if self.pi_kernel is None:
+            raise RuntimeError("PiCanvasKernel is not configured for this CanvasService")
+        return await self.pi_kernel.run_turn(
+            workspace_id=workspace_id,
+            message=message,
+            selected_card_ids=list(selected_card_ids),
+            material_ids=list(material_ids),
+            source_ref_ids=list(source_ref_ids or []),
+            model=model,
+        )
 
     async def run_product_kernel_chat(self, request: ChatRunRequest) -> ChatKernelOutcome:
         """执行新 Chat 边界；未注入 ProductKernel 时明确失败，不静默回退旧 LLM。"""
@@ -480,6 +513,15 @@ class CanvasService:
             "status": self._handoff_status(workspace_id, handoff=handoff),
             "content": legacy_summary,
             "handoff": handoff.to_dict(),
+        }
+
+    def get_chat_messages(self, workspace_id: str) -> Dict[str, Any]:
+        """返回 Canvas 对话的原始用户/助手消息，供前端只读回放。"""
+
+        self.get_workspace(workspace_id)
+        return {
+            "workspace_id": workspace_id,
+            "messages": self.repository.load_chat_messages(workspace_id),
         }
 
     def _handoff_status(

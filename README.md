@@ -94,9 +94,23 @@ python3 -m pip install -r app/requirements.txt
 npm --prefix frontend run dev
 ```
 
+### 启动 Pi Runtime
+
+画布消息主链通过私有 Pi Runtime 执行。默认使用 DeepSeek `deepseek-v4-flash`，先配置凭证再启动 Runtime：
+
+```bash
+DEEPSEEK_API_KEY=<your_deepseek_api_key> \
+PI_RUNTIME_HOST=127.0.0.1 \
+PI_RUNTIME_PORT=8790 \
+/path/to/node pi-runtime/dist/server.js
+```
+
+可通过 `PI_PROVIDER` 和 `PI_MODEL` 覆盖默认值。Runtime 未配置真实凭证时不会进入 ready 状态，也不会静默使用 Fake Provider；合同测试可以显式使用 `PI_PROVIDER=fake-provider`。
+
 ### 启动后端
 
 ```bash
+PI_RUNTIME_URL=http://127.0.0.1:8790 \
 python3 -m uvicorn app.api.server:app --host 127.0.0.1 --port 8000 --reload
 ```
 

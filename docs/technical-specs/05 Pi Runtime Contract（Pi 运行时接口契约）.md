@@ -63,8 +63,11 @@ class AgentExecutionPort(Protocol):
 | `deadline_ms` | 是 | 从 Pi 收到请求开始计算的相对预算；不得超过 Python 侧总截止时间 |
 | `trace_context` | 是 | `trace_id / request_id / parent_run_id` 等关联信息 |
 | `idempotency_key` | 是 | 初始值通常等于 `run_id`；重复创建必须返回原运行状态或明确冲突 |
+| `runtime_inputs` | 否 | Python 为本次调用装配的临时输入快照；只供 Pi 消费，不进入运行记录、Manifest 或产品事实 |
 
 请求不得携带 Provider 凭证。密钥只存在 Pi Runtime 进程环境中。
+
+`runtime_inputs` 若存在，至少包含 `structured_package_input`、`conversation_messages` 和可选的 `raw_user_message`。它是 Python 已选定输入面的短期传输副本：Python 负责选择、排序、范围和裁剪，Pi 只负责协议映射与模型调用；运行终止后不保留该快照，也不把它当作第二事实源。
 
 ## 4. Context Manifest 边界
 
@@ -94,6 +97,7 @@ transport_ref: provider_id / adapter_version / protocol_version / capability_pro
 - Manifest 只保存引用、版本、范围、裁剪结果和哈希，不保存完整 Prompt、包正文或供应商原生请求。
 - 同一推进链中 Chat、模型判断和收敛必须引用相同的 `structured_package_input_ref`；纯规则预筛不伪造 Manifest。
 - Adapter 只能把五个逻辑输入面映射到供应商原生临时请求，不得重新选择上下文、合并 Structured Package Input 与 Runtime Developer Message 或改写 Raw User Message。
+- `runtime_inputs` 中的用户原话必须作为独立 User Message 原样传递；结构化包输入和历史消息保持来源边界，Adapter 不得用引用字符串替代正文。
 - Manifest 缺少关键包版本、消息范围或来源时，Pi 可以继续 Chat，但 Python 必须关闭依赖缺口的稳定写入。
 
 ## 5. 三类运行请求与结果
@@ -362,7 +366,7 @@ completed_at
 
 首版白名单：`source.resolve`、`material.read`、`knowledge.retrieve`、`structure.validate`、`submit_convergence_proposal`（仅 Convergence）。禁止 Shell、代码执行、任意文件写、任意网络、任意 MCP 写和直接修改 Package/Card/Relation/Handoff/Confirmation/Ledger。
 
-Run-scoped Token 必须绑定 `run_id`、工具白名单、workspace/conversation/package 范围、到期时间和最大调用次数；不能跨运行或跨工具复用。令牌、Provider 凭证和敏感参数不得写入事件或普通日志。
+Run-scoped Token 必须绑定 `run_id`、工具白名单、workspace/conversation/package 范围、消息范围（若本次运行已冻结）、到期时间和最大调用次数；不能跨运行、跨消息范围或跨工具复用。令牌、Provider 凭证和敏感参数不得写入事件或普通日志。
 
 ## 10. Python 生命周期与提交边界
 

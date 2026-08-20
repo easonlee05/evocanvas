@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import threading
 from pathlib import Path
@@ -55,15 +56,17 @@ from app.canvas.service import (
     CanvasSnapshotNotFoundError,
     CanvasTurnInProgressError,
 )
+from app.canvas.agent_execution import PiRuntimeClient, PiRuntimeError, PiRuntimeUnknownError
+from app.canvas.tool_gateway import RunScopedTokenCodec, ToolGateway, ToolGatewayError
+from app.canvas.repository import PackageVersionStaleError
 from app.services.fakes import FakeLLM, FakeStorage
 from app.services.codex_cli_handler import CodexCLIHandler
 from app.services.gbrain_service import GBrainKnowledge
+from app.services.legacy_runtime import LazyLegacyWorkflowEngine
 from app.services.peer_adapter_service import PeerAdapterService
 from app.services.task_service import TaskService
 from app.services.tool_service import ToolService
-from app.services.llm import OpenAILLM
 from app.workflows.definitions import build_task_registry
-from app.workflows.engine import WorkflowEngine
 from app.core.events import EventBus
 
 # 全局事件总线，用于实时推送工作流中的 Event 消息
@@ -82,11 +85,110 @@ AGENT_META = {
 }
 
 
-def build_default_task_service(root: Path | None = None) -> TaskService:
+def _build_canvas_tool_gateway(knowledge: GBrainKnowledge, tenant_id: str) -> ToolGateway:
+    """构建只读 Canvas Tool Gateway；提案捕获不在此注册。"""
+
+    secret = os.getenv("PI_TOOL_GATEWAY_SECRET") or f"evocanvas-tool-gateway:{tenant_id}:{uuid4().hex}"
+    gateway = ToolGateway(RunScopedTokenCodec(secret))
+
+    def material_read(context):
+        material_id = str(context.arguments.get("material_id", "")).strip()
+        material = global_materials_cache.get(material_id)
+        if material is None:
+            return {
+                "status": "failed",
+                "summary": "material was not found",
+                "error": {"error_code": "source_not_found", "message": f"material {material_id} was not found"},
+            }
+        return {
+            "status": "succeeded",
+            "summary": "material read",
+            "data": {
+                "material_id": material_id,
+                "filename": material.get("filename", material_id),
+                "content": str(material.get("content", "")),
+            },
+            "source_refs": [material_id],
+        }
+
+    def source_resolve(context):
+        source_ref_id = str(context.arguments.get("source_ref_id", "")).strip()
+        source_ref = global_source_refs_cache.get(source_ref_id)
+        if source_ref is None:
+            return {
+                "status": "failed",
+                "summary": "source reference was not found",
+                "error": {"error_code": "source_not_found", "message": f"source {source_ref_id} was not found"},
+            }
+        return {
+            "status": "succeeded",
+            "summary": "source reference resolved",
+            "data": {
+                "source_ref_id": source_ref_id,
+                "display_name": source_ref.get("display_name", source_ref_id),
+                "snapshot": dict(source_ref.get("snapshot", {})),
+            },
+            "source_refs": [source_ref_id],
+        }
+
+    def knowledge_retrieve(context):
+        query = str(context.arguments.get("query", "")).strip()
+        if not query:
+            return {
+                "status": "failed",
+                "summary": "knowledge query is empty",
+                "error": {"error_code": "invalid_request", "message": "query is required"},
+            }
+        return {
+            "status": "succeeded",
+            "summary": "knowledge retrieved",
+            "data": knowledge.retrieve(query, context.arguments.get("scope")),
+            "source_refs": [f"knowledge:{query[:80]}"],
+        }
+
+    def structure_validate(context):
+        proposal = context.arguments.get("proposal")
+        violations: list[str] = []
+        if not isinstance(proposal, dict):
+            violations.append("proposal must be an object")
+        else:
+            operations = proposal.get("operations")
+            if not isinstance(operations, list):
+                violations.append("proposal.operations must be an array")
+            elif len(operations) > 128:
+                violations.append("proposal.operations exceeds the 128 operation limit")
+        return {
+            "status": "succeeded",
+            "summary": "structure validated" if not violations else "structure validation failed",
+            "data": {"passed": not violations, "violations": violations},
+        }
+
+    for name, handler, allowed_run_kinds in (
+        ("material.read", material_read, ("chat", "convergence")),
+        ("source.resolve", source_resolve, ("chat", "convergence")),
+        ("knowledge.retrieve", knowledge_retrieve, ("chat", "convergence")),
+        ("structure.validate", structure_validate, ("convergence",)),
+    ):
+        gateway.register(
+            name=name,
+            version="v1",
+            allowed_run_kinds=allowed_run_kinds,
+            side_effect="none" if name == "structure.validate" else "read",
+            timeout_seconds=5,
+            handler=handler,
+        )
+    return gateway
+
+
+def build_default_task_service(
+    root: Path | None = None,
+    canvas_execution: Any | None = None,
+    tenant_id: str = "default",
+) -> TaskService:
     """初始化并构建默认的任务服务 (TaskService)。
 
-    该服务在系统启动或租户接入时动态实例化，绑定文件存储、知识检索库、
-    LLM 调用客户端以及工作流引擎。
+    该服务在系统启动或租户接入时动态实例化，绑定文件存储、知识检索库和
+    Pi Canvas 执行边界。旧任务 WorkflowEngine 只在旧任务 API 真正执行时懒加载。
 
     Args:
         root (Optional[Path]): 任务持久化存储的根路径。若不提供，则使用系统临时目录下的兜底路径。
@@ -94,21 +196,27 @@ def build_default_task_service(root: Path | None = None) -> TaskService:
     Returns:
         TaskService: 初始化完成的任务服务控制面实例。
     """
-    import os
-    from dotenv import load_dotenv
-    load_dotenv()
-    
     # 绑定存储后端与事件总线
     storage = FakeStorage(root or Path(tempfile.gettempdir()) / "manual-agent-phase1", event_bus=global_event_bus)
     project_root = Path(__file__).parent.parent.parent
-    tool_service = ToolService.default(root=storage, knowledge=GBrainKnowledge(str(project_root)))
+    knowledge = GBrainKnowledge(str(project_root))
+    tool_service = ToolService.default(root=storage, knowledge=knowledge)
+    canvas_tool_gateway = _build_canvas_tool_gateway(knowledge, tenant_id)
     
-    # 获取环境变量中的大模型 API 访问秘钥与接口基地址
-    api_key = os.getenv("API_KEY") or os.getenv("CRS_OAI_KEY") or ""
-    base_url = os.getenv("BASE_URL") or "https://api.openai.com/v1"
-    llm = OpenAILLM(api_key=api_key, base_url=base_url)
-    
-    engine = WorkflowEngine(tool_service=tool_service, llm=llm, storage=storage)
+    def build_legacy_engine():
+        """仅在旧任务 API 被调用时创建旧 Provider 与 WorkflowEngine。"""
+
+        from dotenv import load_dotenv
+        from app.services.llm import OpenAILLM
+        from app.workflows.engine import WorkflowEngine
+
+        load_dotenv()
+        api_key = os.getenv("API_KEY") or os.getenv("CRS_OAI_KEY") or ""
+        base_url = os.getenv("BASE_URL") or "https://api.openai.com/v1"
+        llm = OpenAILLM(api_key=api_key, base_url=base_url)
+        return WorkflowEngine(tool_service=tool_service, llm=llm, storage=storage)
+
+    engine = LazyLegacyWorkflowEngine(build_legacy_engine)
     peer_adapter = PeerAdapterService()
     peer_adapter.register_adapter("codex", CodexCLIHandler(workspace_root=project_root))
     return TaskService(
@@ -116,6 +224,10 @@ def build_default_task_service(root: Path | None = None) -> TaskService:
         engine=engine,
         storage=storage,
         peer_adapter=peer_adapter,
+        canvas_execution=canvas_execution,
+        canvas_tool_gateway=canvas_tool_gateway,
+        tenant_id=tenant_id,
+        knowledge=knowledge,
     )
 
 
@@ -140,15 +252,30 @@ def get_task_service(tenant_id: str = Depends(get_tenant_workspace)):
         from pathlib import Path
         # 基于租户 ID 创建隔离的存储子目录
         base_dir = Path(tempfile.gettempdir()) / "manual-agent-phase1" / tenant_id
-        _tenant_services[tenant_id] = build_default_task_service(base_dir)
+        _tenant_services[tenant_id] = build_default_task_service(base_dir, tenant_id=tenant_id)
     return _tenant_services[tenant_id]
 
 
 def get_canvas_service(service: TaskService = Depends(get_task_service)) -> CanvasService:
-    """基于当前租户的存储与模型依赖构建 CanvasService。"""
+    """基于当前租户的存储与私有 Pi Runtime 构建 CanvasService。"""
 
-    llm = getattr(getattr(service, "engine", None), "llm", None)
-    return CanvasService(storage=service.storage, llm=llm)
+    execution = getattr(service, "canvas_execution", None)
+    if execution is None:
+        try:
+            timeout_seconds = max(0.001, int(os.getenv("PI_RUNTIME_TIMEOUT_MS", "30000")) / 1000)
+        except ValueError:
+            timeout_seconds = 30.0
+        execution = PiRuntimeClient(
+            base_url=os.getenv("PI_RUNTIME_URL", "http://127.0.0.1:8790"),
+            internal_secret=os.getenv("PI_RUNTIME_INTERNAL_SECRET"),
+            timeout_seconds=timeout_seconds,
+        )
+    return CanvasService(
+        storage=service.storage,
+        execution=execution,
+        tool_gateway=getattr(service, "canvas_tool_gateway", None),
+        tenant_id=getattr(service, "tenant_id", "default"),
+    )
 
 
 def create_app(task_service: TaskService | None = None):
@@ -204,6 +331,62 @@ def create_app(task_service: TaskService | None = None):
         """
         return {"status": "ok", "service": "pm-agent-backend", "version": "0.1.0"}
 
+    @app.post("/internal/v1/tool-calls")
+    async def internal_tool_call(
+        request: Request,
+        payload: Dict[str, Any],
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """Pi Runtime 使用的内部只读工具入口；浏览器和普通 API 不应调用。"""
+
+        gateway = getattr(service, "canvas_tool_gateway", None)
+        authorization = request.headers.get("authorization", "")
+        token = authorization[len("Run "):].strip() if authorization.startswith("Run ") else ""
+        if gateway is None or not token:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "schema_version": "pi-runtime.tool-result.v1",
+                    "tool_call_id": str(payload.get("tool_call_id", "")),
+                    "status": "denied",
+                    "summary": "internal Tool Gateway authorization is required",
+                    "source_refs": [],
+                    "artifacts": [],
+                    "error": {
+                        "schema_version": "pi-runtime.error.v1",
+                        "error_code": "permission_denied",
+                        "category": "permission_denied",
+                        "message": "internal Tool Gateway authorization is required",
+                        "retryable": False,
+                        "details": {},
+                    },
+                    "completed_at": "",
+                },
+            )
+        try:
+            return await gateway.invoke(token, payload)
+        except ToolGatewayError as exc:
+            return JSONResponse(
+                status_code=403 if exc.category == "permission_denied" else 400,
+                content={
+                    "schema_version": "pi-runtime.tool-result.v1",
+                    "tool_call_id": str(payload.get("tool_call_id", "")),
+                    "status": "denied",
+                    "summary": str(exc),
+                    "source_refs": [],
+                    "artifacts": [],
+                    "error": {
+                        "schema_version": "pi-runtime.error.v1",
+                        "error_code": exc.code,
+                        "category": exc.category,
+                        "message": str(exc),
+                        "retryable": False,
+                        "details": {},
+                    },
+                    "completed_at": "",
+                },
+            )
+
     @app.get("/api/knowledge/health")
     async def knowledge_health(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
         """检查底层知识库服务的可用性与连通性。
@@ -214,7 +397,9 @@ def create_app(task_service: TaskService | None = None):
         Returns:
             Dict[str, Any]: 包含健康状态、检索项数量及错误信息的字典。
         """
-        knowledge = getattr(service.engine.tool_service, "knowledge_backend", None)
+        knowledge = getattr(service, "knowledge", None)
+        if knowledge is None:
+            knowledge = getattr(getattr(service.engine, "tool_service", None), "knowledge_backend", None)
         # 如果知识库正常，尝试通过检索关键词验证接口
         data = knowledge.retrieve("WorkflowEngine TaskDefinition ToolService") if knowledge else {"degraded": True, "items": [], "error": "knowledge backend unavailable"}
         return {
@@ -263,13 +448,12 @@ def create_app(task_service: TaskService | None = None):
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
         try:
-            return canvas_service.start_turn(
+            return await canvas_service.run_pi_turn(
                 workspace_id=workspace_id,
                 message=request.message,
                 selected_card_ids=list(request.selected_card_ids),
                 material_ids=list(request.material_ids),
                 source_ref_ids=list(request.source_ref_ids),
-                mode=request.mode,
                 model=request.model,
             )
         except CanvasTurnInProgressError as exc:
@@ -284,6 +468,39 @@ def create_app(task_service: TaskService | None = None):
             )
         except CanvasMessageValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        except PackageVersionStaleError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "workspace_id": workspace_id,
+                    "reason": "stale",
+                    "error_code": PackageVersionStaleError.code,
+                    "message": str(exc),
+                },
+            )
+        except PiRuntimeUnknownError as exc:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "workspace_id": workspace_id,
+                    "reason": "runtime_unknown",
+                    "error_code": exc.error_code,
+                    "run_id": exc.run_id,
+                    "message": str(exc),
+                    "retry_same_run_id": bool(exc.details.get("retry_same_run_id")),
+                },
+            )
+        except PiRuntimeError as exc:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "workspace_id": workspace_id,
+                    "reason": "runtime_error",
+                    "error_code": exc.error_code,
+                    "run_id": exc.run_id,
+                    "message": str(exc),
+                },
+            )
 
     @app.get("/api/canvas/workspaces/{workspace_id}/events")
     async def get_canvas_events(
@@ -336,6 +553,15 @@ def create_app(task_service: TaskService | None = None):
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
         return canvas_service.get_handoff(workspace_id)
+
+    @app.get("/api/canvas/workspaces/{workspace_id}/messages")
+    async def get_canvas_messages(
+        workspace_id: str,
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        """读取 Canvas 对话消息；消息正文仍以 Python 仓储为唯一事实源。"""
+
+        return canvas_service.get_chat_messages(workspace_id)
 
     @app.post("/api/canvas/workspaces/{workspace_id}/handoff/refresh")
     async def refresh_canvas_handoff(

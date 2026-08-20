@@ -1,17 +1,17 @@
 # Pi Runtime Migration Preflight（Pi 运行时迁移前置核对）
 
-> 核对日期：2026-08-14
+> 核对日期：2026-08-20
 >
 > 分支：`codex/pi-runtime-core-refactor`
 >
 > 关联：[执行计划](../../plans/2026-08-14-evocanvas-pi-runtime-core-execution-plan.md)、[阶段 0 矩阵](./06%20Pi%20Runtime%20Phase%200%20Matrices（Pi%20运行时阶段%200%20矩阵）.md)
 
-本文只记录阶段 0 对当前代码、测试和仓库数据边界的核对结果，不把旧实现行为当作新架构合同，也不执行删除或数据迁移。
+本文记录阶段 0 前置核对及阶段 5 实现后的当前代码、测试和仓库数据边界；不把旧实现行为当作新架构合同，也不执行删除或数据迁移。
 
 ## 1. 分支与工作区安全
 
 - 当前分支：`codex/pi-runtime-core-refactor`。
-- 阶段 0 文档已形成首个分支提交；旧代码尚未改动。
+- 阶段 0 文档已形成首个分支提交；当前已完成 Canvas HTTP 主链的 Pi 装配，但旧通用 Task 底座和显式遗留入口仍保留。
 - 工作区仍有用户未跟踪资产：`.trae-html-share-packages/`、`docs/superpowers/specs/2026-08-09-canvas-stability-refactor-design 2.md`、`plans/2026-08-13-evocanvas-pi-runtime-core-refactor-design.md`。
 - 后续提交只允许显式添加 Pi 迁移文件，禁止 `git add .`，不覆盖或顺带格式化上述资产。
 
@@ -19,21 +19,29 @@
 
 ### 2.1 FastAPI 装配
 
-当前 `app/api/server.py` 的默认装配仍为：
+通用 Task API 的默认装配仍保留旧底座，但旧 Provider/WorkflowEngine 已改为懒加载，Canvas 依赖独立装配 Pi：
 
 ```text
 FakeStorage + ToolService + GBrainKnowledge
-  -> OpenAILLM
-  -> WorkflowEngine
+  -> LazyLegacyWorkflowEngine（仅旧任务 API 触发时创建 OpenAILLM/WorkflowEngine）
   -> TaskService
-  -> CanvasService(storage, engine.llm)
+  -> TaskService.canvas_execution（未注入时由 PiRuntimeClient 环境装配）
+  -> CanvasService(storage, PiRuntimeClient)
 ```
 
-`/api/canvas/workspaces/{workspace_id}/messages` 同步调用 `CanvasService.start_turn()`，不是 Pi Runtime，也没有 `AgentExecutionPort`、NDJSON、取消或终态查询。
+`/api/canvas/workspaces/{workspace_id}/messages` 现在异步调用 `CanvasService.run_pi_turn()`，主链经过 `PiRuntimeClient`、NDJSON 终态查询和 Python `ProductKernel`。未配置 Pi Runtime 时返回明确运行时错误，不静默回退旧 LLM。
 
 ### 2.2 Canvas 主链
 
-`CanvasService.start_turn()` 当前同时承担：
+旧 `CanvasService.start_turn()` 仍作为迁移期间的显式遗留入口保留；新的 HTTP 主链由 `PiCanvasKernel` 承担：
+
+- `PiCanvasKernel` 保存 User/Assistant 消息并分配 `message_seq`；
+- `ChatTurn`、`ConvergenceJudgement`、`ConvergenceRun`、`CommitAttempt` 进入 Python 运行记录；
+- Chat 完成后显式调用 Judgement；需要时通过包级租约进入 Convergence；
+- Pi 提案重新经过 Verification、Governance 和唯一 `Governed State Commit`；
+- SSE 事件只作为运行通知和投影触发，不成为事实源。
+
+旧 `CanvasService.start_turn()` 仍同时承担：
 
 - 工作区级 `active_turn` 互斥；
 - User 消息写入；
@@ -70,7 +78,7 @@ Message Intake
 
 当前 `CanvasWorkspace`、`CanvasRepository`、`CanvasService` 和测试仍维护 `active_turn_id/status/started_at`，新消息可能返回 `409 turn_in_progress`。这与 L3 的“消息先保存、Chat 不持有收敛租约”冲突。
 
-处理：阶段 4 先实现 conversation/message_seq 与包级租约，再阶段 7 删除在线阻塞语义；阶段 0 不修改旧测试，避免失去迁移对照。
+处理：新的 Pi HTTP 主链已不调用工作区级 `active_turn` 锁；旧直接入口和旧测试夹具暂时保留，阶段 7 在消费者与数据 preflight 后删除在线阻塞语义。
 
 ### 3.2 约束的 `pending_confirmation`
 
@@ -91,6 +99,10 @@ Message Intake
 ### 3.4 Context Assembly 成熟度
 
 Context Assembly、Conversation Working Surface 和 Prompt Control 的部分规则仍是 L2。接口合同只冻结 `Context Manifest` 的引用、版本、消息范围、遗漏和 transport 证据，不冻结历史选择、压缩、排序和复水算法。
+
+阶段 5 已补充临时 `runtime_inputs` 快照，真实 Provider Adapter 现在可以消费 Python 选定的用户原话与消息范围；正式 Context Assembly 的压缩、预算和跨 Adapter 一致性矩阵仍未封口，继续由 Python 负责上下文装配。
+
+阶段 6 已补充共享 `runtime_inputs` 合同 fixture、Gateway 业务错误码透传和消息范围绑定的 Run-scoped Token。未配置真实 Provider、凭证或可用 Pi Runtime 时仍应明确返回 `not_ready`/运行时错误，不得回退旧链。
 
 ### 3.5 前端边界
 
@@ -132,4 +144,4 @@ Context Assembly、Conversation Working Surface 和 Prompt Control 的部分规�
 - [x] Pi 依赖 lockfile 已完成；`pi-runtime/package-lock.json` 已生成，并通过 package override 将 `pi-telemetry` 固定到 `0.84.2`，避免 `^0.84.1` 的漂移。
 - [x] 失败样本与 L3 场景已进入合同测试 fixture；`tests/test_pi_runtime_l3_scenarios.py` 的 7 个场景测试通过。
 
-在最后三项通过前，不进入阶段 1 的真实 Pi SDK 接入，也不删除旧执行链。
+阶段 0 的合同与安装核对已完成，阶段 5 已完成真实 Adapter、只读 Tool Gateway、Run-scoped Token、Proposal Capture、deadline、临时输入快照和 Gateway smoke；正式 OpenAI/Anthropic 凭证联调、Context Assembly 预算/压缩矩阵、前端适配和旧链清理仍属于后续阶段，不能把 Faux/Fake 合同测试当作正式 Provider 生产验收。

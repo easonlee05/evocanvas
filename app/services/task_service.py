@@ -50,6 +50,10 @@ class TaskService:
         engine: Any,
         storage: Any,
         peer_adapter: Any | None = None,
+        canvas_execution: Any | None = None,
+        canvas_tool_gateway: Any | None = None,
+        tenant_id: str = "default",
+        knowledge: Any | None = None,
     ):
         """初始化任务服务。
 
@@ -58,11 +62,20 @@ class TaskService:
             engine: 工作流引擎实例，用于执行和恢复任务。
             storage: 持久化存储层实例，支持加载/保存 TaskContext 与 Task 实例，附加事件等。
             peer_adapter: AI 技术同事协作适配服务；未提供时使用空注册表实例。
+            canvas_execution: 可选的 Canvas AgentExecutionPort；生产环境由 API 装配 PiRuntimeClient，
+                测试环境可注入实现同一窄端口的 Fake。
+            canvas_tool_gateway: Canvas Pi Runtime 使用的内部只读工具网关。
+            tenant_id: 当前服务绑定的租户标识，用于内部工具调用范围校验。
+            knowledge: 通用知识检索后端；Canvas 和健康检查可直接使用，不触发旧引擎初始化。
         """
         self.registry = registry
         self.engine = engine
         self.storage = storage
         self.peer_adapter = peer_adapter or PeerAdapterService()
+        self.canvas_execution = canvas_execution
+        self.canvas_tool_gateway = canvas_tool_gateway
+        self.tenant_id = tenant_id
+        self.knowledge = knowledge
         self._running_tasks = set()
 
     def create_task(self, task_type: str, payload: Dict[str, Any]) -> Task:

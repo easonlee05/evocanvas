@@ -20,6 +20,7 @@ SCHEMA_PATH = (
     Path(__file__).resolve().parents[1]
     / "docs/technical-specs/schemas/pi-runtime/v1-contracts.json"
 )
+RUNTIME_INPUTS_FIXTURE_PATH = SCHEMA_PATH.parent / "fixtures/runtime-inputs-chat-request.json"
 
 
 class _SchemaValidationError(AssertionError):
@@ -286,6 +287,15 @@ class PiRuntimeContractTests(unittest.TestCase):
         for kind in ("chat", "judgement", "convergence"):
             with self.subTest(run_kind=kind):
                 self.assert_valid(_base_request(kind), f"{kind.title()}RunRequest")
+
+    def test_runtime_inputs_fixture_validates_as_a_chat_request(self) -> None:
+        fixture = json.loads(RUNTIME_INPUTS_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+        self.assert_valid(fixture, "ChatRunRequest")
+        runtime_inputs = fixture["runtime_inputs"]
+        self.assertEqual(runtime_inputs["structured_package_input"]["intent"], "reduce requirement distortion")
+        self.assertEqual(runtime_inputs["conversation_messages"][-1]["message_id"], "msg-4")
+        self.assertEqual(runtime_inputs["raw_user_message"], runtime_inputs["conversation_messages"][-1]["content"])
 
     def test_result_fixtures_validate(self) -> None:
         model_identity = {

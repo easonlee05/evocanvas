@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { apiGet, apiPost, apiPut, apiUrl, apiUpload } from '../../api';
+import { apiGet, apiPost, apiPostWithStatus, apiPut, apiUrl, apiUpload } from '../../api';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
@@ -198,8 +198,20 @@ export default function Workspace() {
     });
   }
 
+  function loadChatMessages(id) {
+    if (!id || id === 'demo' || id === 'new') return;
+    apiGet(`/api/canvas/workspaces/${id}/messages`, { messages: [] }).then(res => {
+      const messages = (res?.messages || []).map(item => ({
+        id: item.message_id || `message_${item.message_seq}`,
+        role: item.role === 'assistant' ? 'ai' : item.role,
+        text: item.content || '',
+      })).filter(item => (item.role === 'ai' || item.role === 'user') && item.text);
+      setChatMessages(messages);
+    });
+  }
+
   useEffect(() => {
-    setSteps([]); setStreamingStep(null); setTaskStatus(null); setArbitration(null);
+    setChatMessages([]); setSteps([]); setStreamingStep(null); setTaskStatus(null); setArbitration(null);
     setUserMessages([]); setInput(''); setDoc(''); setDocSecondary('');
     setSaved(true); setOpenedDoc(null); setTaskType('evocanvas'); setIsLive(false);
     writerMsgIdRef.current = null;
@@ -236,8 +248,8 @@ export default function Workspace() {
       if (data) {
         setTaskTitle(data.title || 'EvoCanvas 工作区');
         setTaskType('evocanvas');
-        const isRunning = data.active_turn_status === 'running';
-        setIsLive(isRunning);
+        setIsLive(false);
+        loadChatMessages(taskId);
         loadCanvasData(taskId);
         connectStream(taskId);
       }
@@ -305,6 +317,7 @@ export default function Workspace() {
     const p = eventData.payload || {};
 
     if (evType === 'canvas.turn.started') {
+      setTaskStatus('running');
       setIsLive(true);
       setChatMessages(prev => [...prev, {
         id: 'ev_' + Date.now(),
@@ -312,25 +325,38 @@ export default function Workspace() {
         text: '🤖 AI 助理已启动并开始分析输入物料...'
       }]);
     }
+    else if (evType === 'canvas.chat.completed') {
+      setStreamingMessage('');
+      loadChatMessages(taskId);
+    }
     else if (evType === 'canvas.mutation.proposed' || evType === 'canvas.confirmation.requested') {
       loadCanvasData(taskId);
-      const isHighRisk = p.result_action === 'pending_confirmation';
-      const text = `🤖 提炼完成！当前意图: **${p.intent}**，内部角色: **${p.roles?.join(', ') || ''}**。\n\n` + 
-                   (isHighRisk 
-                     ? `⚠️ 发现高影响变更提案（如确认约束等），已放入**用户确认队列**，请审批后落盘。` 
-                     : `✅ 变更提案已自动应用到主画布。`);
+      const resultLabels = {
+        applied: '已通过验证与治理，应用到主画布。',
+        no_change: '没有新的结构变化，当前包已覆盖这次输入。',
+        not_ready: '暂不写入稳定结构，仍需补充来源、范围或确认。',
+        rejected_by_governance: '治理未放行，候选内容保留为未生效状态。',
+        deferred: '先保留在对话中，暂不进入结构收敛。',
+        convergence_busy: '已有另一轮结构收敛进行中，本次输入已保留。',
+      };
+      const text = `结构收敛：${resultLabels[p.result_action] || '已收到候选变化，正在同步画布。'}`;
       setChatMessages(prev => [...prev, { id: 'ev_' + Date.now(), role: 'ai', text }]);
     }
     else if (evType === 'canvas.turn.completed' || evType === 'canvas.mutation.applied' || evType === 'canvas.confirmation.approved') {
+      setTaskStatus('completed');
       setIsLive(false);
+      setStreamingMessage('');
+      loadChatMessages(taskId);
       loadCanvasData(taskId);
     }
     else if (evType === 'canvas.turn.failed') {
+      setTaskStatus('failed');
       setIsLive(false);
+      setStreamingMessage('');
       setChatMessages(prev => [...prev, {
         id: 'ev_' + Date.now(),
         role: 'ai',
-        text: `⚠️ 分析运行失败：${p.error || '未知错误'}`
+        text: `运行未完成：${p.error || p.error_code || '未知错误'}`
       }]);
     }
     else if (evType === 'canvas.card.updated' || evType === 'canvas.relation.created' || evType === 'canvas.relation.deleted' || evType === 'canvas.card.moved' || evType === 'canvas.handoff.refreshed') {
@@ -378,9 +404,17 @@ export default function Workspace() {
   }
 
   // 供 approve/reject 等需要直接发送指定文本的场景调用，绕过 input 状态。
-  function handleSendText(text) {
+  async function handleSendText(text) {
     if (!text || !text.trim()) return;
     setChatMessages(prev => [...prev, { id: 'usr_' + Date.now(), role: 'user', text }]);
+    setTaskStatus('running');
+    setIsLive(true);
+
+    if (!taskId || taskId === 'demo' || taskId === 'new') {
+      setTaskStatus('completed');
+      setIsLive(false);
+      return;
+    }
 
     if (taskId && taskId !== 'demo') {
       const selectedIds = selectedCardId ? [selectedCardId] : [];
@@ -388,14 +422,25 @@ export default function Workspace() {
         .filter(m => m.status === 'success' && m.material_id)
         .map(m => m.material_id);
 
-      apiPost(`/api/canvas/workspaces/${taskId}/messages`, {
+      const result = await apiPostWithStatus(`/api/canvas/workspaces/${taskId}/messages`, {
         message: text,
         selected_card_ids: selectedIds,
         material_ids: materialIds,
         source_ref_ids: attachedSourceRefs.map(item => item.source_ref_id),
         mode: 'default',
         model: model
-      }, null);
+      });
+
+      if (!result.ok) {
+        const errorMessage = result.data?.message || result.data?.detail || result.data?.error_code || `请求失败（${result.status || '网络错误'}）`;
+        setTaskStatus('failed');
+        setIsLive(false);
+        setChatMessages(prev => [...prev, {
+          id: 'err_' + Date.now(),
+          role: 'ai',
+          text: `运行未完成：${errorMessage}`,
+        }]);
+      }
       
       setUploadedMaterials([]);
       setAttachedSourceRefs([]);

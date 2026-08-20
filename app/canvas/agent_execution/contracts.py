@@ -166,19 +166,67 @@ class ModelPolicy:
 
 
 @dataclass(frozen=True)
+class RuntimeInputSnapshot:
+    """本次模型调用的临时输入快照；不写入运行记录或产品事实。"""
+
+    structured_package_input: Mapping[str, Any]
+    conversation_messages: tuple[Mapping[str, Any], ...] = ()
+    raw_user_message: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.structured_package_input, Mapping):
+            raise ValueError("runtime_inputs.structured_package_input must be an object")
+        if any(not isinstance(item, Mapping) for item in self.conversation_messages):
+            raise ValueError("runtime_inputs.conversation_messages must contain objects")
+        if self.raw_user_message is not None and not isinstance(self.raw_user_message, str):
+            raise ValueError("runtime_inputs.raw_user_message must be a string or null")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "structured_package_input": dict(self.structured_package_input),
+            "conversation_messages": [dict(item) for item in self.conversation_messages],
+            "raw_user_message": self.raw_user_message,
+        }
+
+
+@dataclass(frozen=True)
 class ToolProfile:
     run_kind: RunKind
     allowed_tools: tuple[str, ...]
     max_calls: int
     max_result_bytes: int
+    gateway_url: str | None = None
+    run_scoped_token: str | None = None
+    tenant_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.run_kind not in {"chat", "judgement", "convergence"}:
+            raise ValueError("tool_profile.run_kind is invalid")
+        if any(not isinstance(tool, str) or not tool.strip() for tool in self.allowed_tools):
+            raise ValueError("tool_profile.allowed_tools must contain non-empty strings")
+        if not isinstance(self.max_calls, int) or isinstance(self.max_calls, bool) or self.max_calls < 0:
+            raise ValueError("tool_profile.max_calls must be an integer >= 0")
+        if not isinstance(self.max_result_bytes, int) or isinstance(self.max_result_bytes, bool) or self.max_result_bytes < 1024:
+            raise ValueError("tool_profile.max_result_bytes must be an integer >= 1024")
+        if "submit_convergence_proposal" in self.allowed_tools and self.run_kind != "convergence":
+            raise ValueError("submit_convergence_proposal is only valid for convergence runs")
+        if (self.gateway_url is None) != (self.run_scoped_token is None):
+            raise ValueError("tool_profile.gateway_url and run_scoped_token must be provided together")
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "run_kind": self.run_kind,
             "allowed_tools": list(self.allowed_tools),
             "max_calls": self.max_calls,
             "max_result_bytes": self.max_result_bytes,
         }
+        if self.gateway_url:
+            payload["gateway_url"] = self.gateway_url
+        if self.run_scoped_token:
+            payload["run_scoped_token"] = self.run_scoped_token
+        if self.tenant_id:
+            payload["tenant_id"] = self.tenant_id
+        return payload
 
 
 @dataclass(frozen=True)
@@ -197,6 +245,7 @@ class BaseRunRequest:
     trace_context: TraceContext
     idempotency_key: str
     schema_version: str = "pi-runtime.request.v1"
+    runtime_inputs: RuntimeInputSnapshot | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.run_id, "run_id")
@@ -216,7 +265,7 @@ class BaseRunRequest:
             raise ValueError("tool_profile.run_kind must match run_kind")
 
     def _base_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "run_id": self.run_id,
             "run_kind": self.run_kind,
@@ -232,6 +281,9 @@ class BaseRunRequest:
             "trace_context": self.trace_context.to_payload(),
             "idempotency_key": self.idempotency_key,
         }
+        if self.runtime_inputs is not None:
+            payload["runtime_inputs"] = self.runtime_inputs.to_payload()
+        return payload
 
     def to_payload(self) -> dict[str, Any]:
         return self._base_payload()

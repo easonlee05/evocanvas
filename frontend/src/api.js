@@ -96,6 +96,23 @@ export async function apiPost(path, body, fallback) {
   }
 }
 
+/** 发起 POST 并保留 HTTP 状态，供 Canvas 主链处理运行时错误。 */
+export async function apiPostWithStatus(path, body) {
+  try {
+    const res = await fetchWithTimeout(apiUrl(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    let data = null;
+    try { data = await res.json(); } catch { data = null; }
+    return { ok: res.ok, status: res.status, data };
+  } catch (error) {
+    console.warn(error);
+    return { ok: false, status: 0, data: null };
+  }
+}
+
 /**
  * 发起 PUT 请求
  * @param {string} path - API 相对路径
@@ -172,7 +189,7 @@ export async function apiPatchWithStatus(path, body) {
       body: JSON.stringify(body || {}),
     });
     let data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
+    try { data = await res.json(); } catch { data = null; }
     return { ok: res.ok, status: res.status, data };
   } catch (error) {
     console.warn(error);
@@ -181,4 +198,3 @@ export async function apiPatchWithStatus(path, body) {
 }
 
 export { API_BASE };
-

@@ -1,10 +1,12 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { createPiRuntimeServer } from "../server.js";
-import type { ChatRunRequest, EventEnvelope } from "../contracts.js";
-import { FakeRunExecutor } from "./executor.js";
+import type { ChatRunRequest, ChatRunResult, EventEnvelope } from "../contracts.js";
+import { FakeRunExecutor, type RunExecutor } from "./executor.js";
 import { RunIdConflictError, RunRegistry } from "./run-registry.js";
+import { validateRunRequest } from "../validation.js";
 
 function chatRequest(runId = "run-test-1"): ChatRunRequest {
   return {
@@ -66,6 +68,39 @@ test("RunRegistry keeps per-run sequence and rejects different duplicate payload
   assert.equal(secondEvent.sequence, 2);
 });
 
+test("Pi Runtime validates tool profile scope, budgets, and gateway pairing", () => {
+  assert.throws(() => validateRunRequest({
+    ...chatRequest(),
+    tool_profile: { run_kind: "chat", allowed_tools: ["source.resolve"], max_calls: 1, max_result_bytes: 512 },
+  }, "chat"));
+  assert.throws(() => validateRunRequest({
+    ...chatRequest(),
+    tool_profile: {
+      run_kind: "chat",
+      allowed_tools: ["source.resolve"],
+      max_calls: 1,
+      max_result_bytes: 1024,
+      gateway_url: "http://gateway",
+    },
+  }, "chat"));
+  assert.throws(() => validateRunRequest({
+    ...chatRequest(),
+    tool_profile: { run_kind: "chat", allowed_tools: ["submit_convergence_proposal"], max_calls: 1, max_result_bytes: 1024 },
+  }, "chat"));
+});
+
+test("Pi Runtime accepts the shared Python-assembled runtime_inputs fixture", () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL("../../../docs/technical-specs/schemas/pi-runtime/fixtures/runtime-inputs-chat-request.json", import.meta.url),
+    "utf8",
+  )) as ChatRunRequest;
+  const validated = validateRunRequest(fixture, "chat");
+
+  assert.equal(validated.runtime_inputs?.structured_package_input.intent, "reduce requirement distortion");
+  assert.equal(validated.runtime_inputs?.conversation_messages.at(-1)?.message_id, "msg-4");
+  assert.equal(validated.runtime_inputs?.raw_user_message, "我说不清具体需求，但感觉不能再直接写结论");
+});
+
 test("Pi Runtime HTTP completes a fake Chat run and exposes terminal query", async () => {
   const runtime = createPiRuntimeServer({ host: "127.0.0.1", port: 0, executor: new FakeRunExecutor() });
   await runtime.listen();
@@ -95,8 +130,54 @@ test("Pi Runtime HTTP completes a fake Chat run and exposes terminal query", asy
   }
 });
 
+test("Pi Runtime turns an exceeded run deadline into a stable failed terminal", async () => {
+  const slowExecutor: RunExecutor = {
+    async execute(request) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const result: ChatRunResult = {
+        run_id: request.run_id,
+        assistant_message: null,
+        finish_reason: "completed",
+        events_summary: {},
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0, provider_usage_ref: null },
+        model_identity: {
+          provider_id: "slow-test",
+          model_id: "slow-test",
+          adapter_version: "test",
+          protocol_version: "pi-runtime.protocol.v1",
+        },
+        context_manifest_id: request.context_manifest.context_manifest_id,
+      };
+      return result;
+    },
+  };
+  const runtime = createPiRuntimeServer({ host: "127.0.0.1", port: 0, executor: slowExecutor });
+  await runtime.listen();
+  const address = runtime.server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const response = await fetch(`${baseUrl}/v1/chat-runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...chatRequest("run-deadline"), deadline_ms: 5 }),
+    });
+    assert.equal(response.status, 200);
+    const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as EventEnvelope);
+    assert.equal(lines.at(-1)?.type, "run.failed");
+
+    const terminal = await fetch(`${baseUrl}/v1/runs/run-deadline`);
+    const summary = await terminal.json() as { status: string; error: { error_code: string } };
+    assert.equal(summary.status, "failed");
+    assert.equal(summary.error.error_code, "deadline_exceeded");
+  } finally {
+    await runtime.close();
+  }
+});
+
 test("Pi Runtime readiness and capabilities expose package probe without provider credentials", async () => {
-  const runtime = createPiRuntimeServer({ host: "127.0.0.1", port: 0 });
+  const previousProvider = process.env.PI_PROVIDER;
+  process.env.PI_PROVIDER = "fake-provider";
+  const runtime = createPiRuntimeServer({ host: "127.0.0.1", port: 0, executor: new FakeRunExecutor() });
   await runtime.listen();
   const address = runtime.server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -114,5 +195,7 @@ test("Pi Runtime readiness and capabilities expose package probe without provide
     assert.deepEqual(payload.supported_run_kinds, ["chat", "judgement", "convergence"]);
   } finally {
     await runtime.close();
+    if (previousProvider === undefined) delete process.env.PI_PROVIDER;
+    else process.env.PI_PROVIDER = previousProvider;
   }
 });

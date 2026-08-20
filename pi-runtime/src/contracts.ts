@@ -74,7 +74,49 @@ export interface ToolProfile {
   allowed_tools: string[];
   max_calls: number;
   max_result_bytes: number;
+  gateway_url?: string;
+  run_scoped_token?: string;
+  tenant_id?: string;
   [key: string]: unknown;
+}
+
+/** Python 装配、单次调用消费、不进入运行记录或产品事实的临时输入快照。 */
+export interface RuntimeInputSnapshot {
+  structured_package_input: Record<string, unknown>;
+  conversation_messages: Array<Record<string, unknown>>;
+  raw_user_message?: string | null;
+}
+
+export interface ToolCallRequest {
+  schema_version: "pi-runtime.tool-call.v1";
+  tool_call_id: string;
+  tool_name: string;
+  tool_version: string;
+  run_id: string;
+  run_kind: RunKind;
+  workspace_id: string;
+  conversation_id: string;
+  package_id?: string | null;
+  tenant_id?: string;
+  message_range?: { from_seq: number; through_seq: number };
+  arguments: Record<string, unknown>;
+  attempt: number;
+  trace_context: TraceContext;
+}
+
+export type ToolCallStatus = "succeeded" | "failed" | "denied" | "timed_out" | "cancelled";
+
+export interface ToolCallResult {
+  schema_version: "pi-runtime.tool-result.v1";
+  tool_call_id: string;
+  status: ToolCallStatus;
+  summary: string;
+  data?: unknown;
+  data_ref?: string | null;
+  source_refs: string[];
+  artifacts: string[];
+  error: RuntimeErrorEnvelope | null;
+  completed_at: string;
 }
 
 export interface BaseRunRequest {
@@ -93,6 +135,7 @@ export interface BaseRunRequest {
   deadline_ms: number;
   trace_context: TraceContext;
   idempotency_key: string;
+  runtime_inputs?: RuntimeInputSnapshot;
   [key: string]: unknown;
 }
 

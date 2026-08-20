@@ -1,10 +1,20 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { URL } from "node:url";
 import { RunIdConflictError, RunRegistry, type RunRecord } from "./runtime/run-registry.js";
-import { FakeRunExecutor, probePiPackages, type RunExecutor } from "./runtime/executor.js";
+import {
+  createConfiguredRunExecutor,
+  DEFAULT_MODEL_ID,
+  DEFAULT_PROVIDER_ID,
+  probePiPackages,
+  type ReadinessAwareRunExecutor,
+  type RunExecutor,
+  type RunReadiness,
+} from "./runtime/executor.js";
+import { createRunToolRuntime } from "./runtime/tools.js";
 import type { Capabilities, EventEnvelope, RunKind, RunRequest } from "./contracts.js";
 import {
   RuntimeContractError,
+  RuntimeDeadlineError,
   parseAfterSequence,
   toErrorEnvelope,
   validateCancelRequest,
@@ -15,7 +25,7 @@ const RUNTIME_VERSION = "0.1.0";
 const PI_AGENT_CORE_VERSION = "0.84.1";
 const PI_AI_VERSION = "0.84.1";
 const PROTOCOL_VERSION = "pi-runtime.protocol.v1";
-const ADAPTER_VERSION = "pi-runtime.fake-adapter.v1";
+const ADAPTER_VERSION = process.env.PI_ADAPTER_VERSION ?? "pi-runtime.unconfigured.v1";
 
 interface RuntimeOptions {
   host?: string;
@@ -79,19 +89,21 @@ function traceIdFrom(request: RunRequest): string | undefined {
 
 function capabilities(): Capabilities {
   const probe = probePiPackages();
+  const providerId = process.env.PI_PROVIDER?.trim() || DEFAULT_PROVIDER_ID;
+  const realProvider = providerId !== "unconfigured" && providerId !== "fake-provider";
   return {
     schema_version: "pi-runtime.capabilities.v1",
     runtime_version: RUNTIME_VERSION,
     pi_agent_core_version: PI_AGENT_CORE_VERSION,
     pi_ai_version: PI_AI_VERSION,
     node_version: process.version,
-    provider_id: process.env.PI_PROVIDER ?? "fake-provider",
-    adapter_version: ADAPTER_VERSION,
+    provider_id: providerId,
+    adapter_version: realProvider ? "pi-runtime.pi-agent-core.v1" : ADAPTER_VERSION,
     protocol_version: PROTOCOL_VERSION,
-    capability_profile_version: `fake-capabilities:${probe.agent_export_available && probe.models_instance_created ? "ready" : "degraded"}`,
+    capability_profile_version: `pi-runtime.capabilities:${probe.agent_export_available && probe.models_instance_created ? "ready" : "degraded"}`,
     supported_run_kinds: ["chat", "judgement", "convergence"],
     structured_output: true,
-    tool_calling: false,
+    tool_calling: realProvider || providerId === "fake-provider",
     streaming: true,
     cancellation: true,
     usage_reporting: true,
@@ -124,7 +136,7 @@ export class PiRuntimeServer {
 
   constructor(options: RuntimeOptions = {}) {
     this.registry = options.registry ?? new RunRegistry();
-    this.executor = options.executor ?? new FakeRunExecutor();
+    this.executor = options.executor ?? createConfiguredRunExecutor();
     this.internalSecret = options.internalSecret ?? process.env.PI_RUNTIME_INTERNAL_SECRET;
     this.host = options.host ?? process.env.PI_RUNTIME_HOST ?? "127.0.0.1";
     this.port = options.port ?? Number(process.env.PI_RUNTIME_PORT ?? 8790);
@@ -168,10 +180,15 @@ export class PiRuntimeServer {
       }
       if (method === "GET" && pathname === "/readyz") {
         const probe = probePiPackages();
-        const ready = probe.agent_export_available && probe.models_instance_created && (process.env.PI_PROVIDER ?? "fake-provider") === "fake-provider";
+        const readiness = await this.readiness();
+        const ready = probe.agent_export_available
+          && probe.models_instance_created
+          && readiness.ready;
         sendJson(response, ready ? 200 : 503, {
           status: ready ? "ready" : "not_ready",
-          provider: process.env.PI_PROVIDER ?? "fake-provider",
+          provider: readiness.provider_id,
+          model: readiness.model_id,
+          reason: readiness.reason,
           probe,
         });
         return;
@@ -221,6 +238,18 @@ export class PiRuntimeServer {
     throw new RuntimeContractError("permission_denied", "Pi Runtime internal authentication failed", 401);
   }
 
+  private async readiness(): Promise<RunReadiness> {
+    const executor = this.executor as Partial<ReadinessAwareRunExecutor>;
+    if (typeof executor.readiness === "function") {
+      return executor.readiness();
+    }
+    return {
+      ready: false,
+      provider_id: process.env.PI_PROVIDER?.trim() || DEFAULT_PROVIDER_ID,
+      reason: "runtime executor does not expose a readiness probe",
+    };
+  }
+
   private async handleRun(request: IncomingMessage, response: ServerResponse, expectedKind: RunKind): Promise<void> {
     let payload: unknown;
     try {
@@ -267,6 +296,11 @@ export class PiRuntimeServer {
     this.registry.start(created.record);
     writeEvent(created.record.events.at(-1)!);
 
+    const deadlineTimer = setTimeout(() => {
+      if (created.record.status === "running") {
+        created.record.controller.abort(new RuntimeDeadlineError(runRequest.run_id, runRequest.deadline_ms));
+      }
+    }, runRequest.deadline_ms);
     try {
       const result = await this.executor.execute(
         runRequest,
@@ -275,11 +309,16 @@ export class PiRuntimeServer {
           writeEvent(event);
         },
         created.record.controller.signal,
+        createRunToolRuntime(runRequest),
       );
       if (created.record.status === "cancelled") {
+        clearTimeout(deadlineTimer);
         for (const event of this.registry.eventsAfter(created.record, writtenSequence)) writeEvent(event);
         response.end();
         return;
+      }
+      if (created.record.controller.signal.aborted) {
+        throw created.record.controller.signal.reason ?? new RuntimeDeadlineError(runRequest.run_id, runRequest.deadline_ms);
       }
       this.registry.complete(created.record, result);
       writeEvent(created.record.events.at(-1)!);
@@ -290,6 +329,7 @@ export class PiRuntimeServer {
       }
       for (const event of this.registry.eventsAfter(created.record, writtenSequence)) writeEvent(event);
     }
+    clearTimeout(deadlineTimer);
     response.end();
   }
 

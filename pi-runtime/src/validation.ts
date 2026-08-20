@@ -24,6 +24,13 @@ export class RuntimeContractError extends Error {
   }
 }
 
+export class RuntimeDeadlineError extends Error {
+  constructor(readonly runId: string, readonly deadlineMs: number) {
+    super(`run ${runId} exceeded its ${deadlineMs}ms deadline`);
+    this.name = "RuntimeDeadlineError";
+  }
+}
+
 const RUN_KINDS = new Set<RunKind>(["chat", "judgement", "convergence"]);
 
 function asRecord(value: unknown, field: string): Record<string, unknown> {
@@ -64,6 +71,38 @@ function validateManifest(manifest: Record<string, unknown>): void {
   requireObject(manifest, "transport_ref");
 }
 
+function validateToolProfile(profile: Record<string, unknown>, runKind: RunKind): void {
+  if (requireString(profile, "run_kind") !== runKind) {
+    throw new RuntimeContractError("invalid_request", "tool_profile.run_kind must match run_kind");
+  }
+  const allowedTools = profile.allowed_tools;
+  if (!Array.isArray(allowedTools) || allowedTools.some((tool) => typeof tool !== "string" || tool.trim() === "")) {
+    throw new RuntimeContractError("invalid_request", "tool_profile.allowed_tools must be an array of non-empty strings");
+  }
+  requireInteger(profile, "max_calls", 0);
+  requireInteger(profile, "max_result_bytes", 1024);
+  for (const field of ["gateway_url", "run_scoped_token", "tenant_id"]) {
+    if (profile[field] !== undefined) requireString(profile, field);
+  }
+  if ((profile.gateway_url === undefined) !== (profile.run_scoped_token === undefined)) {
+    throw new RuntimeContractError("invalid_request", "tool_profile.gateway_url and run_scoped_token must be provided together");
+  }
+  if (allowedTools.includes("submit_convergence_proposal") && runKind !== "convergence") {
+    throw new RuntimeContractError("invalid_request", "submit_convergence_proposal is only valid for convergence runs");
+  }
+}
+
+function validateRuntimeInputs(inputs: Record<string, unknown>): void {
+  asRecord(inputs.structured_package_input, "runtime_inputs.structured_package_input");
+  const messages = inputs.conversation_messages;
+  if (!Array.isArray(messages) || messages.some((message) => !message || typeof message !== "object" || Array.isArray(message))) {
+    throw new RuntimeContractError("invalid_request", "runtime_inputs.conversation_messages must be an array of objects");
+  }
+  if (inputs.raw_user_message !== undefined && inputs.raw_user_message !== null && typeof inputs.raw_user_message !== "string") {
+    throw new RuntimeContractError("invalid_request", "runtime_inputs.raw_user_message must be a string or null");
+  }
+}
+
 export function validateRunRequest(input: unknown, expectedKind: RunKind): RunRequest {
   const record = asRecord(input, "request");
   if (record.schema_version !== "pi-runtime.request.v1") {
@@ -89,7 +128,8 @@ export function validateRunRequest(input: unknown, expectedKind: RunKind): RunRe
   validateManifest(requireObject(record, "context_manifest"));
   requireString(record, "instructions_ref");
   requireObject(record, "model_policy");
-  requireObject(record, "tool_profile");
+  validateToolProfile(requireObject(record, "tool_profile"), runKind);
+  if (record.runtime_inputs !== undefined) validateRuntimeInputs(requireObject(record, "runtime_inputs"));
   requireInteger(record, "deadline_ms", 1);
   requireObject(record, "trace_context");
 
@@ -144,6 +184,18 @@ export function toErrorEnvelope(error: unknown, runId?: string, traceId?: string
       ...error.envelope,
       run_id: runId,
       trace_id: traceId,
+    };
+  }
+  if (error instanceof RuntimeDeadlineError) {
+    return {
+      schema_version: "pi-runtime.error.v1",
+      error_code: "deadline_exceeded",
+      category: "temporary_error",
+      message: error.message,
+      retryable: true,
+      run_id: runId ?? error.runId,
+      trace_id: traceId,
+      details: { deadline_ms: error.deadlineMs },
     };
   }
   return {

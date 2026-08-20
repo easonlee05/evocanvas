@@ -64,6 +64,16 @@
       "required": ["run_kind", "allowed_tools", "max_calls", "max_result_bytes"],
       "additionalProperties": true
     },
+    "RuntimeInputSnapshot": {
+      "type": "object",
+      "properties": {
+        "structured_package_input": {"type": "object"},
+        "conversation_messages": {"type": "array", "items": {"type": "object"}},
+        "raw_user_message": {"type": ["string", "null"]}
+      },
+      "required": ["structured_package_input", "conversation_messages"],
+      "additionalProperties": true
+    },
     "ContextManifest": {
       "type": "object",
       "properties": {
@@ -166,7 +176,8 @@
         "tool_profile": {"$ref": "#/$defs/ToolProfile"},
         "deadline_ms": {"type": "integer", "minimum": 1, "maximum": 3600000},
         "trace_context": {"$ref": "#/$defs/TraceContext"},
-        "idempotency_key": {"$ref": "#/$defs/Id"}
+        "idempotency_key": {"$ref": "#/$defs/Id"},
+        "runtime_inputs": {"$ref": "#/$defs/RuntimeInputSnapshot"}
       },
       "required": [
         "schema_version",

@@ -59,7 +59,7 @@
 | Shell/代码执行 | 禁止 | 禁止 | 禁止 | 禁止 | `internal/external_write` | 不进入 1.0 |
 | 任意文件/网络/MCP 写 | 禁止 | 禁止 | 禁止 | 禁止 | `external_write` | 不进入普通收敛 |
 
-每次调用都必须记录 `tool_call_id`、工具名/版本、运行单元、作用范围、参数安全摘要、尝试次数、状态、耗时、来源和错误。Run-scoped Token 绑定运行、工具白名单、workspace/conversation/package 范围、到期时间和最大次数。
+每次调用都必须记录 `tool_call_id`、工具名/版本、运行单元、作用范围、参数安全摘要、尝试次数、状态、耗时、来源和错误。Run-scoped Token 绑定运行、工具白名单、workspace/conversation/package 范围、已冻结的消息范围、到期时间和最大次数。
 
 ## 5. 错误、恢复与用户行为矩阵
 

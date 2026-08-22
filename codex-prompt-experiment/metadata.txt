@@ -1,2 +1,0 @@
-WARNING: proceeding, even though we could not update PATH: Operation not permitted (os error 1)
-codex-cli 0.130.0

@@ -115,8 +115,18 @@ class FakeKnowledge:
             "degraded": False,
         }
 
+import re
+
+
+def _safe_id(value: str) -> str:
+    """严格校验标识符格式，防范路径穿越与非法字符注入。"""
+    if not value or not re.match(r"^[a-zA-Z0-9_-]+$", str(value)):
+        raise ValueError(f"invalid identifier: {value!r}")
+    return str(value)
+
+
 class FakeStorage:
-    """基于本地文件系统的伪存储服务。
+    """基于文件系统的本地伪存储实现类。
 
     使用 JSON 和 JSONL 格式在指定的本地目录下读写 Task、Context、Event 审计记录与 Artifact 产物。
     主要用于开发环境 and Phase 1 单元测试。
@@ -142,7 +152,8 @@ class FakeStorage:
         Returns:
             Path: 任务存储的 Path 对象。
         """
-        path = self.root / "tasks" / task_id
+        safe_task_id = _safe_id(task_id)
+        path = self.root / "tasks" / safe_task_id
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -369,11 +380,12 @@ class FakeStorage:
         Returns:
             Artifact: 更新后的产物实体。
         """
-        current = self.read_artifact(artifact_id)
+        safe_id = _safe_id(artifact_id)
+        current = self.read_artifact(safe_id)
         if (current.content or "").strip() == (content or "").strip():
             return current
         updated = Artifact(
-            artifact_id=artifact_id,
+            artifact_id=safe_id,
             task_id=current.task_id,
             name=current.name,
             version=current.version + 1,
@@ -382,7 +394,7 @@ class FakeStorage:
             summary=f"Updated {current.name}",
             content=content,
         )
-        self._artifacts_dir().joinpath(f"{artifact_id}.json").write_text(
+        self._artifacts_dir().joinpath(f"{safe_id}.json").write_text(
             json.dumps(updated.to_dict(include_content=True), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -397,10 +409,11 @@ class FakeStorage:
         Returns:
             List[Artifact]: 产物实体列表。
         """
+        safe_task_id = _safe_id(task_id)
         artifacts = []
         for path in sorted(self._artifacts_dir().glob("artifact_*.json")):
             data = json.loads(path.read_text(encoding="utf-8"))
-            if data.get("task_id") == task_id:
+            if data.get("task_id") == safe_task_id:
                 artifacts.append(Artifact.from_dict(data))
         return artifacts
 
@@ -413,7 +426,8 @@ class FakeStorage:
         Returns:
             Artifact: 产物对象。
         """
-        path = self._artifacts_dir() / f"{artifact_id}.json"
+        safe_id = _safe_id(artifact_id)
+        path = self._artifacts_dir() / f"{safe_id}.json"
         return Artifact.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
     def backup_artifact(self, artifact_id: str) -> Dict[str, Any]:
@@ -427,8 +441,9 @@ class FakeStorage:
         Returns:
             Dict[str, Any]: 包含 backup_id 的元数据。
         """
-        artifact = self.read_artifact(artifact_id)
-        backup_id = f"backup_{artifact_id}_v{artifact.version}"
+        safe_id = _safe_id(artifact_id)
+        artifact = self.read_artifact(safe_id)
+        backup_id = f"backup_{safe_id}_v{artifact.version}"
         backup_path = self._artifacts_dir() / f"{backup_id}.json"
         backup_path.write_text(json.dumps(artifact.to_dict(include_content=True), ensure_ascii=False, indent=2), encoding="utf-8")
         return {"backup_id": backup_id}

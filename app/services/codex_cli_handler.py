@@ -25,7 +25,7 @@ class CodexCLIHandler:
         codex_path: str = "codex",
         model: str | None = None,
         sandbox_mode: str = "workspace-write",
-        approval_policy: str = "never",
+        approval_policy: str = "on-failure",
         codex_home: Path | None = None,
         runner: Callable[[list[str], str, Path], Dict[str, Any]] | None = None,
     ):
@@ -140,8 +140,21 @@ class CodexCLIHandler:
     def _default_runner(self, cmd: list[str], prompt: str, cwd: Path) -> Dict[str, Any]:
         """默认 runner：真实调用本机 `codex exec` 并解析最后消息 JSON。"""
         self.codex_home.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ)
-        env.setdefault("CODEX_HOME", str(self.codex_home))
+        # 安全加固：环境变量白名单过滤，剥离宿主机全部密钥和 Token
+        allowed_env_keys = {
+            "PATH",
+            "HOME",
+            "USER",
+            "LOGNAME",
+            "SHELL",
+            "LANG",
+            "LC_ALL",
+            "TMPDIR",
+            "PYTHONUNBUFFERED",
+            "TERM",
+        }
+        env = {k: v for k, v in os.environ.items() if k in allowed_env_keys}
+        env["CODEX_HOME"] = str(self.codex_home)
         completed = subprocess.run(
             cmd,
             input=prompt,

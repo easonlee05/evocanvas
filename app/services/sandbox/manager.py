@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from app.services.sandbox.adapters.base import SandboxAdapter, ExecutionResult
@@ -38,7 +39,10 @@ class SandboxManager:
         Returns:
             SandboxAdapter: 选中的沙箱适配器实例。
         """
+        require_docker = os.getenv("EVO_SANDBOX_REQUIRE_DOCKER", "").lower() in {"1", "true", "yes"}
         if force_subprocess:
+            if require_docker:
+                raise RuntimeError("Docker sandbox required by policy (EVO_SANDBOX_REQUIRE_DOCKER=1), refusing subprocess fallback")
             logger.info("SandboxManager forced to use SubprocessSandboxAdapter")
             return SubprocessSandboxAdapter()
         
@@ -49,7 +53,9 @@ class SandboxManager:
             logger.info("SandboxManager initialized with DockerSandboxAdapter")
             return adapter
         except Exception as e:
-            # 当 Docker 未安装、未启动或驱动缺失时，优雅地向下兼容，自动回退到 Subprocess 隔离
+            if require_docker:
+                raise RuntimeError(f"Docker sandbox is required but unavailable: {e}") from e
+            # 当 Docker 未安装、未启动或驱动缺失时，开发环境优雅向下兼容，自动回退到 Subprocess 隔离
             logger.warning(f"Docker sandbox not available ({e}), falling back to SubprocessSandboxAdapter")
             return SubprocessSandboxAdapter()
 

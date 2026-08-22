@@ -65,6 +65,16 @@ class PackageVersionStaleError(ValueError):
         self.actual_state_version = actual_state_version
 
 
+import re
+
+
+def _safe_id(value: str) -> str:
+    """严格校验工作区与包标识符格式，防范路径穿越。"""
+    if not value or not re.match(r"^[a-zA-Z0-9_-]+$", str(value)):
+        raise ValueError(f"invalid identifier: {value!r}")
+    return str(value)
+
+
 class CanvasRepository:
     """面向 EvoCanvas 工作区根对象的最小文件仓储。"""
 
@@ -81,8 +91,8 @@ class CanvasRepository:
 
     def _workspace_dir(self, workspace_id: str) -> Path:
         """返回指定工作区的持久化目录，并在保存前确保目录存在。"""
-
-        return self.storage.canvas_root() / "workspaces" / workspace_id
+        safe_id = _safe_id(workspace_id)
+        return self.storage.canvas_root() / "workspaces" / safe_id
 
     @classmethod
     def _workspace_lock(cls, workspace_id: str) -> Any:
@@ -172,8 +182,8 @@ class CanvasRepository:
 
     def _package_dir(self, workspace_id: str, package_id: str) -> Path:
         """返回指定包的持久化目录。"""
-
-        return self._workspace_dir(workspace_id) / "packages" / package_id
+        safe_pkg = _safe_id(package_id)
+        return self._workspace_dir(workspace_id) / "packages" / safe_pkg
 
     def save_package(self, workspace_id: str, package: Package) -> None:
         """持久化结构化包根对象。"""

@@ -50,7 +50,7 @@ class CodexCLIHandlerTests(unittest.TestCase):
         result = handler.execute(DummyTask(), "# Agent Package")
 
         self.assertEqual(calls["cwd"], workspace)
-        self.assertEqual(calls["cmd"][:4], ["/opt/homebrew/bin/codex", "-a", "never", "exec"])
+        self.assertEqual(calls["cmd"][:4], ["/opt/homebrew/bin/codex", "-a", "on-failure", "exec"])
         self.assertIn("--ephemeral", calls["cmd"])
         self.assertIn("--ignore-user-config", calls["cmd"])
         self.assertEqual(result["peer_target"], "codex")

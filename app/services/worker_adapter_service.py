@@ -6,7 +6,11 @@
 """
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Dict, Any, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerTargetType:
@@ -76,5 +80,6 @@ class WorkerAdapterService:
         if not handler:
             raise ValueError(f"No adapter registered for {target_type}")
             
-        print(f"[*] Dispatching {package_path} to worker type: {target_type}")
+        safe_name = Path(package_path).name
+        logger.info("Dispatching agent package '%s' to worker type: %s", safe_name, target_type)
         return handler.execute(package_path)

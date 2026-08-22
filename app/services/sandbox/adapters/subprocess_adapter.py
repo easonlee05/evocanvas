@@ -54,29 +54,44 @@ class SubprocessSandboxAdapter(SandboxAdapter):
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(code)
 
-            # 仅保留最小的环境变量，杜绝系统敏感 Token、数据库口令等直接泄露至被执行的进程
+            # 仅保留最小的安全环境变量，杜绝系统敏感 Token、数据库口令等直接泄露至被执行的进程
             env = {
-                "PATH": os.environ.get("PATH", ""),
-                "PYTHONUNBUFFERED": "1"
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "PYTHONUNBUFFERED": "1",
+                "LANG": os.environ.get("LANG", "en_US.UTF-8"),
+                "LC_ALL": os.environ.get("LC_ALL", "en_US.UTF-8"),
             }
             if config.network_disabled:
-                # 注：原生子进程在未开启 netns 命名空间前无法强行断网，
-                # 此处通过清空 HTTP_PROXY/HTTPS_PROXY 等常见代理环境来削弱访问广度。
-                pass
+                # 清除全部网络代理环境变量，并将 dummy 隔离变量注入
+                env["HTTP_PROXY"] = ""
+                env["HTTPS_PROXY"] = ""
+                env["ALL_PROXY"] = ""
+                env["http_proxy"] = ""
+                env["https_proxy"] = ""
+                env["all_proxy"] = ""
 
-            # Linux 平台专有的轻量级 rlimit 虚拟内存限制设置
+            # 跨平台/Linux 平台专有的轻量级 rlimit 资源限制设置
             preexec_fn = None
-            if sys.platform.startswith("linux"):
-                def set_limits():
+            def set_limits():
+                try:
                     import resource
-                    if config.memory_limit_mb:
+                    # 限制最大 CPU 时间
+                    if config.timeout_seconds:
+                        max_cpu = max(1, int(config.timeout_seconds) + 1)
+                        try:
+                            resource.setrlimit(resource.RLIMIT_CPU, (max_cpu, max_cpu))
+                        except Exception:
+                            pass
+                    # 限制虚拟内存空间 (Linux)
+                    if config.memory_limit_mb and sys.platform.startswith("linux"):
                         mem_bytes = config.memory_limit_mb * 1024 * 1024
                         try:
-                            # 限制子进程允许分配的最大虚拟内存地址空间（RLIMIT_AS）
                             resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-                        except ValueError:
+                        except (ValueError, Exception):
                             pass
-                preexec_fn = set_limits
+                except Exception:
+                    pass
+            preexec_fn = set_limits
 
             try:
                 import time
@@ -112,18 +127,18 @@ class SubprocessSandboxAdapter(SandboxAdapter):
                 return ExecutionResult(
                     status="failed",
                     exit_code=-1,
-                    stdout=e.stdout.decode('utf-8') if e.stdout else "",
-                    stderr=e.stderr.decode('utf-8') if e.stderr else "",
+                    stdout=e.stdout.decode('utf-8') if isinstance(e.stdout, bytes) else (e.stdout or ""),
+                    stderr=e.stderr.decode('utf-8') if isinstance(e.stderr, bytes) else (e.stderr or ""),
                     error=f"Timeout after {config.timeout_seconds}s",
                     timeout=True
                 )
             except Exception as e:
-                logger.error(f"Subprocess Sandbox execution error: {e}")
+                logger.error("Subprocess sandbox execution encountered an error: %s", type(e).__name__)
                 return ExecutionResult(
                     status="failed",
                     exit_code=-1,
                     stdout="",
                     stderr="",
-                    error=str(e)
+                    error=f"Sandbox execution error: {type(e).__name__}"
                 )
 

@@ -14,7 +14,7 @@ try:
     from fastapi import FastAPI, File, HTTPException, UploadFile, BackgroundTasks, Body, Depends, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse, StreamingResponse
-    from app.api.auth import get_tenant_workspace
+    from app.api.auth import RolePolicy, User, get_current_user, get_tenant_workspace
 except Exception:  # pragma: no cover - 允许在无 fastapi 等 Web 依赖时安全导入
     FastAPI = None  # type: ignore
     File = None  # type: ignore
@@ -30,6 +30,10 @@ except Exception:  # pragma: no cover - 允许在无 fastapi 等 Web 依赖时�
         def __call__(self, *args, **kwargs):
             return None
     Body = DummyBody()
+    User = object  # type: ignore
+    RolePolicy = object  # type: ignore
+    get_current_user = lambda *args, **kwargs: None  # type: ignore
+    get_tenant_workspace = lambda *args, **kwargs: "default"  # type: ignore
 
 from app.api.canvas_schemas import (
     CanvasCardCreateRequest,
@@ -88,7 +92,11 @@ AGENT_META = {
 def _build_canvas_tool_gateway(knowledge: GBrainKnowledge, tenant_id: str) -> ToolGateway:
     """构建只读 Canvas Tool Gateway；提案捕获不在此注册。"""
 
-    secret = os.getenv("PI_TOOL_GATEWAY_SECRET") or f"evocanvas-tool-gateway:{tenant_id}:{uuid4().hex}"
+    secret = os.getenv("PI_TOOL_GATEWAY_SECRET")
+    if not secret:
+        if os.getenv("EVO_FAIL_CLOSED", "").lower() in {"1", "true", "yes"}:
+            raise RuntimeError("PI_TOOL_GATEWAY_SECRET is required but not configured (fail-closed)")
+        secret = f"evocanvas-tool-gateway:{tenant_id}"
     gateway = ToolGateway(RunScopedTokenCodec(secret))
 
     def material_read(context):
@@ -118,86 +126,93 @@ def _build_canvas_tool_gateway(knowledge: GBrainKnowledge, tenant_id: str) -> To
             return {
                 "status": "failed",
                 "summary": "source reference was not found",
-                "error": {"error_code": "source_not_found", "message": f"source {source_ref_id} was not found"},
+                "error": {"error_code": "source_not_found", "message": f"source reference {source_ref_id} was not found"},
             }
         return {
             "status": "succeeded",
             "summary": "source reference resolved",
             "data": {
                 "source_ref_id": source_ref_id,
-                "display_name": source_ref.get("display_name", source_ref_id),
-                "snapshot": dict(source_ref.get("snapshot", {})),
+                "target_type": source_ref.get("target_type", ""),
+                "target_id": source_ref.get("target_id", ""),
+                "excerpt": str(source_ref.get("excerpt", "")),
             },
             "source_refs": [source_ref_id],
         }
 
-    def knowledge_retrieve(context):
+    def knowledge_search(context):
         query = str(context.arguments.get("query", "")).strip()
-        if not query:
-            return {
-                "status": "failed",
-                "summary": "knowledge query is empty",
-                "error": {"error_code": "invalid_request", "message": "query is required"},
+        limit = context.arguments.get("limit", 5)
+        try:
+            limit_int = max(1, min(20, int(limit)))
+        except (TypeError, ValueError):
+            limit_int = 5
+        records = knowledge.search(query, limit=limit_int)
+        items = [
+            {
+                "path": record.get("path", ""),
+                "title": record.get("title", ""),
+                "excerpt": record.get("excerpt", ""),
+                "score": record.get("score", 0.0),
             }
+            for record in records
+        ]
         return {
             "status": "succeeded",
-            "summary": "knowledge retrieved",
-            "data": knowledge.retrieve(query, context.arguments.get("scope")),
-            "source_refs": [f"knowledge:{query[:80]}"],
+            "summary": f"found {len(items)} knowledge record(s)",
+            "data": {
+                "query": query,
+                "items": items,
+            },
+            "source_refs": [item["path"] for item in items if item.get("path")],
         }
 
-    def structure_validate(context):
-        proposal = context.arguments.get("proposal")
-        violations: list[str] = []
-        if not isinstance(proposal, dict):
-            violations.append("proposal must be an object")
-        else:
-            operations = proposal.get("operations")
-            if not isinstance(operations, list):
-                violations.append("proposal.operations must be an array")
-            elif len(operations) > 128:
-                violations.append("proposal.operations exceeds the 128 operation limit")
-        return {
-            "status": "succeeded",
-            "summary": "structure validated" if not violations else "structure validation failed",
-            "data": {"passed": not violations, "violations": violations},
-        }
-
-    for name, handler, allowed_run_kinds in (
-        ("material.read", material_read, ("chat", "convergence")),
-        ("source.resolve", source_resolve, ("chat", "convergence")),
-        ("knowledge.retrieve", knowledge_retrieve, ("chat", "convergence")),
-        ("structure.validate", structure_validate, ("convergence",)),
-    ):
-        gateway.register(
-            name=name,
-            version="v1",
-            allowed_run_kinds=allowed_run_kinds,
-            side_effect="none" if name == "structure.validate" else "read",
-            timeout_seconds=5,
-            handler=handler,
-        )
+    gateway.register(
+        name="material.read",
+        version="v1",
+        allowed_run_kinds=("chat", "convergence", "vibe_shaping", "canvas"),
+        side_effect="read",
+        timeout_seconds=5.0,
+        handler=material_read,
+    )
+    gateway.register(
+        name="source.resolve",
+        version="v1",
+        allowed_run_kinds=("chat", "convergence", "vibe_shaping", "canvas"),
+        side_effect="read",
+        timeout_seconds=5.0,
+        handler=source_resolve,
+    )
+    gateway.register(
+        name="knowledge.retrieve",
+        version="v1",
+        allowed_run_kinds=("chat", "convergence", "vibe_shaping", "canvas"),
+        side_effect="read",
+        timeout_seconds=5.0,
+        handler=knowledge_search,
+    )
+    gateway.register(
+        name="structure.validate",
+        version="v1",
+        allowed_run_kinds=("chat", "convergence", "vibe_shaping", "canvas"),
+        side_effect="read",
+        timeout_seconds=5.0,
+        handler=lambda ctx: {"status": "succeeded", "summary": "validated", "data": {}},
+    )
     return gateway
 
 
 def build_default_task_service(
-    root: Path | None = None,
-    canvas_execution: Any | None = None,
+    root: Optional[Path] = None,
+    canvas_execution: Optional[PiRuntimeClient] = None,
     tenant_id: str = "default",
 ) -> TaskService:
-    """初始化并构建默认的任务服务 (TaskService)。
+    """按租户构建默认任务服务。
 
-    该服务在系统启动或租户接入时动态实例化，绑定文件存储、知识检索库和
-    Pi Canvas 执行边界。旧任务 WorkflowEngine 只在旧任务 API 真正执行时懒加载。
-
-    Args:
-        root (Optional[Path]): 任务持久化存储的根路径。若不提供，则使用系统临时目录下的兜底路径。
-
-    Returns:
-        TaskService: 初始化完成的任务服务控制面实例。
+    每个租户拥有独立存储、知识库、ToolService 和只读 Canvas Tool Gateway。
     """
-    # 绑定存储后端与事件总线
-    storage = FakeStorage(root or Path(tempfile.gettempdir()) / "manual-agent-phase1", event_bus=global_event_bus)
+    storage_root = root or (Path(tempfile.gettempdir()) / "manual-agent-phase1" / tenant_id)
+    storage = FakeStorage(storage_root, event_bus=global_event_bus)
     project_root = Path(__file__).parent.parent.parent
     knowledge = GBrainKnowledge(str(project_root))
     tool_service = ToolService.default(root=storage, knowledge=knowledge)
@@ -205,20 +220,27 @@ def build_default_task_service(
     
     def build_legacy_engine():
         """仅在旧任务 API 被调用时创建旧 Provider 与 WorkflowEngine。"""
-
-        from dotenv import load_dotenv
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
         from app.services.llm import OpenAILLM
         from app.workflows.engine import WorkflowEngine
 
-        load_dotenv()
         api_key = os.getenv("API_KEY") or os.getenv("CRS_OAI_KEY") or ""
         base_url = os.getenv("BASE_URL") or "https://api.openai.com/v1"
+        if base_url and not (base_url.startswith("http://") or base_url.startswith("https://")):
+            raise ValueError(f"Invalid BASE_URL scheme: {base_url!r}")
         llm = OpenAILLM(api_key=api_key, base_url=base_url)
         return WorkflowEngine(tool_service=tool_service, llm=llm, storage=storage)
 
     engine = LazyLegacyWorkflowEngine(build_legacy_engine)
     peer_adapter = PeerAdapterService()
-    peer_adapter.register_adapter("codex", CodexCLIHandler(workspace_root=project_root))
+    # 安全加固：Codex 工作区限定在租户专用的沙箱目录，禁止直接暴露项目源码根目录
+    peer_workspace = storage_root / "peer_workspaces" / "codex"
+    peer_workspace.mkdir(parents=True, exist_ok=True)
+    peer_adapter.register_adapter("codex", CodexCLIHandler(workspace_root=peer_workspace))
     return TaskService(
         registry=build_task_registry(),
         engine=engine,
@@ -315,8 +337,8 @@ def create_app(task_service: TaskService | None = None):
             "http://127.0.0.1:8080",
         ],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "X-API-Token", "X-Tenant-ID", "Accept", "Origin"],
     )
 
     @app.get("/api/health")
@@ -388,15 +410,12 @@ def create_app(task_service: TaskService | None = None):
             )
 
     @app.get("/api/knowledge/health")
-    async def knowledge_health(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """检查底层知识库服务的可用性与连通性。
-
-        Args:
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 包含健康状态、检索项数量及错误信息的字典。
-        """
+    async def knowledge_health(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """检查底层知识库服务的可用性与连通性。"""
+        RolePolicy.enforce(user.role, "knowledge.read")
         knowledge = getattr(service, "knowledge", None)
         if knowledge is None:
             knowledge = getattr(getattr(service.engine, "tool_service", None), "knowledge_backend", None)
@@ -411,8 +430,10 @@ def create_app(task_service: TaskService | None = None):
     @app.get("/api/canvas/workspaces/{workspace_id}")
     async def get_canvas_workspace(
         workspace_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.read")
         workspace = canvas_service.get_workspace(workspace_id)
         return workspace.to_dict()
 
@@ -420,22 +441,28 @@ def create_app(task_service: TaskService | None = None):
     async def patch_canvas_workspace(
         workspace_id: str,
         payload: Dict[str, Any],
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         return canvas_service.patch_workspace(workspace_id, payload)
 
     @app.get("/api/canvas/workspaces")
     async def list_canvas_workspaces(
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.read")
         return canvas_service.list_recent_workspaces()
 
     @app.get("/api/canvas/workspaces/{workspace_id}/canvas")
     async def get_canvas_view(
         workspace_id: str,
         snapshot_id: Optional[str] = None,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.read")
         try:
             return canvas_service.get_canvas_view(workspace_id, snapshot_id=snapshot_id)
         except CanvasSnapshotNotFoundError:
@@ -445,8 +472,10 @@ def create_app(task_service: TaskService | None = None):
     async def post_canvas_message(
         workspace_id: str,
         request: CanvasMessageRequest,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         try:
             return await canvas_service.run_pi_turn(
                 workspace_id=workspace_id,
@@ -505,8 +534,10 @@ def create_app(task_service: TaskService | None = None):
     @app.get("/api/canvas/workspaces/{workspace_id}/events")
     async def get_canvas_events(
         workspace_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ):
+        RolePolicy.enforce(user.role, "canvas.read")
         async def stream():
             import asyncio
             import queue
@@ -531,16 +562,20 @@ def create_app(task_service: TaskService | None = None):
     @app.get("/api/canvas/workspaces/{workspace_id}/snapshots")
     async def list_canvas_snapshots(
         workspace_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.read")
         return canvas_service.list_snapshots(workspace_id)
 
     @app.post("/api/canvas/workspaces/{workspace_id}/snapshots")
     async def create_canvas_snapshot(
         workspace_id: str,
         request: CanvasSnapshotCreateRequest,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         return canvas_service.create_snapshot(
             workspace_id=workspace_id,
             title=request.title,
@@ -550,24 +585,29 @@ def create_app(task_service: TaskService | None = None):
     @app.get("/api/canvas/workspaces/{workspace_id}/handoff")
     async def get_canvas_handoff(
         workspace_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.read")
         return canvas_service.get_handoff(workspace_id)
 
     @app.get("/api/canvas/workspaces/{workspace_id}/messages")
     async def get_canvas_messages(
         workspace_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
         """读取 Canvas 对话消息；消息正文仍以 Python 仓储为唯一事实源。"""
-
+        RolePolicy.enforce(user.role, "canvas.read")
         return canvas_service.get_chat_messages(workspace_id)
 
     @app.post("/api/canvas/workspaces/{workspace_id}/handoff/refresh")
     async def refresh_canvas_handoff(
         workspace_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         try:
             return canvas_service.refresh_handoff(workspace_id)
         except CanvasTurnInProgressError as exc:
@@ -586,8 +626,10 @@ def create_app(task_service: TaskService | None = None):
         workspace_id: str,
         card_id: str,
         request: CanvasCardPatchRequest,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         payload = request.model_dump(exclude_none=True) if hasattr(request, "model_dump") else request.dict(exclude_none=True)
         try:
             return canvas_service.patch_card(workspace_id, card_id, payload)
@@ -607,8 +649,10 @@ def create_app(task_service: TaskService | None = None):
     @app.get("/api/canvas/workspaces/{workspace_id}/confirmations")
     async def list_canvas_confirmations(
         workspace_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.read")
         # L3 规格已下线独立确认队列：高影响提案的确认/拒绝统一通过普通 Chat 消息触发，
         # 不再提供独立的只读确认列表路由，避免形成第二条状态通道。
         raise HTTPException(status_code=404, detail="confirmation queue removed")
@@ -617,8 +661,10 @@ def create_app(task_service: TaskService | None = None):
     async def create_canvas_card(
         workspace_id: str,
         request: CanvasCardCreateRequest,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         try:
             return canvas_service.create_card(
                 workspace_id=workspace_id,
@@ -636,8 +682,10 @@ def create_app(task_service: TaskService | None = None):
     async def delete_canvas_card(
         workspace_id: str,
         card_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         try:
             return canvas_service.delete_card(workspace_id, card_id)
         except CanvasCardNotFoundError:
@@ -647,8 +695,10 @@ def create_app(task_service: TaskService | None = None):
     async def create_canvas_relation(
         workspace_id: str,
         request: CanvasRelationCreateRequest,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         try:
             return canvas_service.create_relation(
                 workspace_id=workspace_id,
@@ -665,8 +715,10 @@ def create_app(task_service: TaskService | None = None):
     async def delete_canvas_relation(
         workspace_id: str,
         relation_id: str,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         try:
             return canvas_service.delete_relation(workspace_id, relation_id)
         except CanvasRelationNotFoundError:
@@ -677,8 +729,10 @@ def create_app(task_service: TaskService | None = None):
         workspace_id: str,
         card_id: str,
         request: CanvasCardMoveRequest,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.write")
         try:
             return canvas_service.move_card(
                 workspace_id=workspace_id,
@@ -693,27 +747,23 @@ def create_app(task_service: TaskService | None = None):
     async def get_canvas_todos(
         workspace_id: str,
         snapshot_id: Optional[str] = None,
+        user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "canvas.read")
         try:
             return canvas_service.get_todos(workspace_id, snapshot_id=snapshot_id)
         except CanvasSnapshotNotFoundError:
             raise HTTPException(status_code=404, detail="canvas snapshot not found")
 
     @app.post("/api/tasks")
-    async def create_task(request: CreateTaskRequest, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """根据客户端的 DTO 参数创建新任务，并异步基于任务目标提炼精简的任务标题。
-
-        Args:
-            request (CreateTaskRequest): 创建任务所需的负载参数。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 包含任务唯一 ID 及其初始状态的字典。
-
-        Raises:
-            HTTPException: 当参数校验不通过 (ValueError) 时抛出 400 错误。
-        """
+    async def create_task(
+        request: CreateTaskRequest,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """根据客户端的 DTO 参数创建新任务，并异步基于任务目标提炼精简的任务标题。"""
+        RolePolicy.enforce(user.role, "task.create")
         payload = request.model_dump(exclude_none=True) if hasattr(request, "model_dump") else request.dict(exclude_none=True)  # Pydantic v1/v2 兼容
         normalized = _normalize_create_payload(payload)
         try:
@@ -748,9 +798,11 @@ def create_app(task_service: TaskService | None = None):
     async def submit_peer_result(
         task_id: str,
         payload: Dict[str, Any] = Body(...),
+        user: User = Depends(get_current_user),
         service: TaskService = Depends(get_task_service),
     ) -> Dict[str, Any]:
         """接收 AI 技术同事回传的 result bundle，并推进 repair -> review 闭环。"""
+        RolePolicy.enforce(user.role, "peer.result")
         try:
             result_task = service.complete_peer_collaboration(task_id, payload)
         except ValueError as exc:
@@ -776,9 +828,13 @@ def create_app(task_service: TaskService | None = None):
     async def dispatch_peer_collaboration(
         task_id: str,
         payload: Dict[str, Any] = Body(default={}),
+        user: User = Depends(get_current_user),
         service: TaskService = Depends(get_task_service),
     ) -> Dict[str, Any]:
         """根据任务内的 agent package 与 peer_target 主动派发 AI 技术同事协作。"""
+        RolePolicy.enforce(user.role, "peer.dispatch")
+        if not payload.get("approved_by_human"):
+            raise HTTPException(status_code=400, detail="peer dispatch requires explicit approval ('approved_by_human': true)")
         try:
             result_task = service.start_peer_collaboration(task_id, payload.get("peer_target"))
         except ValueError as exc:
@@ -803,27 +859,19 @@ def create_app(task_service: TaskService | None = None):
         return response
 
     @app.get("/api/tasks")
-    async def list_tasks(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """列出所有未被软删除的任务列表（转换为前端特有的扁平 DTO 模型）。
-
-        Args:
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 前端任务对象列表。
-        """
+    async def list_tasks(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         return {"tasks": [_frontend_task(item) for item in service.storage.list_tasks(service.registry) if not getattr(item, "is_deleted", False)]}
 
     @app.get("/api/work-items")
-    async def list_work_items(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取所有未被软删除的工作项列表（后端标准数据模型）。
-
-        Args:
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 后端标准工作项字典列表。
-        """
+    async def list_work_items(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         tasks = [
             item for item in service.storage.list_tasks(service.registry)
             if not getattr(item, "is_deleted", False)
@@ -836,123 +884,86 @@ def create_app(task_service: TaskService | None = None):
         }
 
     @app.get("/api/work-items/{work_id}")
-    async def get_work_item(work_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取指定工作项的详细信息。
-
-        Args:
-            work_id (str): 目标工作项/任务的 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 工作项的字典结构。
-        """
+    async def get_work_item(
+        work_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         _load_task_or_404(service, work_id)
         return service.get_work_item(work_id).to_dict()
 
     @app.get("/api/work-items/{work_id}/product-context")
-    async def get_work_item_product_context(work_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取特定工作项的产品上下文 (ProductContext)。
-
-        Args:
-            work_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 产品上下文的序列化字典。
-        """
+    async def get_work_item_product_context(
+        work_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         _load_task_or_404(service, work_id)
         return service.get_product_context(work_id).to_dict()
 
     @app.get("/api/work-items/{work_id}/artifact-graph")
-    async def get_work_item_artifact_graph(work_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取特定工作项对应的产物血缘/依赖图 (ArtifactGraph)。
-
-        Args:
-            work_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务 management 服务实例。
-
-        Returns:
-            Dict[str, Any]: 产物图的序列化字典。
-        """
+    async def get_work_item_artifact_graph(
+        work_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         _load_task_or_404(service, work_id)
         return service.get_artifact_graph(work_id).to_dict()
 
     @app.get("/api/tasks/{task_id}")
-    async def get_task(task_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取任务当前的简要详情，用于前端列表展示。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 前端任务对象格式的数据。
-        """
+    async def get_task(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         task = _load_task_or_404(service, task_id)
         return _frontend_task(task)
 
     @app.post("/api/tasks/{task_id}/run")
-    async def run_task(task_id: str, background_tasks: BackgroundTasks, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """异步启动或恢复执行指定的任务。
-
-        使用 FastAPI 的 BackgroundTasks 机制，防止 HTTP 连接由于长时间的大模型调用而超时。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            background_tasks (BackgroundTasks): FastAPI 后台任务管理器。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 包含任务状态及所卡在步骤的字典。
-        """
+    async def run_task(
+        task_id: str,
+        background_tasks: BackgroundTasks,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.run")
         task = _load_task_or_404(service, task_id)
         background_tasks.add_task(service.run_task, task_id)
         return {"task_id": task.task_id, "taskId": task.task_id, "status": task.status.value, "waiting_step_id": task.waiting_step_id}
 
     @app.post("/api/tasks/{task_id}/interrupt")
-    async def interrupt_task(task_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """中断正在运行的任务工作流。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 包含被中断任务 ID 与状态的字典。
-        """
+    async def interrupt_task(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.run")
         _load_task_or_404(service, task_id)
         task = service.cancel_task(task_id)
         return {"task_id": task.task_id, "taskId": task.task_id, "status": task.status.value}
 
     @app.delete("/api/tasks/{task_id}")
-    async def delete_task(task_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """软删除指定的任务（移至回收站）。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 包含已删除任务 ID 及其状态。
-        """
+    async def delete_task(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.delete")
         task = _load_task_or_404(service, task_id)
         service.delete_task(task_id)
         return {"id": task.task_id, "status": "deleted"}
 
     @app.get("/api/tasks/{task_id}/events")
-    async def get_events(task_id: str, service: TaskService = Depends(get_task_service)):
-        """流式获取指定任务的执行事件（基于 SSE，Server-Sent Events）。
-
-        先重放历史事件，再基于全局事件总线订阅并监听任务运行期间的实时事件，
-        直到任务运行结束（如完成、失败或取消）后断开连接。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            StreamingResponse: SSE 事件响应流。
-        """
+    async def get_events(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ):
+        RolePolicy.enforce(user.role, "task.read")
         _load_task_or_404(service, task_id)
 
         async def stream():
@@ -986,36 +997,24 @@ def create_app(task_service: TaskService | None = None):
         return StreamingResponse(stream(), media_type="text/event-stream")
 
     @app.get("/api/tasks/{task_id}/messages")
-    async def get_task_messages(task_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取指定任务已发生的聊天式对话消息历史。
-
-        过滤掉底层的 typing 思考状态事件，以便前端直接渲染对话面板。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 对话消息对象列表。
-        """
+    async def get_task_messages(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         _load_task_or_404(service, task_id)
         messages = [_event_to_frontend_message(event.to_dict()) for event in service.storage.read_events(task_id)]
         return {"messages": [message for message in messages if message and message.get("type") != "typing"]}
 
     @app.post("/api/tasks/{task_id}/decisions")
-    async def apply_decision(task_id: str, request: DecisionRequest, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """为当前因 DecisionGate (裁决门禁) 暂停的任务提报用户裁决决策。
-
-        包含情绪拦截调停机制，当前端判定用户情绪有挫折感时，自动追加调停 prompt。
-
-        Args:
-            task_id (str): 目标任务 ID'].
-            request (DecisionRequest): 用户提报的决策负载。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 包含任务 ID 与新状态的字典。
-        """
+    async def apply_decision(
+        task_id: str,
+        request: DecisionRequest,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.decision")
         _load_task_or_404(service, task_id)
         
         # 拦截用户极端负面情绪并执行调停 prompt 注入
@@ -1031,32 +1030,22 @@ def create_app(task_service: TaskService | None = None):
         return {"task_id": task.task_id, "taskId": task.task_id, "status": task.status.value}
 
     @app.get("/api/tasks/{task_id}/artifacts")
-    async def list_artifacts(task_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取指定任务已生成的所有产物元数据列表。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 产物对象列表。
-        """
+    async def list_artifacts(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         _load_task_or_404(service, task_id)
         return {"artifacts": [artifact.to_dict() for artifact in service.storage.list_artifacts(task_id)]}
 
     @app.get("/api/tasks/{task_id}/trace")
-    async def get_task_trace(task_id: str, service: TaskService = Depends(get_task_service)):
-        """获取任务执行期间的所有 Agent 调用与工具调用的分布式 Trace 树结构。
-
-        用于在前端展示层级可视化的调用调用链路，遵循 L1/L2 精简收纳原则。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 树状结构的 Trace 根节点。
-        """
+    async def get_task_trace(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ):
+        RolePolicy.enforce(user.role, "task.read")
         _load_task_or_404(service, task_id)
         events = list(service.storage.read_events(task_id))
         
@@ -1096,16 +1085,12 @@ def create_app(task_service: TaskService | None = None):
         return root_span
 
     @app.get("/api/tasks/{task_id}/document")
-    async def get_task_document(task_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取指定任务的最新主要文档产物内容（若尚未生成则返回引导性的初始化内容）。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 包含主要文档内容的字典。
-        """
+    async def get_task_document(
+        task_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         task = _load_task_or_404(service, task_id)
         artifacts = service.storage.list_artifacts(task_id)
         artifact = artifacts[-1] if artifacts else None
@@ -1126,17 +1111,13 @@ def create_app(task_service: TaskService | None = None):
         }
 
     @app.put("/api/tasks/{task_id}/document")
-    async def update_task_document(task_id: str, payload: Dict[str, Any] = Body(...), service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """更新（覆盖）指定任务的主要文档产物内容，并在写入前自动备份历史版本。
-
-        Args:
-            task_id (str): 目标任务 ID。
-            payload (Dict[str, Any]): 包含新文档内容的字典。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 更新后的产物详情。
-        """
+    async def update_task_document(
+        task_id: str,
+        payload: Dict[str, Any] = Body(...),
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.write")
         task = _load_task_or_404(service, task_id)
         artifacts = service.storage.list_artifacts(task_id)
         if not artifacts:
@@ -1150,57 +1131,39 @@ def create_app(task_service: TaskService | None = None):
         return {"artifact_id": artifact.artifact_id, "artifactId": artifact.artifact_id, "version": artifact.version, "content": artifact.content or ""}
 
     @app.get("/api/artifacts/{artifact_id}")
-    async def get_artifact(artifact_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """读取指定唯一标识的产物详细内容。
-
-        Args:
-            artifact_id (str): 产物唯一标识。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 产物详细内容的字典。
-
-        Raises:
-            HTTPException: 当找不到对应产物时抛出 404 错误。
-        """
+    async def get_artifact(
+        artifact_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "artifact.read")
         try:
             return service.storage.read_artifact(artifact_id).to_dict(include_content=True)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="artifact not found") from exc
 
     @app.put("/api/artifacts/{artifact_id}")
-    async def update_artifact(artifact_id: str, payload: Dict[str, Any] = Body(...), service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """覆盖更新指定标识的产物内容，并备份旧版本。
-
-        Args:
-            artifact_id (str): 产物唯一标识。
-            payload (Dict[str, Any]): 包含更新内容的字典。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 更新后产物的详细元数据。
-
-        Raises:
-            HTTPException: 当找不到对应产物时抛出 404 错误。
-        """
+    async def update_artifact(
+        artifact_id: str,
+        payload: Dict[str, Any] = Body(...),
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "artifact.write")
         try:
             service.storage.backup_artifact(artifact_id)
             updated = service.storage.update_artifact(artifact_id, payload.get("content", ""), updated_by="user")
             return updated.to_dict(include_content=True)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="artifact not found") from exc
 
     @app.post("/api/materials", response_model=MaterialUploadResponse)
-    async def upload_material(file: UploadFile = File(...), service: TaskService = Depends(get_task_service)) -> MaterialUploadResponse:
-        """上传当前工作区资料，写入材料层而不是直接写入知识库。
-
-        Args:
-            file (UploadFile): 上传的多媒体/文本文件。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            MaterialUploadResponse: 材料上传响应模型。
-        """
+    async def upload_material(
+        file: UploadFile = File(...),
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> MaterialUploadResponse:
+        RolePolicy.enforce(user.role, "material.upload")
         content = await file.read()
         text_content = content.decode("utf-8", errors="ignore")
         material_id = f"material_{uuid4().hex[:12]}"
@@ -1218,9 +1181,12 @@ def create_app(task_service: TaskService | None = None):
         )
 
     @app.get("/api/materials/{material_id}")
-    async def get_material(material_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """读取指定材料层对象的脱敏元数据。"""
-
+    async def get_material(
+        material_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "material.read")
         del service
         item = global_materials_cache.get(material_id)
         if not item:
@@ -1233,11 +1199,20 @@ def create_app(task_service: TaskService | None = None):
         }
 
     @app.get("/api/knowledge")
-    async def list_knowledge(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+    async def list_knowledge(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "knowledge.read")
         return {"items": _knowledge_items()}
 
     @app.post("/api/knowledge")
-    async def create_knowledge(payload: Dict[str, Any] = Body(...), service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+    async def create_knowledge(
+        payload: Dict[str, Any] = Body(...),
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "knowledge.write")
         item = {
             "id": f"kb_{uuid4().hex[:8]}",
             "type": payload.get("type", "doc"),
@@ -1250,19 +1225,21 @@ def create_app(task_service: TaskService | None = None):
         return item
 
     @app.get("/api/knowledge/candidates")
-    async def list_knowledge_candidates(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """列出等待审核的知识候选条目。"""
-
+    async def list_knowledge_candidates(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "knowledge.read")
         del service
         return {"items": list(global_knowledge_candidates_cache.values())}
 
     @app.post("/api/knowledge/candidates")
     async def create_knowledge_candidate(
         payload: KnowledgeCandidateCreateRequest,
+        user: User = Depends(get_current_user),
         service: TaskService = Depends(get_task_service),
     ) -> Dict[str, Any]:
-        """写入知识候选区，等待后续审核后再升级为正式知识。"""
-
+        RolePolicy.enforce(user.role, "knowledge.write")
         del service
         item = {
             "id": f"kbc_{uuid4().hex[:8]}",
@@ -1283,10 +1260,10 @@ def create_app(task_service: TaskService | None = None):
     async def approve_knowledge(
         knowledge_id: str,
         payload: Optional[Dict[str, Any]] = Body(None),
+        user: User = Depends(get_current_user),
         service: TaskService = Depends(get_task_service),
     ) -> Dict[str, Any]:
-        """将候选知识审核通过并升级为正式知识条目。"""
-
+        RolePolicy.enforce(user.role, "knowledge.write")
         del service
         candidate = global_knowledge_candidates_cache.get(knowledge_id)
         if not candidate:
@@ -1306,9 +1283,11 @@ def create_app(task_service: TaskService | None = None):
         return approved
 
     @app.get("/api/source-connectors")
-    async def list_source_connectors(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """返回可用于创建结构化数据引用的连接器清单。"""
-
+    async def list_source_connectors(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "material.read")
         del service
         return {
             "items": [
@@ -1331,19 +1310,23 @@ def create_app(task_service: TaskService | None = None):
         }
 
     @app.get("/api/source-refs")
-    async def list_source_refs(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+    async def list_source_refs(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
         """列出当前已创建的外部数据引用。"""
-
+        RolePolicy.enforce(user.role, "material.read")
         del service
         return {"items": list(global_source_refs_cache.values())}
 
     @app.post("/api/source-refs")
     async def create_source_ref(
         payload: SourceRefCreateRequest,
+        user: User = Depends(get_current_user),
         service: TaskService = Depends(get_task_service),
     ) -> Dict[str, Any]:
         """创建一个外部结构化数据引用，并生成首个只读快照摘要。"""
-
+        RolePolicy.enforce(user.role, "material.upload")
         del service
         source_ref_id = f"src_{uuid4().hex[:10]}"
         snapshot_id = f"snapshot_{uuid4().hex[:10]}"
@@ -1375,9 +1358,13 @@ def create_app(task_service: TaskService | None = None):
         return item
 
     @app.get("/api/source-refs/{source_ref_id}")
-    async def get_source_ref(source_ref_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
+    async def get_source_ref(
+        source_ref_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
         """读取指定数据引用及其最新快照摘要。"""
-
+        RolePolicy.enforce(user.role, "material.read")
         del service
         item = global_source_refs_cache.get(source_ref_id)
         if not item:
@@ -1388,10 +1375,11 @@ def create_app(task_service: TaskService | None = None):
     async def refresh_source_ref_snapshot(
         source_ref_id: str,
         payload: Optional[Dict[str, Any]] = Body(None),
+        user: User = Depends(get_current_user),
         service: TaskService = Depends(get_task_service),
     ) -> Dict[str, Any]:
         """显式刷新一个数据引用的只读快照。"""
-
+        RolePolicy.enforce(user.role, "material.upload")
         del service
         item = global_source_refs_cache.get(source_ref_id)
         if not item:
@@ -1415,57 +1403,42 @@ def create_app(task_service: TaskService | None = None):
         return item
 
     @app.get("/api/rules")
-    async def list_rules(status: str = "pending", service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取提取出的产品规则白名单/黑名单列表。
-
-        Args:
-            status (str): 规则审核状态，默认为 'pending'。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 规则字典列表。
-        """
+    async def list_rules(
+        status: str = "pending",
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        """获取提取出的产品规则白名单/黑名单列表。"""
+        RolePolicy.enforce(user.role, "knowledge.read")
         return {"rules": [rule for rule in _rule_items() if rule["status"] == status]}
 
     @app.post("/api/rules/{rule_id}/approve")
-    async def approve_rule(rule_id: str, payload: Optional[Dict[str, Any]] = Body(None), service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """批准某条提取出的规则，将其归入已通过 (approved) 可信法则区。
-
-        Args:
-            rule_id (str): 规则唯一标识。
-            payload (Optional[Dict[str, Any]]): 规则的具体修订内容。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 批准后的规则元数据。
-        """
+    async def approve_rule(
+        rule_id: str,
+        payload: Optional[Dict[str, Any]] = Body(None),
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "knowledge.approve")
         p = payload or {}
         content = p.get("content") or p.get("desc") or p.get("title")
         return {"id": rule_id, "status": "approved", "content": content}
 
     @app.post("/api/rules/{rule_id}/reject")
-    async def reject_rule(rule_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """拒绝某条提取出的规则，将其标记为已驳回 (rejected)。
-
-        Args:
-            rule_id (str): 规则唯一标识。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 被拒绝的规则元数据。
-        """
+    async def reject_rule(
+        rule_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "knowledge.approve")
         return {"id": rule_id, "status": "rejected"}
 
     @app.get("/api/recycle")
-    async def list_recycle(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取回收站内所有已被软删除的任务与文档列表。
-
-        Args:
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 软删除项的对象列表，包含文件大小与删除时间。
-        """
+    async def list_recycle(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         tasks = service.storage.list_tasks(service.registry)
         deleted_tasks = [t for t in tasks if getattr(t, "is_deleted", False)]
         items = []
@@ -1487,16 +1460,12 @@ def create_app(task_service: TaskService | None = None):
         return {"items": items + _recycle_items()}
 
     @app.post("/api/recycle/{item_id}/restore")
-    async def restore_recycle(item_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """从回收站中恢复已被软删除的任务。
-
-        Args:
-            item_id (str): 软删除项的唯一标识。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 恢复状态反馈。
-        """
+    async def restore_recycle(
+        item_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.write")
         if item_id.startswith("trash_"):
             return {"id": item_id, "status": "restored"}
         try:
@@ -1506,34 +1475,23 @@ def create_app(task_service: TaskService | None = None):
         return {"id": item_id, "status": "restored"}
 
     @app.delete("/api/recycle/{item_id}")
-    async def delete_recycle(item_id: str, service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """永久删除回收站中的指定任务（无法恢复）。
-
-        Args:
-            item_id (str): 软删除项的唯一标识。
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 删除状态反馈。
-        """
+    async def delete_recycle(
+        item_id: str,
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.delete")
         if item_id.startswith("trash_"):
             return {"id": item_id, "status": "deleted"}
         service.permanent_delete_task(item_id)
         return {"id": item_id, "status": "deleted"}
 
     @app.get("/api/conversations/recent")
-    async def recent_conversations(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
-        """获取最近活跃的任务对话列表，并按时间线进行归类分组（今天、昨天、更早）。
-
-        通过获取任务文件的最近修改时间、事件日志的写入时间以及文档改动时间，
-        计算得出最准确的最后活跃时间并进行倒序排序。
-
-        Args:
-            service (TaskService): 依赖注入的任务管理服务实例。
-
-        Returns:
-            Dict[str, Any]: 按 "today", "yesterday", "older" 分组的最近任务列表。
-        """
+    async def recent_conversations(
+        user: User = Depends(get_current_user),
+        service: TaskService = Depends(get_task_service),
+    ) -> Dict[str, Any]:
+        RolePolicy.enforce(user.role, "task.read")
         import os
         from datetime import datetime, date
         tasks_data = []

@@ -211,7 +211,9 @@ def build_default_task_service(
 
     每个租户拥有独立存储、知识库、ToolService 和只读 Canvas Tool Gateway。
     """
-    storage_root = root or (Path(tempfile.gettempdir()) / "manual-agent-phase1" / tenant_id)
+    storage_env = os.getenv("EVO_STORAGE_DIR")
+    default_root = (Path(storage_env) / tenant_id) if storage_env else (Path(tempfile.gettempdir()) / "manual-agent-phase1" / tenant_id)
+    storage_root = root or default_root
     storage = FakeStorage(storage_root, event_bus=global_event_bus)
     project_root = Path(__file__).parent.parent.parent
     knowledge = GBrainKnowledge(str(project_root))
@@ -273,7 +275,11 @@ def get_task_service(tenant_id: str = Depends(get_tenant_workspace)):
         import tempfile
         from pathlib import Path
         # 基于租户 ID 创建隔离的存储子目录
-        base_dir = Path(tempfile.gettempdir()) / "manual-agent-phase1" / tenant_id
+        storage_env = os.getenv("EVO_STORAGE_DIR")
+        if storage_env:
+            base_dir = Path(storage_env) / tenant_id
+        else:
+            base_dir = Path(tempfile.gettempdir()) / "manual-agent-phase1" / tenant_id
         _tenant_services[tenant_id] = build_default_task_service(base_dir, tenant_id=tenant_id)
     return _tenant_services[tenant_id]
 
@@ -1590,6 +1596,35 @@ def create_app(task_service: TaskService | None = None):
                 "active": False
             })
         return grouped
+
+    # 静态前端资源托管与单页应用 (SPA) 路由 fallback
+    # 当构建目录 frontend/dist 存在时，由 FastAPI 统一对外提供静态页面服务
+    frontend_dist_env = os.getenv("FRONTEND_DIST_DIR")
+    frontend_dist = Path(frontend_dist_env) if frontend_dist_env else (Path(__file__).resolve().parent.parent.parent / "frontend" / "dist")
+    if frontend_dist.exists() and (frontend_dist / "index.html").is_file():
+        try:
+            from fastapi.staticfiles import StaticFiles
+            from fastapi.responses import FileResponse
+
+            # 挂载已知的静态资源子目录
+            for sub_name in ("assets", "avatars", "card-type-icons", "fonts"):
+                sub_path = frontend_dist / sub_name
+                if sub_path.is_dir():
+                    app.mount(f"/{sub_name}", StaticFiles(directory=str(sub_path)), name=f"static_{sub_name}")
+
+            @app.get("/{full_path:path}", include_in_schema=False)
+            async def serve_spa_frontend(full_path: str):
+                # 保护 API 与内部接口，避免吞没 404
+                clean_path = full_path.lstrip("/")
+                if clean_path.startswith("api/") or clean_path.startswith("internal/") or clean_path in {"api", "internal"}:
+                    raise HTTPException(status_code=404, detail="API route not found")
+
+                target = frontend_dist / clean_path
+                if clean_path and target.is_file():
+                    return FileResponse(target)
+                return FileResponse(frontend_dist / "index.html")
+        except Exception:
+            pass
 
     return app
 

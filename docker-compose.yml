@@ -1,0 +1,24 @@
+services:
+  evocanvas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: evocanvas:latest
+    container_name: evocanvas
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - PI_PROVIDER=${PI_PROVIDER:-deepseek}
+      - PI_MODEL=${PI_MODEL:-deepseek-v4-flash}
+      - PI_RUNTIME_INTERNAL_SECRET=${PI_RUNTIME_INTERNAL_SECRET:-}
+      - EVO_STORAGE_DIR=/data/evocanvas-storage
+      - PI_STORAGE_DIR=/data/pi-storage
+    volumes:
+      # 持久化工作区数据与 AI 会话 Revision 数据库
+      - evocanvas-data:/data
+
+volumes:
+  evocanvas-data:
+    name: evocanvas-data

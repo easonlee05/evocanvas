@@ -15,6 +15,3 @@
 已隔离内容：
 
 - `technical-specs/`：旧 L / G / V 运行时与前端快照；
-- `plans/`：已被 Pi 核心目标架构取代的执行设计；
-- `prompt-engineering/`：旧阶段 Prompt 横切方案；
-- `superpowers/`：旧页面、后端、自由画布和 Agent Team 设计/计划。

@@ -1,8 +1,7 @@
 """Pi 驱动的 EvoCanvas 产品内核适配层。
 
-该模块把 Pi Runtime 的三类运行结果接入现有 Canvas 领域服务。Pi 只返回
-候选回复、判断和提案；消息记录、运行账本、租约、验证、治理与包提交仍由
-Python 持有。
+生产回合由 Primary Pi Session 和受治理的 workspace.commit 驱动。Python
+只维护 UI 活跃回合和可重建投影；旧合同方法保留为迁移兼容入口。
 """
 
 from __future__ import annotations
@@ -26,6 +25,8 @@ from app.canvas.agent_execution.contracts import (
     StructuredPackageInputRef,
     ToolProfile,
     TraceContext,
+    UserSubmissionRequest,
+    WorkspaceCommitRequest,
 )
 from app.canvas.agent_execution.port import AgentExecutionPort
 from app.canvas.domain.cards import CanvasCard, CanvasCardKind
@@ -44,6 +45,7 @@ from app.canvas.domain.runtime_records import (
 )
 from app.canvas.product_kernel import ProductKernel
 from app.canvas.repository import PackageVersionStaleError
+from app.canvas.runtime_state import apply_turn_runtime_state, unresolved_issue_ids_from_cards
 from app.canvas.verification import verify_mutation_proposal
 from app.core.events import utc_now_iso
 
@@ -97,444 +99,121 @@ class PiCanvasKernel:
         )
         return str(record["message_id"])
 
+    async def edit_canvas(self, workspace_id: str, actor_id: str, operations: list[dict], summary: str) -> dict[str, Any]:
+        """用户明确编辑通过统一提交器生效，成功后才刷新兼容投影。"""
+        projection = await self.refresh_projection(workspace_id)
+        result = await self.execution.edit_workspace(workspace_id, actor_id=actor_id,
+            submission_id=f"edit_{uuid4().hex}", base_revision_id=projection["projected_revision_id"],
+            operations=operations, change_summary=summary)
+        await self.refresh_projection(workspace_id)
+        self.service._publish_event(workspace_id, "canvas.mutation.applied", {"workspace_id": workspace_id, "result_action": "applied", "new_revision_id": result["new_revision_id"]}, status="applied")
+        return result
+
+    async def refresh_projection(self, workspace_id: str) -> dict[str, Any]:
+        """从稳定 Revision 重建兼容画布缓存；缓存不参与治理或提交。"""
+        from app.canvas.domain.relations import CanvasRelation
+        from app.canvas.agent_execution.pi_client import PiRuntimeError
+        projection = await self.execution.get_projection(workspace_id)
+        revision_id = projection["projected_revision_id"]
+        revision = await self.execution.get_revision(workspace_id, revision_id)
+        if revision_id == "rev_0" and self.service.repository.load_cards(workspace_id):
+            raise PiRuntimeError("workspace.migration_required", "该工作区仍有旧版卡片，需完成稳定版本迁移；原数据已保留")
+        cards = []
+        for obj in revision["objects"].values():
+            if obj["object_type"] == "handoff" or obj["type_status"] in {"archived", "superseded"}:
+                continue
+            data = dict(obj.get("data") or {})
+            cards.append(CanvasCard.from_dict({
+                **data, "card_id": obj["id"], "kind": obj["object_type"],
+                "title": obj["title"], "summary": obj.get("summary", ""),
+                "status": obj["type_status"], "confirmation_refs": obj.get("confirmation_refs", []),
+                "created_at": obj["created_at"], "updated_at": obj["updated_at"],
+                "metadata": {**data.get("metadata", {}), "projected_revision_id": revision_id},
+            }))
+        card_ids = {card.card_id for card in cards}
+        relations = [CanvasRelation.from_dict({
+            "relation_id": rel["relation_id"], "kind": rel["relation_type"],
+            "from_card_id": rel["source_id"], "to_card_id": rel["target_id"],
+        }) for rel in revision["relations"] if rel["source_id"] in card_ids and rel["target_id"] in card_ids]
+        self.service.repository.save_cards(workspace_id, cards)
+        self.service.repository.save_relations(workspace_id, relations)
+        return projection
+
+    async def refresh_messages(self, workspace_id: str) -> None:
+        """从真实 Session Entry 重建可读消息缓存，不创建伪造 Entry。"""
+        from datetime import datetime, timezone
+        records = await self.execution.get_messages(workspace_id)
+        existing = {m["message_id"] for m in self.service.repository.load_chat_messages(workspace_id)}
+        for entry in records["messages"]:
+            message = entry["message"]
+            if entry["id"] in existing or message["role"] not in {"user", "assistant"}:
+                continue
+            if message["role"] == "assistant" and (message.get("stopReason") != "stop" or message.get("evocanvas_terminal") == "failed"):
+                continue
+            content = message.get("content", "")
+            if isinstance(content, list):
+                content = "\n".join(b.get("text", "") for b in content if b.get("type") == "text")
+            if not content.strip():
+                continue
+            try:
+                self.service.repository.append_chat_message(workspace_id, {
+                    "message_id": entry["id"], "role": message["role"], "content": content,
+                    "created_at": datetime.fromtimestamp(entry["timestamp"] / 1000, timezone.utc).isoformat(),
+                    "metadata": {"session_id": records["session_id"], "entry_id": entry["id"], "source": "pi_session_projection"},
+                })
+            except FileExistsError:
+                # 并发读取可能已由另一个投影刷新写入同一 Entry。
+                continue
+
     async def run_turn(
-        self,
-        *,
-        workspace_id: str,
-        message: str,
-        selected_card_ids: list[str],
-        material_ids: list[str],
-        source_ref_ids: list[str],
-        model: str | None = None,
+        self, *, workspace_id: str, message: str, selected_card_ids: list[str],
+        material_ids: list[str], source_ref_ids: list[str], model: str | None = None,
+        submission_id: str | None = None, actor_id: str = "user",
     ) -> dict[str, Any]:
-        """执行一轮 Pi Chat，并按判断结果决定是否进入 Convergence。"""
-
-        del model
+        """唯一生产主链：真实 Session → Pi 工具循环 → Revision → 画布缓存。"""
+        from app.canvas.agent_execution.pi_client import PiRuntimeError
         service = self.service
-        service.get_workspace(workspace_id)
-        existing_cards = service.repository.load_cards(workspace_id)
-        service._validate_selected_cards(selected_card_ids, existing_cards)
-
-        conversation_id = f"conversation_{workspace_id}"
-        chat_turn_id = f"chat_{uuid4().hex[:12]}"
-        package_id, base_package_version, base_state_version = self._package_base(workspace_id)
-        user_message = service.repository.append_chat_message(
-            workspace_id,
-            {
-                "message_id": f"msg_{uuid4().hex[:12]}",
-                "role": "user",
-                "content": message,
-                "turn_id": chat_turn_id,
-                "created_at": utc_now_iso(),
-                "metadata": {
-                    "selected_card_ids": list(selected_card_ids),
-                    "material_ids": list(material_ids),
-                    "source_ref_ids": list(source_ref_ids),
-                },
-            },
-        )
-        user_message_id = str(user_message["message_id"])
-        user_message_seq = int(user_message["message_seq"])
-        service._publish_event(
-            workspace_id,
-            "canvas.turn.started",
-            {
-                "workspace_id": workspace_id,
-                "turn_id": chat_turn_id,
-                "execution_path": "pi_runtime",
-                "message_seq": user_message_seq,
-                "active_turn": None,
-            },
-            status="running",
-        )
-        now = utc_now_iso()
-        service.repository.save_chat_turn(
-            ChatTurnRecord(
-                chat_turn_id=chat_turn_id,
-                workspace_id=workspace_id,
-                conversation_id=conversation_id,
-                package_id=package_id,
-                message_seq=user_message_seq,
-                status="queued",
-                created_at=now,
-                updated_at=now,
-            )
-        )
-        chat_request = self._chat_request(
-            workspace_id=workspace_id,
-            conversation_id=conversation_id,
-            run_id=chat_turn_id,
-            package_id=package_id,
-            package_version=base_package_version,
-            state_version=base_state_version,
-            from_message_seq=user_message_seq,
-            through_message_seq=user_message_seq,
-            raw_user_message_ref=user_message_id,
-            material_ids=material_ids,
-            source_ref_ids=source_ref_ids,
-            selected_card_ids=selected_card_ids,
-        )
-        service.repository.save_chat_turn(
-            ChatTurnRecord(
-                chat_turn_id=chat_turn_id,
-                workspace_id=workspace_id,
-                conversation_id=conversation_id,
-                package_id=package_id,
-                message_seq=user_message_seq,
-                status="running",
-                created_at=now,
-                updated_at=utc_now_iso(),
-            )
-        )
-
+        submission_id = submission_id or f"sub_{uuid4().hex}"
+        turn_id = submission_id
+        workspace = service._begin_turn(workspace_id, turn_id)
         try:
-            chat_outcome = await self.product_kernel.run_chat(chat_request)
-        except Exception as error:
-            self._save_chat_failure(chat_turn_id, workspace_id, conversation_id, package_id, user_message_seq, error)
-            self._publish_failure(workspace_id, chat_turn_id, self._failure_code(error))
+            service._publish_event(workspace_id, "canvas.turn.started", {
+                "workspace_id": workspace_id, "turn_id": turn_id, "active_turn": service._serialize_active_turn(workspace),
+            }, status="running")
+            await self.refresh_projection(workspace_id)
+            service._validate_selected_cards(selected_card_ids, service.repository.load_cards(workspace_id))
+            materials = []
+            if material_ids or source_ref_ids:
+                from app.api.server import global_materials_cache, global_source_refs_cache
+                for source_id in material_ids + source_ref_ids:
+                    source = global_materials_cache.get(source_id) or global_source_refs_cache.get(source_id)
+                    if source is None:
+                        raise PiRuntimeError("workspace.source_missing", f"来源 {source_id} 不存在，无法恢复内容")
+                    materials.append({"id": source_id, "content": str(source.get("content") or source.get("excerpt") or json.dumps(source.get("snapshot", {}), ensure_ascii=False))})
+            pi_message = {"role": "user", "content": message}
+            normalized = json.dumps(pi_message, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            receipt = await self.execution.submit_user_message(UserSubmissionRequest(
+                submission_id=submission_id, content_hash="sha256:" + hashlib.sha256(normalized.encode()).hexdigest(),
+                workspace_id=workspace_id, actor_id=actor_id, pi_user_message=pi_message,
+            ))
+            result = await self.execution.run_workspace(workspace_id, receipt.submission_id, selected_card_ids=selected_card_ids, materials=materials, model=model)
+            if not result.get("assistant_entry_id"):
+                raise PiRuntimeError("protocol_error", "Runtime 没有返回真实 Assistant Entry")
+            await self.refresh_projection(workspace_id)
+            await self.refresh_messages(workspace_id)
+            service._finish_turn(workspace_id, turn_id)
+            service._publish_event(workspace_id, "canvas.turn.completed", {
+                "workspace_id": workspace_id, "turn_id": turn_id, "result_action": result["action"], "active_turn": None,
+            }, status="completed")
+            return {**result, "turn_id": turn_id, "assistant_message_id": result["assistant_entry_id"], "proposal_id": None, "roles": [], "intent": "pi_workspace"}
+        except Exception as exc:
+            service._finish_turn(workspace_id, turn_id)
+            service._publish_event(workspace_id, "canvas.turn.failed", {
+                "workspace_id": workspace_id, "turn_id": turn_id, "result_action": "failed",
+                "error": getattr(exc, "error_code", str(exc)), "active_turn": None,
+                "submission_id": submission_id,
+            }, status="failed")
             raise
-
-        if chat_outcome.result.finish_reason != "completed":
-            failure_code = chat_outcome.result.finish_reason
-            service.repository.save_chat_turn(
-                ChatTurnRecord(
-                    chat_turn_id=chat_turn_id,
-                    workspace_id=workspace_id,
-                    conversation_id=conversation_id,
-                    package_id=package_id,
-                    message_seq=user_message_seq,
-                    status="cancelled" if failure_code == "cancelled" else "failed",
-                    created_at=now,
-                    updated_at=utc_now_iso(),
-                    failure_code=failure_code,
-                )
-            )
-            self._publish_failure(workspace_id, chat_turn_id, failure_code)
-            return {
-                "turn_id": chat_turn_id,
-                "workspace_id": workspace_id,
-                "action": "chat_failed",
-                "failure_code": failure_code,
-                "assistant_message_id": None,
-            }
-
-        service.repository.save_chat_turn(
-            ChatTurnRecord(
-                chat_turn_id=chat_turn_id,
-                workspace_id=workspace_id,
-                conversation_id=conversation_id,
-                package_id=package_id,
-                message_seq=user_message_seq,
-                status="completed",
-                created_at=now,
-                updated_at=utc_now_iso(),
-                assistant_message_id=chat_outcome.assistant_message_id,
-            )
-        )
-        service._publish_event(
-            workspace_id,
-            "canvas.chat.completed",
-            {
-                "workspace_id": workspace_id,
-                "turn_id": chat_turn_id,
-                "assistant_message_id": chat_outcome.assistant_message_id,
-                "message_seq": service.repository.last_message_seq(workspace_id),
-            },
-            status="completed",
-        )
-
-        through_message_seq = service.repository.last_message_seq(workspace_id)
-        judgement_id = f"judgement_{uuid4().hex[:12]}"
-        judgement_created_at = utc_now_iso()
-        service.repository.save_convergence_judgement(
-            ConvergenceJudgementRecord(
-                judgement_id=judgement_id,
-                chat_turn_id=chat_turn_id,
-                workspace_id=workspace_id,
-                package_id=package_id,
-                through_message_seq=through_message_seq,
-                status="queued",
-                decision=None,
-                reason_codes=(),
-                created_at=judgement_created_at,
-                updated_at=judgement_created_at,
-            )
-        )
-        judgement_request = self._judgement_request(
-            workspace_id=workspace_id,
-            conversation_id=conversation_id,
-            run_id=judgement_id,
-            parent_run_id=chat_turn_id,
-            chat_turn_id=chat_turn_id,
-            package_id=package_id,
-            package_version=base_package_version,
-            state_version=base_state_version,
-            from_message_seq=user_message_seq,
-            through_message_seq=through_message_seq,
-            raw_user_message_ref=user_message_id,
-            material_ids=material_ids,
-            source_ref_ids=source_ref_ids,
-            selected_card_ids=selected_card_ids,
-        )
-        service.repository.save_convergence_judgement(
-            ConvergenceJudgementRecord(
-                judgement_id=judgement_id,
-                chat_turn_id=chat_turn_id,
-                workspace_id=workspace_id,
-                package_id=package_id,
-                through_message_seq=through_message_seq,
-                status="running",
-                decision=None,
-                reason_codes=(),
-                created_at=judgement_created_at,
-                updated_at=utc_now_iso(),
-            )
-        )
-        try:
-            judgement_outcome = await self.product_kernel.run_judgement(judgement_request)
-        except Exception as error:
-            service.repository.save_convergence_judgement(
-                ConvergenceJudgementRecord(
-                    judgement_id=judgement_id,
-                    chat_turn_id=chat_turn_id,
-                    workspace_id=workspace_id,
-                    package_id=package_id,
-                    through_message_seq=through_message_seq,
-                    status="failed",
-                    decision=None,
-                    reason_codes=(),
-                    created_at=judgement_created_at,
-                    updated_at=utc_now_iso(),
-                    failure_code=self._failure_code(error),
-                )
-            )
-            self._publish_failure(workspace_id, chat_turn_id, self._failure_code(error))
-            raise
-
-        service.repository.save_convergence_judgement(
-            ConvergenceJudgementRecord(
-                judgement_id=judgement_id,
-                chat_turn_id=chat_turn_id,
-                workspace_id=workspace_id,
-                package_id=package_id,
-                through_message_seq=judgement_outcome.result.through_message_seq,
-                status="completed",
-                decision=judgement_outcome.result.decision,
-                reason_codes=judgement_outcome.result.reason_codes,
-                created_at=judgement_created_at,
-                updated_at=utc_now_iso(),
-            )
-        )
-        service.repository.advance_judgement_watermark(
-            workspace_id,
-            conversation_id,
-            package_id,
-            judgement_outcome.result.through_message_seq,
-        )
-
-        response: dict[str, Any] = {
-            "turn_id": chat_turn_id,
-            "workspace_id": workspace_id,
-            "assistant_message_id": chat_outcome.assistant_message_id,
-            "judgement_id": judgement_id,
-            "judgement": {
-                "decision": judgement_outcome.result.decision,
-                "reason_codes": list(judgement_outcome.result.reason_codes),
-                "through_message_seq": judgement_outcome.result.through_message_seq,
-            },
-        }
-        if judgement_outcome.result.decision != "trigger":
-            response["action"] = "deferred"
-            service._publish_event(
-                workspace_id,
-                "canvas.turn.completed",
-                {
-                    "workspace_id": workspace_id,
-                    "turn_id": chat_turn_id,
-                    "result_action": "deferred",
-                    "judgement_id": judgement_id,
-                    "active_turn": None,
-                },
-                status="completed",
-            )
-            return response
-
-        lease = service.repository.acquire_package_lease(
-            workspace_id,
-            package_id,
-            chat_turn_id,
-            ttl_seconds=self._lease_ttl_seconds(),
-        )
-        if lease is None:
-            response["action"] = "convergence_busy"
-            response["failure_code"] = "package_lease_conflict"
-            service._publish_event(
-                workspace_id,
-                "canvas.turn.completed",
-                {
-                    "workspace_id": workspace_id,
-                    "turn_id": chat_turn_id,
-                    "result_action": "convergence_busy",
-                    "judgement_id": judgement_id,
-                    "active_turn": None,
-                },
-                status="completed",
-            )
-            return response
-
-        convergence_id = f"convergence_{uuid4().hex[:12]}"
-        convergence_created_at = utc_now_iso()
-        convergence_record = ConvergenceRunRecord(
-            convergence_run_id=convergence_id,
-            workspace_id=workspace_id,
-            package_id=package_id,
-            from_message_seq=user_message_seq,
-            through_message_seq=through_message_seq,
-            base_state_version=base_state_version,
-            base_package_version=base_package_version,
-            status="queued",
-            business_result=None,
-            created_at=convergence_created_at,
-            updated_at=convergence_created_at,
-        )
-        service.repository.save_convergence_run(convergence_record)
-        convergence_request = self._convergence_request(
-            workspace_id=workspace_id,
-            conversation_id=conversation_id,
-            run_id=convergence_id,
-            parent_run_id=judgement_id,
-            package_id=package_id,
-            package_version=base_package_version,
-            state_version=base_state_version,
-            from_message_seq=user_message_seq,
-            through_message_seq=through_message_seq,
-            raw_user_message_ref=user_message_id,
-            material_ids=material_ids,
-            source_ref_ids=source_ref_ids,
-            selected_card_ids=selected_card_ids,
-        )
-        service.repository.save_convergence_run(
-            ConvergenceRunRecord(
-                **{
-                    **convergence_record.__dict__,
-                    "status": "running",
-                    "updated_at": utc_now_iso(),
-                }
-            )
-        )
-        try:
-            convergence_outcome = await self.product_kernel.run_convergence(convergence_request)
-            result = convergence_outcome.commit_result or {}
-            business_result = str(result.get("result", "not_ready"))
-            final_status = "completed" if convergence_outcome.result.finish_reason == "completed" else "failed"
-            service.repository.save_convergence_run(
-                ConvergenceRunRecord(
-                    **{
-                        **convergence_record.__dict__,
-                        "status": final_status,
-                        "business_result": business_result,
-                        "proposal_id": convergence_outcome.result.proposal.proposal_id
-                        if convergence_outcome.result.proposal is not None
-                        else None,
-                        "failure_code": None
-                        if final_status == "completed"
-                        else convergence_outcome.result.finish_reason,
-                        "updated_at": utc_now_iso(),
-                    }
-                )
-            )
-            response.update(
-                {
-                    "convergence_run_id": convergence_id,
-                    "proposal_id": convergence_outcome.result.proposal.proposal_id
-                    if convergence_outcome.result.proposal is not None
-                    else None,
-                    "action": business_result,
-                }
-            )
-            if business_result == "applied":
-                service._publish_event(
-                    workspace_id,
-                    "canvas.mutation.applied",
-                    {
-                        "workspace_id": workspace_id,
-                        "turn_id": chat_turn_id,
-                        "proposal_id": response["proposal_id"],
-                        "result_action": business_result,
-                        "execution_path": "pi_runtime",
-                    },
-                    status="applied",
-                )
-            else:
-                service._publish_event(
-                    workspace_id,
-                    "canvas.mutation.proposed",
-                    {
-                        "workspace_id": workspace_id,
-                        "turn_id": chat_turn_id,
-                        "proposal_id": response["proposal_id"],
-                        "result_action": business_result,
-                        "execution_path": "pi_runtime",
-                    },
-                    status=business_result,
-                )
-            service._publish_event(
-                workspace_id,
-                "canvas.turn.completed",
-                {
-                    "workspace_id": workspace_id,
-                    "turn_id": chat_turn_id,
-                    "proposal_id": response["proposal_id"],
-                    "result_action": business_result,
-                    "active_turn": None,
-                },
-                status="completed",
-            )
-            return response
-        except PackageVersionStaleError:
-            service.repository.save_convergence_run(
-                ConvergenceRunRecord(
-                    **{
-                        **convergence_record.__dict__,
-                        "status": "stale",
-                        "failure_code": PackageVersionStaleError.code,
-                        "updated_at": utc_now_iso(),
-                    }
-                )
-            )
-            self._publish_failure(workspace_id, chat_turn_id, PackageVersionStaleError.code)
-            raise
-        except Exception as error:
-            service.repository.save_convergence_run(
-                ConvergenceRunRecord(
-                    **{
-                        **convergence_record.__dict__,
-                        "status": "failed",
-                        "failure_code": self._failure_code(error),
-                        "updated_at": utc_now_iso(),
-                    }
-                )
-            )
-            service._publish_event(
-                workspace_id,
-                "canvas.turn.failed",
-                {
-                    "workspace_id": workspace_id,
-                    "turn_id": chat_turn_id,
-                    "result_action": "failed",
-                    "error": self._failure_code(error),
-                    "active_turn": None,
-                },
-                status="failed",
-            )
-            raise
-        finally:
-            service.repository.release_package_lease(
-                workspace_id,
-                package_id,
-                lease.lease_id,
-                chat_turn_id,
-            )
 
     async def submit_convergence_proposal(
         self,

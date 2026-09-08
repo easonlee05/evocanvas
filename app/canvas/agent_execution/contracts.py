@@ -626,3 +626,356 @@ def convergence_result_from_payload(payload: Mapping[str, Any]) -> ConvergenceRu
         model_identity=model_identity_from_payload(payload["model_identity"]),
         context_manifest_id=str(payload["context_manifest_id"]),
     )
+
+
+# ---------------------------------------------------------------------------
+# V1 Machine Contracts (Workspace-Primary Pi Session Binding & Commit)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class WorkspaceSessionBinding:
+    workspace_id: str
+    primary_session_id: str
+    status: Literal["binding", "ready", "unavailable", "archived"]
+    pi_session_format_version: str
+    session_file_ref: str
+    created_at: str
+    last_opened_at: str
+    contract_type: str = "workspace_session_binding"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+    main_lane: str = "main"
+    predecessor_session_id: str | None = None
+    unavailable_reason: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "workspace_id": self.workspace_id,
+            "primary_session_id": self.primary_session_id,
+            "main_lane": self.main_lane,
+            "status": self.status,
+            "pi_session_format_version": self.pi_session_format_version,
+            "session_file_ref": self.session_file_ref,
+            "created_at": self.created_at,
+            "last_opened_at": self.last_opened_at,
+        }
+        if self.predecessor_session_id is not None:
+            payload["predecessor_session_id"] = self.predecessor_session_id
+        if self.unavailable_reason is not None:
+            payload["unavailable_reason"] = self.unavailable_reason
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "WorkspaceSessionBinding":
+        return cls(
+            workspace_id=str(payload["workspace_id"]),
+            primary_session_id=str(payload["primary_session_id"]),
+            status=payload["status"],
+            pi_session_format_version=str(payload["pi_session_format_version"]),
+            session_file_ref=str(payload["session_file_ref"]),
+            created_at=str(payload["created_at"]),
+            last_opened_at=str(payload["last_opened_at"]),
+            contract_type=str(payload.get("contract_type", "workspace_session_binding")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+            main_lane=str(payload.get("main_lane", "main")),
+            predecessor_session_id=payload.get("predecessor_session_id"),
+            unavailable_reason=payload.get("unavailable_reason"),
+        )
+
+
+@dataclass(frozen=True)
+class UserSubmissionRequest:
+    submission_id: str
+    content_hash: str
+    workspace_id: str
+    actor_id: str
+    pi_user_message: Mapping[str, Any]
+    contract_type: str = "user_submission_request"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "submission_id": self.submission_id,
+            "content_hash": self.content_hash,
+            "workspace_id": self.workspace_id,
+            "actor_id": self.actor_id,
+            "pi_user_message": dict(self.pi_user_message),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "UserSubmissionRequest":
+        return cls(
+            submission_id=str(payload["submission_id"]),
+            content_hash=str(payload["content_hash"]),
+            workspace_id=str(payload["workspace_id"]),
+            actor_id=str(payload["actor_id"]),
+            pi_user_message=payload["pi_user_message"],
+            contract_type=str(payload.get("contract_type", "user_submission_request")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+        )
+
+
+@dataclass(frozen=True)
+class UserSubmissionReceipt:
+    submission_id: str
+    content_hash: str
+    session_id: str
+    entry_id: str
+    status: Literal["accepted", "duplicate"]
+    binding_status: Literal["binding", "ready", "unavailable", "archived"]
+    received_at: str | None = None
+    contract_type: str = "user_submission_receipt"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "submission_id": self.submission_id,
+            "content_hash": self.content_hash,
+            "session_id": self.session_id,
+            "entry_id": self.entry_id,
+            "status": self.status,
+            "binding_status": self.binding_status,
+        }
+        if self.received_at is not None:
+            payload["received_at"] = self.received_at
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "UserSubmissionReceipt":
+        return cls(
+            submission_id=str(payload["submission_id"]),
+            content_hash=str(payload["content_hash"]),
+            session_id=str(payload["session_id"]),
+            entry_id=str(payload["entry_id"]),
+            status=payload["status"],
+            binding_status=payload["binding_status"],
+            received_at=payload.get("received_at"),
+            contract_type=str(payload.get("contract_type", "user_submission_receipt")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+        )
+
+
+@dataclass(frozen=True)
+class WorkspaceCommitRequest:
+    tool_context: Mapping[str, Any]
+    base_revision_id: str
+    idempotency_key: str
+    request_hash: str
+    operations: list[Mapping[str, Any]]
+    confirmation_refs: list[str]
+    change_summary: str
+    contract_type: str = "workspace_commit_request"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "tool_context": dict(self.tool_context),
+            "base_revision_id": self.base_revision_id,
+            "idempotency_key": self.idempotency_key,
+            "request_hash": self.request_hash,
+            "operations": [dict(op) for op in self.operations],
+            "confirmation_refs": list(self.confirmation_refs),
+            "change_summary": self.change_summary,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "WorkspaceCommitRequest":
+        return cls(
+            tool_context=payload["tool_context"],
+            base_revision_id=str(payload["base_revision_id"]),
+            idempotency_key=str(payload["idempotency_key"]),
+            request_hash=str(payload["request_hash"]),
+            operations=list(payload.get("operations", [])),
+            confirmation_refs=list(payload.get("confirmation_refs", [])),
+            change_summary=str(payload["change_summary"]),
+            contract_type=str(payload.get("contract_type", "workspace_commit_request")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+        )
+
+
+@dataclass(frozen=True)
+class WorkspaceCommitResult:
+    commit_id: str
+    base_revision_id: str
+    new_revision_id: str
+    operations_applied: int
+    dependency_impact: list[str]
+    handoff_impact: Literal["none", "draft", "candidate", "confirmed", "suspended", "invalidated"]
+    projection_enqueued: bool
+    request_hash: str
+    contract_type: str = "workspace_commit_result"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "commit_id": self.commit_id,
+            "base_revision_id": self.base_revision_id,
+            "new_revision_id": self.new_revision_id,
+            "operations_applied": self.operations_applied,
+            "dependency_impact": list(self.dependency_impact),
+            "handoff_impact": self.handoff_impact,
+            "projection_enqueued": self.projection_enqueued,
+            "request_hash": self.request_hash,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "WorkspaceCommitResult":
+        return cls(
+            commit_id=str(payload["commit_id"]),
+            base_revision_id=str(payload["base_revision_id"]),
+            new_revision_id=str(payload["new_revision_id"]),
+            operations_applied=int(payload["operations_applied"]),
+            dependency_impact=list(payload.get("dependency_impact", [])),
+            handoff_impact=payload["handoff_impact"],
+            projection_enqueued=bool(payload["projection_enqueued"]),
+            request_hash=str(payload["request_hash"]),
+            contract_type=str(payload.get("contract_type", "workspace_commit_result")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+        )
+
+
+@dataclass(frozen=True)
+class ToolExecutionRecord:
+    tool_name: str
+    tool_version: str
+    tool_context: Mapping[str, Any]
+    side_effect_class: Literal["none", "workspace", "external"]
+    replay: Literal["safe", "never"]
+    result_status: Literal["success", "failed", "unknown"]
+    request_hash: str
+    started_at: str
+    finished_at: str
+    idempotency_key: str | None = None
+    effect_id: str | None = None
+    error_code: str | None = None
+    contract_type: str = "tool_execution_record"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "tool_name": self.tool_name,
+            "tool_version": self.tool_version,
+            "tool_context": dict(self.tool_context),
+            "side_effect_class": self.side_effect_class,
+            "replay": self.replay,
+            "result_status": self.result_status,
+            "request_hash": self.request_hash,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+        }
+        if self.idempotency_key is not None:
+            payload["idempotency_key"] = self.idempotency_key
+        if self.effect_id is not None:
+            payload["effect_id"] = self.effect_id
+        if self.error_code is not None:
+            payload["error_code"] = self.error_code
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "ToolExecutionRecord":
+        return cls(
+            tool_name=str(payload["tool_name"]),
+            tool_version=str(payload["tool_version"]),
+            tool_context=payload["tool_context"],
+            side_effect_class=payload["side_effect_class"],
+            replay=payload["replay"],
+            result_status=payload["result_status"],
+            request_hash=str(payload["request_hash"]),
+            started_at=str(payload["started_at"]),
+            finished_at=str(payload["finished_at"]),
+            idempotency_key=payload.get("idempotency_key"),
+            effect_id=payload.get("effect_id"),
+            error_code=payload.get("error_code"),
+            contract_type=str(payload.get("contract_type", "tool_execution_record")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+        )
+
+
+@dataclass(frozen=True)
+class SessionLifecycleCommand:
+    lifecycle_operation_id: str
+    workspace_id: str
+    action: Literal["close", "archive", "replace", "delete"]
+    idempotency_key: str
+    replacement_session_id: str | None = None
+    contract_type: str = "session_lifecycle_command"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "lifecycle_operation_id": self.lifecycle_operation_id,
+            "workspace_id": self.workspace_id,
+            "action": self.action,
+            "idempotency_key": self.idempotency_key,
+        }
+        if self.replacement_session_id is not None:
+            payload["replacement_session_id"] = self.replacement_session_id
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SessionLifecycleCommand":
+        return cls(
+            lifecycle_operation_id=str(payload["lifecycle_operation_id"]),
+            workspace_id=str(payload["workspace_id"]),
+            action=payload["action"],
+            idempotency_key=str(payload["idempotency_key"]),
+            replacement_session_id=payload.get("replacement_session_id"),
+            contract_type=str(payload.get("contract_type", "session_lifecycle_command")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+        )
+
+
+@dataclass(frozen=True)
+class SessionLifecycleResult:
+    lifecycle_operation_id: str
+    workspace_id: str
+    action: Literal["close", "archive", "replace", "delete"]
+    outcome: Literal["closed", "archived", "replaced", "deleted", "partial", "retention_held"]
+    residual_targets: list[str]
+    retention_reason: str | None = None
+    replacement_session_id: str | None = None
+    contract_type: str = "session_lifecycle_result"
+    schema_version: str = "evocanvas.pi-runtime.v1"
+
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "contract_type": self.contract_type,
+            "schema_version": self.schema_version,
+            "lifecycle_operation_id": self.lifecycle_operation_id,
+            "workspace_id": self.workspace_id,
+            "action": self.action,
+            "outcome": self.outcome,
+            "residual_targets": list(self.residual_targets),
+        }
+        if self.retention_reason is not None:
+            payload["retention_reason"] = self.retention_reason
+        if self.replacement_session_id is not None:
+            payload["replacement_session_id"] = self.replacement_session_id
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SessionLifecycleResult":
+        return cls(
+            lifecycle_operation_id=str(payload["lifecycle_operation_id"]),
+            workspace_id=str(payload["workspace_id"]),
+            action=payload["action"],
+            outcome=payload["outcome"],
+            residual_targets=list(payload.get("residual_targets", [])),
+            retention_reason=payload.get("retention_reason"),
+            replacement_session_id=payload.get("replacement_session_id"),
+            contract_type=str(payload.get("contract_type", "session_lifecycle_result")),
+            schema_version=str(payload.get("schema_version", "evocanvas.pi-runtime.v1")),
+        )

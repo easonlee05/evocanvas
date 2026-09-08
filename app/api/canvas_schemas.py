@@ -19,6 +19,8 @@ except Exception:  # pragma: no cover
 class CanvasMessageRequest(BaseModel):
     """画布消息提交请求。"""
 
+    submission_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
     message: constr(strip_whitespace=True, min_length=1, max_length=8000)
     selected_card_ids: List[str] = Field(default_factory=list)
     material_ids: List[str] = Field(default_factory=list)

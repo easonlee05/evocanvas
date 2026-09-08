@@ -6,7 +6,13 @@ import { createPiRuntimeServer } from "../server.js";
 import type { ChatRunRequest, ChatRunResult, EventEnvelope } from "../contracts.js";
 import { FakeRunExecutor, type RunExecutor } from "./executor.js";
 import { RunIdConflictError, RunRegistry } from "./run-registry.js";
-import { RuntimeProviderNotReadyError, toErrorEnvelope, validateRunRequest } from "../validation.js";
+import {
+  RuntimeProviderNotReadyError,
+  toErrorEnvelope,
+  validateRunRequest,
+  validateUserSubmissionRequest,
+  validateWorkspaceCommitRequest,
+} from "../validation.js";
 
 function chatRequest(runId = "run-test-1"): ChatRunRequest {
   return {
@@ -101,16 +107,22 @@ test("Pi Runtime maps provider readiness failures to a stable not_ready error", 
   assert.equal(envelope.details.provider_id, "deepseek");
 });
 
-test("Pi Runtime accepts the shared Python-assembled runtime_inputs fixture", () => {
-  const fixture = JSON.parse(readFileSync(
-    new URL("../../../docs/technical-specs/schemas/pi-runtime/fixtures/runtime-inputs-chat-request.json", import.meta.url),
+test("Pi Runtime accepts the v1 contract fixtures", () => {
+  const submissionFixture = JSON.parse(readFileSync(
+    new URL("../../../docs/technical-specs/schemas/pi-runtime/fixtures/user-submission-request.json", import.meta.url),
     "utf8",
-  )) as ChatRunRequest;
-  const validated = validateRunRequest(fixture, "chat");
+  ));
+  const validatedSubmission = validateUserSubmissionRequest(submissionFixture);
+  assert.equal(validatedSubmission.contract_type, "user_submission_request");
+  assert.equal(validatedSubmission.submission_id, "sub-01");
 
-  assert.equal(validated.runtime_inputs?.structured_package_input.intent, "reduce requirement distortion");
-  assert.equal(validated.runtime_inputs?.conversation_messages.at(-1)?.message_id, "msg-4");
-  assert.equal(validated.runtime_inputs?.raw_user_message, "我说不清具体需求，但感觉不能再直接写结论");
+  const commitFixture = JSON.parse(readFileSync(
+    new URL("../../../docs/technical-specs/schemas/pi-runtime/fixtures/workspace-commit-request.json", import.meta.url),
+    "utf8",
+  ));
+  const validatedCommit = validateWorkspaceCommitRequest(commitFixture);
+  assert.equal(validatedCommit.contract_type, "workspace_commit_request");
+  assert.equal(validatedCommit.operations[0].operation_type, "create_object");
 });
 
 test("Pi Runtime HTTP completes a fake Chat run and exposes terminal query", async () => {
@@ -203,7 +215,7 @@ test("Pi Runtime readiness and capabilities expose package probe without provide
     const capabilities = await fetch(`${baseUrl}/v1/capabilities`);
     assert.equal(capabilities.status, 200);
     const payload = await capabilities.json() as { pi_agent_core_version: string; supported_run_kinds: string[] };
-    assert.equal(payload.pi_agent_core_version, "0.84.1");
+    assert.equal(payload.pi_agent_core_version, "0.85.1");
     assert.deepEqual(payload.supported_run_kinds, ["chat", "judgement", "convergence"]);
   } finally {
     await runtime.close();

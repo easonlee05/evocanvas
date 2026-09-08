@@ -9,21 +9,30 @@ try:
 except Exception:  # pragma: no cover
     TestClient = None
 
-from app.api.server import create_app
+from app.api.server import create_app, get_canvas_service
 from app.canvas.service import CanvasService
 from app.core.events import EventBus
 from app.services.fakes import FakeStorage
+
+
+class LegacyCanvasService(CanvasService):
+    """仅在兼容性测试中显式使用旧领域流程；生产主链由跨服务测试覆盖。"""
+    async def run_pi_turn(self, *, submission_id=None, actor_id="user", **kwargs):
+        kwargs.pop("model", None)
+        return self.start_turn(**kwargs)
 
 
 class CanvasTurnFlowTests(unittest.TestCase):
     def setUp(self) -> None:
         if TestClient is None:
             self.skipTest("FastAPI not installed")
-        self.client = TestClient(create_app())
+        app = create_app()
+        self.client = TestClient(app)
         self.tenant_id = f"canvas-turn-{uuid4().hex[:8]}"
         self.headers = {"X-Tenant-ID": self.tenant_id}
         self.storage = FakeStorage(Path(gettempdir()) / "manual-agent-phase1" / self.tenant_id)
-        self.canvas_service = CanvasService(storage=self.storage)
+        self.canvas_service = LegacyCanvasService(storage=self.storage)
+        app.dependency_overrides[get_canvas_service] = lambda: self.canvas_service
 
     def test_post_message_returns_turn_id_and_applies_low_risk_card(self) -> None:
         response = self.client.post(

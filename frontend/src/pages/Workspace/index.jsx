@@ -192,8 +192,8 @@ export default function Workspace() {
       }
     });
     apiGet(`/api/canvas/workspaces/${id}/handoff`, null).then(res => {
-      if (res && res.handoff) {
-        setDoc(res.handoff.summary || '');
+      if (res) {
+        setDoc(res.handoff?.summary || '');
       }
     });
   }
@@ -350,6 +350,7 @@ export default function Workspace() {
       loadCanvasData(taskId);
     }
     else if (evType === 'canvas.turn.failed') {
+      loadCanvasData(taskId);
       setTaskStatus('failed');
       setIsLive(false);
       setStreamingMessage('');
@@ -424,6 +425,7 @@ export default function Workspace() {
 
       const result = await apiPostWithStatus(`/api/canvas/workspaces/${taskId}/messages`, {
         message: text,
+        submission_id: crypto.randomUUID(),
         selected_card_ids: selectedIds,
         material_ids: materialIds,
         source_ref_ids: attachedSourceRefs.map(item => item.source_ref_id),
@@ -431,7 +433,13 @@ export default function Workspace() {
         model: model
       });
 
-      if (!result.ok) {
+      if (result.ok) {
+        // HTTP 终态同样触发刷新，避免 SSE 重连期间漏掉完成事件。
+        setTaskStatus('completed');
+        setIsLive(false);
+        loadChatMessages(taskId);
+        loadCanvasData(taskId);
+      } else {
         const errorMessage = result.data?.message || result.data?.detail || result.data?.error_code || `请求失败（${result.status || '网络错误'}）`;
         setTaskStatus('failed');
         setIsLive(false);

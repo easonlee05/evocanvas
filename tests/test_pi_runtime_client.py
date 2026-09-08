@@ -196,5 +196,28 @@ class PiRuntimeClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.error_code, "protocol_error")
 
 
+    async def test_workspace_transport_failure_never_fabricates_success(self):
+        from app.canvas.agent_execution.contracts import UserSubmissionRequest, WorkspaceCommitRequest, SessionLifecycleCommand
+        def disconnected(*_args):
+            raise OSError("disconnected")
+        client = PiRuntimeClient(transport=disconnected)
+        requests = [
+            lambda: client.submit_user_message(UserSubmissionRequest("s", "hash", "w", "u", {"role":"user","content":"hi"})),
+            lambda: client.commit_workspace(WorkspaceCommitRequest({"workspace_id":"w"}, "rev_0", "key", "hash", [], [], "edit")),
+            lambda: client.session_lifecycle(SessionLifecycleCommand("op", "w", "archive", "key")),
+            lambda: client.get_projection("w"), lambda: client.get_revision("w", "rev_0"), lambda: client.get_binding("w"),
+        ]
+        for call in requests:
+            with self.subTest(call=call), self.assertRaises(PiRuntimeError) as raised:
+                await call()
+            self.assertEqual(raised.exception.error_code, "runtime.transport_unknown")
+
+    async def test_same_workspace_id_is_isolated_by_tenant_namespace(self):
+        transport = FakeTransport([HttpResponse(200, b'{"projected_revision_id":"rev_0"}', {}) for _ in range(2)])
+        await PiRuntimeClient(transport=transport, workspace_namespace="tenant-a").get_projection("demo")
+        await PiRuntimeClient(transport=transport, workspace_namespace="tenant-b").get_projection("demo")
+        self.assertNotEqual(transport.calls[0][1], transport.calls[1][1])
+
+
 if __name__ == "__main__":
     unittest.main()

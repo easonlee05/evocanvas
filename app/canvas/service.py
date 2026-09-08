@@ -124,6 +124,8 @@ class CanvasService:
         material_ids: List[str],
         source_ref_ids: Optional[List[str]] = None,
         model: Optional[str] = None,
+        submission_id: Optional[str] = None,
+        actor_id: str = "user",
     ) -> Dict[str, Any]:
         """执行新的 Pi 主链；未配置时明确失败，不回退旧 CanvasSupervisor。"""
 
@@ -136,6 +138,8 @@ class CanvasService:
             material_ids=list(material_ids),
             source_ref_ids=list(source_ref_ids or []),
             model=model,
+            submission_id=submission_id,
+            actor_id=actor_id,
         )
 
     async def run_product_kernel_chat(self, request: ChatRunRequest) -> ChatKernelOutcome:

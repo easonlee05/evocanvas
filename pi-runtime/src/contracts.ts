@@ -301,3 +301,124 @@ export interface Capabilities {
   cancellation: boolean;
   usage_reporting: boolean;
 }
+
+// --- Pi Runtime v1 Target Integration Contracts ---
+
+export type V1SchemaVersion = "evocanvas.pi-runtime.v1";
+
+export interface V1WorkspaceSessionBinding {
+  contract_type: "workspace_session_binding";
+  schema_version: V1SchemaVersion;
+  workspace_id: string;
+  primary_session_id: string;
+  main_lane: "main";
+  status: "binding" | "ready" | "unavailable" | "archived";
+  pi_session_format_version: string;
+  session_file_ref: string;
+  created_at: string;
+  last_opened_at: string;
+  predecessor_session_id?: string;
+  unavailable_reason?: string;
+}
+
+export interface V1UserSubmissionRequest {
+  contract_type: "user_submission_request";
+  schema_version: V1SchemaVersion;
+  submission_id: string;
+  content_hash: string;
+  workspace_id: string;
+  actor_id: string;
+  pi_user_message: Record<string, unknown>;
+}
+
+export interface V1UserSubmissionReceipt {
+  contract_type: "user_submission_receipt";
+  schema_version: V1SchemaVersion;
+  status: "accepted" | "duplicate";
+  submission_id: string;
+  content_hash: string;
+  session_id: string;
+  entry_id: string;
+  binding_status: "ready";
+}
+
+export interface V1ToolContext {
+  workspace_id: string;
+  session_id: string;
+  turn_id: string;
+  entry_id: string;
+  invocation_id: string;
+  tool_call_id: string;
+  actor_id: string;
+  capabilities: string[];
+  current_revision_id: string;
+  instruction_bundle_version: string;
+  active_skill_versions: string[];
+}
+
+export interface V1SemanticOperation {
+  operation_id: string;
+  operation_type:
+    | "create_object"
+    | "update_object"
+    | "change_status"
+    | "supersede_object"
+    | "create_relation"
+    | "remove_relation"
+    | "record_confirmation"
+    | "confirm_handoff"
+    | "suspend_handoff"
+    | "invalidate_handoff";
+  payload: Record<string, unknown>;
+}
+
+export interface V1WorkspaceCommitRequest {
+  contract_type: "workspace_commit_request";
+  schema_version: V1SchemaVersion;
+  tool_context: V1ToolContext;
+  base_revision_id: string;
+  idempotency_key: string;
+  request_hash: string;
+  operations: V1SemanticOperation[];
+  confirmation_refs: string[];
+  change_summary: string;
+}
+
+export interface V1ToolExecutionRecord {
+  contract_type: "tool_execution_record";
+  schema_version: V1SchemaVersion;
+  tool_name: string;
+  tool_version: string;
+  tool_context: V1ToolContext;
+  side_effect_class: "none" | "workspace" | "external";
+  replay: "safe" | "never";
+  result_status: "success" | "failed" | "unknown";
+  request_hash: string;
+  idempotency_key?: string;
+  effect_id?: string;
+  error_code?: string;
+  started_at: string;
+  finished_at: string;
+}
+
+export interface V1SessionLifecycleCommand {
+  contract_type: "session_lifecycle_command";
+  schema_version: V1SchemaVersion;
+  lifecycle_operation_id: string;
+  workspace_id: string;
+  action: "close" | "archive" | "replace" | "delete";
+  idempotency_key: string;
+  replacement_session_id?: string;
+}
+
+export interface V1SessionLifecycleResult {
+  contract_type: "session_lifecycle_result";
+  schema_version: V1SchemaVersion;
+  lifecycle_operation_id: string;
+  workspace_id: string;
+  action: "close" | "archive" | "replace" | "delete";
+  outcome: "closed" | "archived" | "replaced" | "deleted" | "partial" | "retention_held";
+  residual_targets: string[];
+  retention_reason?: string;
+  replacement_session_id?: string;
+}

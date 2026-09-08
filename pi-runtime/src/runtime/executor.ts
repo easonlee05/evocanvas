@@ -1,3 +1,4 @@
+import { executeWorkspaceAgent, type WorkspaceTurnRequest, type WorkspaceExecutionContext } from "./workspace-turn.js";
 import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
 import { createModels, Type, type Model, type MutableModels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
@@ -315,14 +316,14 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
     this.models = options.models ?? builtinModels();
   }
 
-  private resolveModel(): Model<any> {
+  private resolveModel(modelId = this.modelId): Model<any> {
     const models = this.models.getModels(this.providerId);
     if (models.length === 0) {
       throw new Error(`Pi Runtime provider ${this.providerId} has no available models`);
     }
-    const selected = this.modelId ? models.find((model) => model.id === this.modelId) : models[0];
+    const selected = modelId ? models.find((model) => model.id === modelId) : models[0];
     if (!selected) {
-      throw new Error(`Pi Runtime model ${this.providerId}/${this.modelId} was not found`);
+      throw new Error(`Pi Runtime model ${this.providerId}/${modelId} was not found`);
     }
     return selected;
   }
@@ -347,6 +348,12 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
         reason: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  async executeWorkspace(request: WorkspaceTurnRequest, context: WorkspaceExecutionContext, signal: AbortSignal): Promise<Record<string, unknown>> {
+    const model = this.resolveModel(request.model || this.modelId);
+    if (!await this.models.getAuth(model)) throw new RuntimeProviderNotReadyError(this.providerId, model.id, "Provider 凭证不可用");
+    return executeWorkspaceAgent(request, context, signal, this.models, model);
   }
 
   async execute(request: RunRequest, emit: RunEventSink, signal: AbortSignal, tools?: RunToolRuntime): Promise<RunResult> {

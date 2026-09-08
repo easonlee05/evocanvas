@@ -291,6 +291,7 @@ def get_canvas_service(service: TaskService = Depends(get_task_service)) -> Canv
             base_url=os.getenv("PI_RUNTIME_URL", "http://127.0.0.1:8790"),
             internal_secret=os.getenv("PI_RUNTIME_INTERNAL_SECRET"),
             timeout_seconds=timeout_seconds,
+            workspace_namespace=getattr(service, "tenant_id", "default"),
         )
     return CanvasService(
         storage=service.storage,
@@ -340,6 +341,11 @@ def create_app(task_service: TaskService | None = None):
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "X-API-Token", "X-Tenant-ID", "Accept", "Origin"],
     )
+
+    @app.exception_handler(PiRuntimeError)
+    async def pi_runtime_error(_request: Request, error: PiRuntimeError):
+        status = 409 if error.error_code in {"workspace.confirmation_required", "workspace.stale_revision", "workspace.migration_required"} else 503
+        return JSONResponse(status_code=status, content={"error_code": error.error_code, "message": str(error), "reason": "chat_confirmation_required" if error.error_code == "workspace.confirmation_required" else "runtime_error"})
 
     @app.get("/api/health")
     async def health(service: TaskService = Depends(get_task_service)) -> Dict[str, Any]:
@@ -464,6 +470,8 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.read")
         try:
+            if canvas_service.pi_kernel is not None and snapshot_id is None:
+                await canvas_service.pi_kernel.refresh_projection(workspace_id)
             return canvas_service.get_canvas_view(workspace_id, snapshot_id=snapshot_id)
         except CanvasSnapshotNotFoundError:
             raise HTTPException(status_code=404, detail="canvas snapshot not found")
@@ -484,6 +492,8 @@ def create_app(task_service: TaskService | None = None):
                 material_ids=list(request.material_ids),
                 source_ref_ids=list(request.source_ref_ids),
                 model=request.model,
+                submission_id=request.submission_id,
+                actor_id=str(user.user_id),
             )
         except CanvasTurnInProgressError as exc:
             return JSONResponse(
@@ -590,6 +600,8 @@ def create_app(task_service: TaskService | None = None):
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.read")
+        if canvas_service.pi_kernel is not None:
+            return await canvas_service.pi_kernel.execution.get_handoff(workspace_id)
         return canvas_service.get_handoff(workspace_id)
 
     @app.get("/api/canvas/workspaces/{workspace_id}/messages")
@@ -598,8 +610,10 @@ def create_app(task_service: TaskService | None = None):
         user: User = Depends(get_current_user),
         canvas_service: CanvasService = Depends(get_canvas_service),
     ) -> Dict[str, Any]:
-        """读取 Canvas 对话消息；消息正文仍以 Python 仓储为唯一事实源。"""
+        """读取由 Primary Session Entry 重建的消息投影。"""
         RolePolicy.enforce(user.role, "canvas.read")
+        if canvas_service.pi_kernel is not None:
+            await canvas_service.pi_kernel.refresh_messages(workspace_id)
         return canvas_service.get_chat_messages(workspace_id)
 
     @app.post("/api/canvas/workspaces/{workspace_id}/handoff/refresh")
@@ -610,6 +624,8 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.write")
         try:
+            if canvas_service.pi_kernel is not None:
+                return await canvas_service.pi_kernel.execution.get_handoff(workspace_id)
             return canvas_service.refresh_handoff(workspace_id)
         except CanvasTurnInProgressError as exc:
             return JSONResponse(
@@ -633,6 +649,11 @@ def create_app(task_service: TaskService | None = None):
         RolePolicy.enforce(user.role, "canvas.write")
         payload = request.model_dump(exclude_none=True) if hasattr(request, "model_dump") else request.dict(exclude_none=True)
         try:
+            if canvas_service.pi_kernel is not None:
+                data = {"id": card_id, **{key: value for key, value in payload.items() if key in {"title", "summary"}}}
+                if "tags" in payload: data["data"] = {"tags": payload["tags"]}
+                await canvas_service.pi_kernel.edit_canvas(workspace_id, user.user_id, [{"operation_id": f"op_{uuid4().hex}", "operation_type": "update_object", "payload": data}], "修订卡片")
+                return {"workspace_id": workspace_id, "card": next(card.to_dict() for card in canvas_service.repository.load_cards(workspace_id) if card.card_id == card_id)}
             return canvas_service.patch_card(workspace_id, card_id, payload)
         except CanvasCardConfirmationRequiredError as exc:
             return JSONResponse(
@@ -667,6 +688,10 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.write")
         try:
+            if canvas_service.pi_kernel is not None:
+                card_id = f"card_{uuid4().hex[:12]}"
+                await canvas_service.pi_kernel.edit_canvas(workspace_id, user.user_id, [{"operation_id": f"op_{uuid4().hex}", "operation_type": "create_object", "payload": {"id": card_id, "object_type": request.kind, "title": request.title, "summary": request.summary, "data": {"tags": request.tags or [], "source_refs": request.source_refs or [], "metadata": request.metadata or {}}}}], "新增卡片")
+                return {"workspace_id": workspace_id, "card_id": card_id}
             return canvas_service.create_card(
                 workspace_id=workspace_id,
                 kind=request.kind,
@@ -688,6 +713,9 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.write")
         try:
+            if canvas_service.pi_kernel is not None:
+                await canvas_service.pi_kernel.edit_canvas(workspace_id, user.user_id, [{"operation_id": f"op_{uuid4().hex}", "operation_type": "change_status", "payload": {"id": card_id, "type_status": "archived"}}], "移除卡片（保留历史）")
+                return {"workspace_id": workspace_id, "card_id": card_id, "deleted": True}
             return canvas_service.delete_card(workspace_id, card_id)
         except CanvasCardNotFoundError:
             raise HTTPException(status_code=404, detail="canvas card not found")
@@ -701,6 +729,10 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.write")
         try:
+            if canvas_service.pi_kernel is not None:
+                relation_id = f"rel_{uuid4().hex[:12]}"
+                await canvas_service.pi_kernel.edit_canvas(workspace_id, user.user_id, [{"operation_id": f"op_{uuid4().hex}", "operation_type": "create_relation", "payload": {"relation_id": relation_id, "source_id": request.from_card_id, "target_id": request.to_card_id, "relation_type": request.kind}}], "新增卡片关系")
+                return {"workspace_id": workspace_id, "relation_id": relation_id, "relation": next(rel.to_dict() for rel in canvas_service.repository.load_relations(workspace_id) if rel.relation_id == relation_id)}
             return canvas_service.create_relation(
                 workspace_id=workspace_id,
                 kind=request.kind,
@@ -721,6 +753,9 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.write")
         try:
+            if canvas_service.pi_kernel is not None:
+                await canvas_service.pi_kernel.edit_canvas(workspace_id, user.user_id, [{"operation_id": f"op_{uuid4().hex}", "operation_type": "remove_relation", "payload": {"relation_id": relation_id}}], "移除卡片关系")
+                return {"workspace_id": workspace_id, "relation_id": relation_id, "deleted": True}
             return canvas_service.delete_relation(workspace_id, relation_id)
         except CanvasRelationNotFoundError:
             raise HTTPException(status_code=404, detail="canvas relation not found")

@@ -225,6 +225,24 @@ export function toErrorEnvelope(error: unknown, runId?: string, traceId?: string
       },
     };
   }
+  if (typeof error === "object" && error !== null && "code" in error && typeof (error as any).code === "string") {
+    const code = (error as any).code;
+    let category: RuntimeErrorEnvelope["category"] = "temporary_error";
+    if (code === "runtime.submission_conflict" || code.startsWith("schema.")) category = "input_error";
+    else if (code.startsWith("auth.")) category = "permission_denied";
+    else if (code === "workspace.stale_revision") category = "stale";
+    else if (code.startsWith("workspace.confirmation_")) category = "governance_rejected";
+    return {
+      schema_version: "pi-runtime.error.v1",
+      error_code: code,
+      category,
+      message: error instanceof Error ? error.message : String((error as any).message ?? error),
+      retryable: false,
+      run_id: runId,
+      trace_id: traceId,
+      details: {},
+    };
+  }
   return {
     schema_version: "pi-runtime.error.v1",
     error_code: "runtime_internal_error",
@@ -234,5 +252,95 @@ export function toErrorEnvelope(error: unknown, runId?: string, traceId?: string
     run_id: runId,
     trace_id: traceId,
     details: {},
+  };
+}
+
+// --- v1 Contract Validators ---
+
+export function validateUserSubmissionRequest(value: unknown): import("./contracts.js").V1UserSubmissionRequest {
+  const record = asRecord(value, "UserSubmissionRequest");
+  if (record.contract_type !== "user_submission_request") {
+    throw new RuntimeContractError("schema_invalid", "contract_type must be user_submission_request");
+  }
+  if (record.schema_version !== "evocanvas.pi-runtime.v1") {
+    throw new RuntimeContractError("schema_invalid", "schema_version must be evocanvas.pi-runtime.v1");
+  }
+  const submissionId = requireString(record, "submission_id");
+  const contentHash = requireString(record, "content_hash");
+  if (!/^sha256:[a-fA-F0-9]{64}$/.test(contentHash)) {
+    throw new RuntimeContractError("schema_invalid", "content_hash must match sha256 pattern");
+  }
+  const workspaceId = requireString(record, "workspace_id");
+  const actorId = requireString(record, "actor_id");
+  const piUserMessage = requireObject(record, "pi_user_message");
+
+  return {
+    contract_type: "user_submission_request",
+    schema_version: "evocanvas.pi-runtime.v1",
+    submission_id: submissionId,
+    content_hash: contentHash,
+    workspace_id: workspaceId,
+    actor_id: actorId,
+    pi_user_message: piUserMessage,
+  };
+}
+
+export function validateWorkspaceCommitRequest(value: unknown): import("./contracts.js").V1WorkspaceCommitRequest {
+  const record = asRecord(value, "WorkspaceCommitRequest");
+  if (record.contract_type !== "workspace_commit_request") {
+    throw new RuntimeContractError("schema_invalid", "contract_type must be workspace_commit_request");
+  }
+  if (record.schema_version !== "evocanvas.pi-runtime.v1") {
+    throw new RuntimeContractError("schema_invalid", "schema_version must be evocanvas.pi-runtime.v1");
+  }
+  const toolContext = requireObject(record, "tool_context") as any;
+  for (const key of ["workspace_id", "session_id", "entry_id", "actor_id"]) requireString(toolContext, key);
+  if (!Array.isArray(toolContext.capabilities) || toolContext.capabilities.some((item: unknown) => typeof item !== "string")) throw new RuntimeContractError("schema_invalid", "capabilities must be a string array");
+  const baseRevisionId = requireString(record, "base_revision_id");
+  const idempotencyKey = requireString(record, "idempotency_key");
+  const requestHash = requireString(record, "request_hash");
+  if (!Array.isArray(record.operations)) {
+    throw new RuntimeContractError("schema_invalid", "operations must be an array");
+  }
+  const confirmationRefs = Array.isArray(record.confirmation_refs) ? (record.confirmation_refs as string[]) : [];
+  const changeSummary = requireString(record, "change_summary");
+
+  return {
+    contract_type: "workspace_commit_request",
+    schema_version: "evocanvas.pi-runtime.v1",
+    tool_context: toolContext,
+    base_revision_id: baseRevisionId,
+    idempotency_key: idempotencyKey,
+    request_hash: requestHash,
+    operations: record.operations as any,
+    confirmation_refs: confirmationRefs,
+    change_summary: changeSummary,
+  };
+}
+
+export function validateSessionLifecycleCommand(value: unknown): import("./contracts.js").V1SessionLifecycleCommand {
+  const record = asRecord(value, "SessionLifecycleCommand");
+  if (record.contract_type !== "session_lifecycle_command") {
+    throw new RuntimeContractError("schema_invalid", "contract_type must be session_lifecycle_command");
+  }
+  if (record.schema_version !== "evocanvas.pi-runtime.v1") {
+    throw new RuntimeContractError("schema_invalid", "schema_version must be evocanvas.pi-runtime.v1");
+  }
+  const lifecycleOperationId = requireString(record, "lifecycle_operation_id");
+  const workspaceId = requireString(record, "workspace_id");
+  const action = requireString(record, "action");
+  if (!["close", "archive", "replace", "delete"].includes(action)) {
+    throw new RuntimeContractError("schema_invalid", `Invalid lifecycle action: ${action}`);
+  }
+  const idempotencyKey = requireString(record, "idempotency_key");
+
+  return {
+    contract_type: "session_lifecycle_command",
+    schema_version: "evocanvas.pi-runtime.v1",
+    lifecycle_operation_id: lifecycleOperationId,
+    workspace_id: workspaceId,
+    action: action as any,
+    idempotency_key: idempotencyKey,
+    replacement_session_id: typeof record.replacement_session_id === "string" ? record.replacement_session_id : undefined,
   };
 }

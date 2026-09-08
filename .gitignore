@@ -24,6 +24,7 @@ venv/
 # Runtime workspace
 /workspace/
 .manual-agent/
+.pi-storage/
 
 # Legacy local artifacts
 input/

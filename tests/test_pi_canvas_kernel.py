@@ -1,4 +1,4 @@
-"""Pi Canvas 主链的 Python 集成边界测试。"""
+"""Pi Canvas 主链的目标架构集成边界测试。"""
 
 from __future__ import annotations
 
@@ -8,114 +8,63 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.canvas.agent_execution.contracts import (
-    AssistantMessage,
-    ChatRunResult,
     ConvergenceProposal,
-    ConvergenceRunResult,
-    JudgementRunResult,
-    ModelIdentity,
-    ProposalOperation,
     TraceContext,
-    Usage,
+    UserSubmissionReceipt,
+    WorkspaceCommitResult,
 )
-from app.canvas.service import CanvasService
-from app.core.events import EventBus
+from app.canvas.repository import PackageVersionStaleError
+from app.canvas.service import CanvasService, CanvasTurnInProgressError
+from app.core.events import EventBus, utc_now_iso
 from app.services.fakes import FakeStorage
 
 
-USAGE = Usage(0, 0, 0, None)
-MODEL = ModelIdentity("test-provider", "test-model", "test-adapter:v1", "pi-runtime.protocol.v1")
+class TargetPiExecution:
+    """目标架构下 Pi Agent Execution 测试替身。"""
 
+    def __init__(self) -> None:
+        self.submissions = []
+        self.commits = []
 
-class TriggeringExecution:
-    async def run_chat(self, request):
-        return ChatRunResult(
-            request.run_id,
-            AssistantMessage(({"type": "text", "text": "已收到，继续收敛。"},)),
-            "completed",
-            {},
-            USAGE,
-            MODEL,
-            request.context_manifest.context_manifest_id,
+    async def submit_user_message(self, request):
+        self.submissions.append(request)
+        return UserSubmissionReceipt(
+            submission_id=request.submission_id,
+            content_hash=request.content_hash,
+            session_id=f"session_{request.workspace_id}",
+            entry_id=f"entry_{request.submission_id}",
+            status="accepted",
+            binding_status="ready",
         )
 
-    async def run_judgement(self, request):
-        return JudgementRunResult(
-            request.run_id,
-            "trigger",
-            ("new_structural_signal",),
-            request.through_message_seq,
-            0.9,
-            USAGE,
-            MODEL,
-            request.context_manifest.context_manifest_id,
-        )
+    async def run_workspace(self, workspace_id, submission_id, **kwargs):
+        return {"action": "chat_only", "assistant_entry_id": "assistant-entry", "assistant_message": "请补充使用场景"}
 
-    async def run_convergence(self, request):
-        proposal = ConvergenceProposal(
-            "evocanvas.convergence-proposal.v1",
-            "proposal-test",
-            request.run_id,
-            request.package_id,
-            request.from_message_seq,
-            request.through_message_seq,
-            request.base_state_version,
-            request.base_package_version,
-            (
-                ProposalOperation(
-                    "operation-test",
-                    "add_clarification",
-                    None,
-                    "temporary-clarification",
-                    None,
-                    {
-                        "kind": "clarification",
-                        "title": "待澄清：目标用户",
-                        "summary": "需要先确认首版目标用户。",
-                    },
-                    ("message-source",),
-                    (),
-                    ("missing-user-segment",),
-                    "low",
-                    ("surface_gap",),
-                    None,
-                ),
-            ),
-        )
-        return ConvergenceRunResult(
-            request.run_id,
-            proposal,
-            "completed",
-            (),
-            USAGE,
-            MODEL,
-            request.context_manifest.context_manifest_id,
-        )
+    async def get_projection(self, workspace_id):
+        return {"projected_revision_id": "rev_0"}
 
-    async def cancel(self, request):
-        raise AssertionError("cancel is not used in this test")
+    async def get_revision(self, workspace_id, revision_id):
+        return {"objects": {}, "relations": []}
+
+    async def get_messages(self, workspace_id):
+        return {"session_id": "session", "messages": [
+            {"id": "user-entry", "timestamp": 1000, "message": {"role": "user", "content": self.submissions[-1].pi_user_message["content"]}},
+            {"id": "assistant-entry", "timestamp": 2000, "message": {"role": "assistant", "content": "请补充使用场景", "stopReason": "stop"}},
+        ]}
 
 
-class FailingExecution:
-    async def run_chat(self, request):
+class FailingExecution(TargetPiExecution):
+    async def submit_user_message(self, request):
         raise RuntimeError("runtime unavailable")
-
-    async def run_judgement(self, request):
-        raise AssertionError("judgement must not start after Chat failure")
-
-    async def run_convergence(self, request):
-        raise AssertionError("convergence must not start after Chat failure")
-
-    async def cancel(self, request):
-        raise AssertionError("cancel is not used in this test")
 
 
 class PiCanvasKernelTests(unittest.IsolatedAsyncioTestCase):
-    async def test_pi_turn_persists_runtime_records_and_commits_projection(self) -> None:
+    async def test_pi_turn_uses_session_entries_without_legacy_supervisor(self) -> None:
         with TemporaryDirectory() as temp_dir:
+            execution = TargetPiExecution()
             service = CanvasService(
                 storage=FakeStorage(Path(temp_dir)),
-                execution=TriggeringExecution(),
+                execution=execution,
             )
 
             result = await service.run_pi_turn(
@@ -126,50 +75,42 @@ class PiCanvasKernelTests(unittest.IsolatedAsyncioTestCase):
                 source_ref_ids=[],
             )
 
-            self.assertEqual(result["action"], "applied")
-            self.assertEqual(len(service.repository.load_cards("workspace-1")), 1)
-            self.assertEqual(service.repository.load_active_package_version("workspace-1").package_version, 1)
-            records = service.repository.load_runtime_records("workspace-1")
-            self.assertEqual(
-                {record["record_type"] for record in records},
-                {"chat_turn", "convergence_judgement", "convergence_run", "commit_attempt", "outbox_entry"},
-            )
+            self.assertEqual(result["action"], "chat_only")
+            self.assertEqual(len(service.repository.load_cards("workspace-1")), 0)
+            self.assertEqual(len(execution.submissions), 1)
+            self.assertEqual(execution.submissions[0].workspace_id, "workspace-1")
+            self.assertEqual(len(execution.commits), 0)
+            self.assertEqual(result["assistant_message_id"], "assistant-entry")
             self.assertEqual(len(service.repository.load_chat_messages("workspace-1")), 2)
 
-    async def test_pi_turn_does_not_use_workspace_active_turn_lock(self) -> None:
+    async def test_pi_turn_enforces_active_turn_lock(self) -> None:
         with TemporaryDirectory() as temp_dir:
             service = CanvasService(
                 storage=FakeStorage(Path(temp_dir)),
-                execution=TriggeringExecution(),
+                execution=TargetPiExecution(),
             )
             service.get_workspace("workspace-1")
             self.assertIsNotNone(
-                service.repository.claim_active_turn("workspace-1", "legacy-turn", "2026-08-19T00:00:00Z")
+                service.repository.claim_active_turn("workspace-1", "existing-turn", "2026-08-19T00:00:00Z")
             )
 
-            result = await service.run_pi_turn(
-                workspace_id="workspace-1",
-                message="即使旧回合字段存在，也应先接住新消息",
-                selected_card_ids=[],
-                material_ids=[],
-                source_ref_ids=[],
-            )
-
-            self.assertEqual(result["action"], "applied")
-            self.assertEqual(len(service.repository.load_chat_messages("workspace-1")), 2)
+            with self.assertRaises(CanvasTurnInProgressError):
+                await service.run_pi_turn(
+                    workspace_id="workspace-1",
+                    message="已有活跃回合时必须拒绝并发",
+                    selected_card_ids=[],
+                    material_ids=[],
+                    source_ref_ids=[],
+                )
 
     async def test_stale_pi_proposal_is_rejected_before_commit(self) -> None:
         with TemporaryDirectory() as temp_dir:
             service = CanvasService(
                 storage=FakeStorage(Path(temp_dir)),
-                execution=TriggeringExecution(),
+                execution=TargetPiExecution(),
             )
-            await service.run_pi_turn(
-                workspace_id="workspace-1",
-                message="先建立一个当前包版本",
-                selected_card_ids=[],
-                material_ids=[],
-                source_ref_ids=[],
+            service.start_turn(
+                workspace_id="workspace-1", message="先建立一个当前包版本", selected_card_ids=[], material_ids=[], source_ref_ids=[],
             )
             stale = ConvergenceProposal(
                 "evocanvas.convergence-proposal.v1",
@@ -183,7 +124,7 @@ class PiCanvasKernelTests(unittest.IsolatedAsyncioTestCase):
                 (),
             )
 
-            with self.assertRaisesRegex(ValueError, "base version changed"):
+            with self.assertRaises(PackageVersionStaleError):
                 await service.pi_kernel.submit_convergence_proposal(
                     proposal=stale,
                     trace_context=TraceContext(

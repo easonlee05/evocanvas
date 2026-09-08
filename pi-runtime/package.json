@@ -13,8 +13,9 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.1",
-    "@earendil-works/pi-ai": "0.84.1"
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-session-backend-sqlite-node": "0.85.1"
   },
   "devDependencies": {
     "@types/node": "22.15.21",
@@ -22,6 +23,6 @@
     "typescript": "5.8.3"
   },
   "overrides": {
-    "@earendil-works/pi-telemetry": "0.84.2"
+    "@earendil-works/pi-telemetry": "0.85.1"
   }
 }

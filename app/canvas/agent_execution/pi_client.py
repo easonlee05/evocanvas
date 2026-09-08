@@ -27,6 +27,13 @@ from .contracts import (
     JudgementRunResult,
     RunKind,
     RunSnapshot,
+    SessionLifecycleCommand,
+    SessionLifecycleResult,
+    UserSubmissionRequest,
+    UserSubmissionReceipt,
+    WorkspaceCommitRequest,
+    WorkspaceCommitResult,
+    WorkspaceSessionBinding,
     chat_result_from_payload,
     convergence_result_from_payload,
     judgement_result_from_payload,
@@ -146,8 +153,10 @@ class PiRuntimeClient(AgentExecutionPort):
         timeout_seconds: float = 30.0,
         transport: HttpTransport | None = None,
         event_handler: EventHandler | None = None,
+        workspace_namespace: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.workspace_namespace = workspace_namespace
         self.internal_secret = internal_secret
         self.timeout_seconds = timeout_seconds
         self._transport = transport or _urlopen_transport
@@ -278,3 +287,62 @@ class PiRuntimeClient(AgentExecutionPort):
         if not isinstance(payload, Mapping):
             raise PiRuntimeError("protocol_error", "Pi Runtime JSON response must be an object", http_status=response.status)
         return payload
+
+    async def _workspace_request(self, method: str, workspace_id: str, suffix: str, payload=None):
+        import hashlib
+        runtime_workspace_id = workspace_id
+        if self.workspace_namespace is not None:
+            namespace = hashlib.sha256(self.workspace_namespace.encode()).hexdigest()
+            runtime_workspace_id = f"tenant:{namespace}:{workspace_id}"
+        if payload is not None:
+            payload = dict(payload)
+            if "workspace_id" in payload:
+                payload["workspace_id"] = runtime_workspace_id
+            if "tool_context" in payload:
+                payload["tool_context"] = {**payload["tool_context"], "workspace_id": runtime_workspace_id}
+        path = f"/v1/workspaces/{urllib.parse.quote(runtime_workspace_id, safe='')}/{suffix}"
+        try:
+            response = await self._request(method, path, payload, timeout_seconds=max(self.timeout_seconds, 125.0) if suffix == "turns" else self.timeout_seconds)
+        except (OSError, TimeoutError, urllib.error.URLError) as error:
+            raise PiRuntimeError("runtime.transport_unknown", "Pi Runtime 连接失败，结果未确认", details={"workspace_id": workspace_id, "operation": suffix}) from error
+        data = self._decode_json_response(response)
+        if response.status >= 400:
+            raise PiRuntimeError.from_payload(data, response.status)
+        if "workspace_id" in data:
+            data = {**data, "workspace_id": workspace_id}
+        return data
+
+    async def get_binding(self, workspace_id: str) -> WorkspaceSessionBinding | None:
+        try:
+            return WorkspaceSessionBinding.from_payload(await self._workspace_request("GET", workspace_id, "binding"))
+        except PiRuntimeError as error:
+            if error.http_status == 404:
+                return None
+            raise
+
+    async def submit_user_message(self, request: UserSubmissionRequest) -> UserSubmissionReceipt:
+        return UserSubmissionReceipt.from_payload(await self._workspace_request("POST", request.workspace_id, "submissions", request.to_payload()))
+
+    async def run_workspace(self, workspace_id: str, submission_id: str, *, selected_card_ids=None, materials=None, model=None) -> dict[str, Any]:
+        return dict(await self._workspace_request("POST", workspace_id, "turns", {"workspace_id": workspace_id, "submission_id": submission_id, "selected_card_ids": selected_card_ids or [], "materials": materials or [], "model": model}))
+
+    async def commit_workspace(self, request: WorkspaceCommitRequest) -> WorkspaceCommitResult:
+        return WorkspaceCommitResult.from_payload(await self._workspace_request("POST", str(request.tool_context["workspace_id"]), "commit", request.to_payload()))
+
+    async def session_lifecycle(self, command: SessionLifecycleCommand) -> SessionLifecycleResult:
+        return SessionLifecycleResult.from_payload(await self._workspace_request("POST", command.workspace_id, "lifecycle", command.to_payload()))
+
+    async def get_projection(self, workspace_id: str) -> dict[str, Any]:
+        return dict(await self._workspace_request("GET", workspace_id, "projection"))
+
+    async def get_revision(self, workspace_id: str, revision_id: str) -> dict[str, Any]:
+        return dict(await self._workspace_request("GET", workspace_id, f"revisions/{urllib.parse.quote(revision_id, safe='')}"))
+
+    async def get_messages(self, workspace_id: str) -> dict[str, Any]:
+        return dict(await self._workspace_request("GET", workspace_id, "messages"))
+
+    async def edit_workspace(self, workspace_id: str, **payload) -> dict[str, Any]:
+        return dict(await self._workspace_request("POST", workspace_id, "edits", {"workspace_id": workspace_id, **payload}))
+
+    async def get_handoff(self, workspace_id: str) -> dict[str, Any]:
+        return dict(await self._workspace_request("GET", workspace_id, "handoff"))

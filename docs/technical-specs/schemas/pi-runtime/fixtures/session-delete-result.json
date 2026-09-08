@@ -1,0 +1,9 @@
+{
+  "contract_type": "session_lifecycle_result",
+  "schema_version": "evocanvas.pi-runtime.v1",
+  "lifecycle_operation_id": "lifecycle-01",
+  "workspace_id": "workspace-01",
+  "action": "delete",
+  "outcome": "partial",
+  "residual_targets": ["external-source-archive-01"]
+}

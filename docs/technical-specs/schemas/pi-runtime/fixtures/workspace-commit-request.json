@@ -1,0 +1,33 @@
+{
+  "contract_type": "workspace_commit_request",
+  "schema_version": "evocanvas.pi-runtime.v1",
+  "tool_context": {
+    "workspace_id": "workspace-01",
+    "session_id": "session-01",
+    "turn_id": "turn-01",
+    "entry_id": "entry-01",
+    "invocation_id": "invocation-01",
+    "tool_call_id": "tool-call-01",
+    "actor_id": "user-01",
+    "capabilities": ["workspace:commit"],
+    "current_revision_id": "revision-04",
+    "instruction_bundle_version": "instructions-03",
+    "active_skill_versions": ["pyramid-decision@1"]
+  },
+  "base_revision_id": "revision-04",
+  "idempotency_key": "commit-attempt-01",
+  "request_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "operations": [
+    {
+      "operation_id": "operation-01",
+      "operation_type": "create_object",
+      "payload": {
+        "object_type": "clarification",
+        "type_status": "raised",
+        "title": "首版删除是否包含外部来源附件"
+      }
+    }
+  ],
+  "confirmation_refs": ["entry-01"],
+  "change_summary": "创建一个已由用户固定范围的正式待澄清项"
+}

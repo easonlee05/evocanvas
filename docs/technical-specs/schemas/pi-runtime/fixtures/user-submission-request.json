@@ -1,0 +1,12 @@
+{
+  "contract_type": "user_submission_request",
+  "schema_version": "evocanvas.pi-runtime.v1",
+  "submission_id": "sub-01",
+  "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "workspace_id": "workspace-01",
+  "actor_id": "user-01",
+  "pi_user_message": {
+    "role": "user",
+    "content": [{"type": "text", "text": "把这个问题固定为正式待澄清项"}]
+  }
+}

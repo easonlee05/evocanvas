@@ -1,494 +1,298 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://evocanvas.local/schemas/pi-runtime/v1-contracts.json",
-  "title": "EvoCanvas Pi Runtime v1 contracts",
-  "description": "Python Product Kernel <-> private TypeScript Pi Runtime contracts. Unknown fields are forward-compatible; required fields and enum values are not.",
-  "type": "object",
-  "properties": {
-    "contract_version": {
-      "const": "pi-runtime.contracts.v1"
-    }
-  },
-  "required": ["contract_version"],
+  "title": "EvoCanvas Pi Session Integration Contracts v1",
+  "description": "Machine-readable boundary for Workspace-Primary Pi Session binding, user submission idempotency, tool execution, semantic commit, and lifecycle outcomes.",
+  "oneOf": [
+    {"$ref": "#/$defs/WorkspaceSessionBinding"},
+    {"$ref": "#/$defs/UserSubmissionRequest"},
+    {"$ref": "#/$defs/UserSubmissionReceipt"},
+    {"$ref": "#/$defs/WorkspaceCommitRequest"},
+    {"$ref": "#/$defs/ToolExecutionRecord"},
+    {"$ref": "#/$defs/SessionLifecycleCommand"},
+    {"$ref": "#/$defs/SessionLifecycleResult"}
+  ],
   "$defs": {
     "Id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 256
+      "maxLength": 200
     },
-    "RunKind": {
+    "ContentHash": {
       "type": "string",
-      "enum": ["chat", "judgement", "convergence"]
+      "pattern": "^sha256:[a-fA-F0-9]{64}$"
     },
-    "TraceContext": {
-      "type": "object",
-      "properties": {
-        "trace_id": {"$ref": "#/$defs/Id"},
-        "request_id": {"$ref": "#/$defs/Id"},
-        "parent_run_id": {"$ref": "#/$defs/Id"},
-        "operation_id": {"$ref": "#/$defs/Id"}
-      },
-      "required": ["trace_id", "request_id"],
-      "additionalProperties": true
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
     },
-    "ModelPolicy": {
-      "type": "object",
-      "properties": {
-        "quality_tier": {"type": "string", "maxLength": 64},
-        "latency_tier": {"type": "string", "maxLength": 64},
-        "structured_output_required": {"type": "boolean"},
-        "tool_calling_required": {"type": "boolean"},
-        "max_cost": {"type": ["number", "null"], "minimum": 0},
-        "provider_allowlist": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/Id"},
-          "maxItems": 16
-        }
-      },
-      "required": ["quality_tier", "latency_tier", "structured_output_required", "tool_calling_required"],
-      "additionalProperties": true
+    "SchemaVersion": {
+      "const": "evocanvas.pi-runtime.v1"
     },
-    "ToolProfile": {
+    "WorkspaceSessionBinding": {
       "type": "object",
-      "properties": {
-        "run_kind": {"$ref": "#/$defs/RunKind"},
-        "allowed_tools": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/Id"},
-          "maxItems": 32,
-          "uniqueItems": true
-        },
-        "max_calls": {"type": "integer", "minimum": 0, "maximum": 1000},
-        "max_result_bytes": {"type": "integer", "minimum": 1024, "maximum": 10485760}
-      },
-      "required": ["run_kind", "allowed_tools", "max_calls", "max_result_bytes"],
-      "additionalProperties": true
-    },
-    "RuntimeInputSnapshot": {
-      "type": "object",
-      "properties": {
-        "structured_package_input": {"type": "object"},
-        "conversation_messages": {"type": "array", "items": {"type": "object"}},
-        "raw_user_message": {"type": ["string", "null"]}
-      },
-      "required": ["structured_package_input", "conversation_messages"],
-      "additionalProperties": true
-    },
-    "ContextManifest": {
-      "type": "object",
-      "properties": {
-        "context_manifest_id": {"$ref": "#/$defs/Id"},
-        "request_kind": {"$ref": "#/$defs/RunKind"},
-        "package_ref": {
-          "type": "object",
-          "properties": {
-            "package_id": {"$ref": "#/$defs/Id"},
-            "package_version": {"type": "integer", "minimum": 0},
-            "state_version": {"type": "integer", "minimum": 0}
-          },
-          "required": ["package_id", "package_version", "state_version"],
-          "additionalProperties": true
-        },
-        "structured_package_input_ref": {
-          "type": "object",
-          "properties": {
-            "id": {"$ref": "#/$defs/Id"},
-            "content_hash": {"$ref": "#/$defs/Id"}
-          },
-          "required": ["id", "content_hash"],
-          "additionalProperties": true
-        },
-        "message_scope": {
-          "type": "object",
-          "properties": {
-            "from_seq": {"type": "integer", "minimum": 1},
-            "through_seq": {"type": "integer", "minimum": 1},
-            "history_compaction_ref": {"type": ["string", "null"]},
-            "raw_user_message_ref": {"type": ["string", "null"]}
-          },
-          "required": ["from_seq", "through_seq"],
-          "additionalProperties": true
-        },
-        "instruction_and_schema_refs": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "source_refs": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "included_sections": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "omissions": {"type": "array", "items": {"$ref": "#/$defs/Omission"}},
-        "assembly_policy_version": {"$ref": "#/$defs/Id"},
-        "budget_ref": {"$ref": "#/$defs/Id"},
-        "degradation_flags": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "content_hashes": {"type": "object", "additionalProperties": {"type": "string"}},
-        "transport_ref": {"$ref": "#/$defs/TransportRef"}
-      },
       "required": [
-        "context_manifest_id",
-        "request_kind",
-        "package_ref",
-        "structured_package_input_ref",
-        "message_scope",
-        "instruction_and_schema_refs",
-        "source_refs",
-        "included_sections",
-        "omissions",
-        "assembly_policy_version",
-        "budget_ref",
-        "degradation_flags",
-        "content_hashes",
-        "transport_ref"
-      ],
-      "additionalProperties": true
-    },
-    "Omission": {
-      "type": "object",
-      "properties": {
-        "ref": {"$ref": "#/$defs/Id"},
-        "reason_code": {"$ref": "#/$defs/Id"},
-        "impact": {"type": "string", "enum": ["none", "chat", "judgement", "convergence", "commit"]}
-      },
-      "required": ["reason_code", "impact"],
-      "additionalProperties": true
-    },
-    "TransportRef": {
-      "type": "object",
-      "properties": {
-        "provider_id": {"$ref": "#/$defs/Id"},
-        "adapter_version": {"$ref": "#/$defs/Id"},
-        "protocol_version": {"$ref": "#/$defs/Id"},
-        "capability_profile_version": {"$ref": "#/$defs/Id"},
-        "model_call_id": {"$ref": "#/$defs/Id"}
-      },
-      "required": ["provider_id", "adapter_version", "protocol_version", "capability_profile_version"],
-      "additionalProperties": true
-    },
-    "BaseRunRequest": {
-      "type": "object",
-      "properties": {
-        "schema_version": {"const": "pi-runtime.request.v1"},
-        "run_id": {"$ref": "#/$defs/Id"},
-        "run_kind": {"$ref": "#/$defs/RunKind"},
-        "workspace_id": {"$ref": "#/$defs/Id"},
-        "conversation_id": {"$ref": "#/$defs/Id"},
-        "package_id": {"$ref": "#/$defs/Id"},
-        "from_message_seq": {"type": "integer", "minimum": 1},
-        "through_message_seq": {"type": "integer", "minimum": 1},
-        "context_manifest": {"$ref": "#/$defs/ContextManifest"},
-        "instructions_ref": {"$ref": "#/$defs/Id"},
-        "model_policy": {"$ref": "#/$defs/ModelPolicy"},
-        "tool_profile": {"$ref": "#/$defs/ToolProfile"},
-        "deadline_ms": {"type": "integer", "minimum": 1, "maximum": 3600000},
-        "trace_context": {"$ref": "#/$defs/TraceContext"},
-        "idempotency_key": {"$ref": "#/$defs/Id"},
-        "runtime_inputs": {"$ref": "#/$defs/RuntimeInputSnapshot"}
-      },
-      "required": [
+        "contract_type",
         "schema_version",
-        "run_id",
-        "run_kind",
         "workspace_id",
-        "conversation_id",
-        "from_message_seq",
-        "through_message_seq",
-        "instructions_ref",
-        "model_policy",
-        "tool_profile",
-        "deadline_ms",
-        "trace_context",
-        "idempotency_key"
+        "primary_session_id",
+        "main_lane",
+        "status",
+        "pi_session_format_version",
+        "session_file_ref",
+        "created_at",
+        "last_opened_at"
       ],
-      "additionalProperties": true
+      "properties": {
+        "contract_type": {"const": "workspace_session_binding"},
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "workspace_id": {"$ref": "#/$defs/Id"},
+        "primary_session_id": {"$ref": "#/$defs/Id"},
+        "main_lane": {"const": "main"},
+        "status": {
+          "type": "string",
+          "enum": ["binding", "ready", "unavailable", "archived"]
+        },
+        "pi_session_format_version": {"$ref": "#/$defs/Id"},
+        "session_file_ref": {"$ref": "#/$defs/Id"},
+        "created_at": {"$ref": "#/$defs/Timestamp"},
+        "last_opened_at": {"$ref": "#/$defs/Timestamp"},
+        "predecessor_session_id": {"$ref": "#/$defs/Id"},
+        "unavailable_reason": {"$ref": "#/$defs/Id"}
+      },
+      "additionalProperties": false
     },
-    "ChatRunRequest": {
-      "allOf": [
-        {"$ref": "#/$defs/BaseRunRequest"},
-        {
+    "UserSubmissionRequest": {
+      "type": "object",
+      "required": [
+        "contract_type",
+        "schema_version",
+        "submission_id",
+        "content_hash",
+        "workspace_id",
+        "actor_id",
+        "pi_user_message"
+      ],
+      "properties": {
+        "contract_type": {"const": "user_submission_request"},
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "submission_id": {"$ref": "#/$defs/Id"},
+        "content_hash": {"$ref": "#/$defs/ContentHash"},
+        "workspace_id": {"$ref": "#/$defs/Id"},
+        "actor_id": {"$ref": "#/$defs/Id"},
+        "pi_user_message": {
           "type": "object",
-          "properties": {
-            "run_kind": {"const": "chat"},
-            "raw_user_message_ref": {"$ref": "#/$defs/Id"},
-            "assistant_reply_schema_ref": {"$ref": "#/$defs/Id"},
-            "conversation_order_key": {"$ref": "#/$defs/Id"}
-          },
-          "required": ["run_kind", "context_manifest", "package_id", "raw_user_message_ref", "assistant_reply_schema_ref", "conversation_order_key"]
-        }
-      ]
-    },
-    "JudgementRunRequest": {
-      "allOf": [
-        {"$ref": "#/$defs/BaseRunRequest"},
-        {
-          "type": "object",
-          "properties": {
-            "run_kind": {"const": "judgement"},
-            "chat_turn_id": {"$ref": "#/$defs/Id"},
-            "base_state_version": {"type": "integer", "minimum": 0},
-            "base_package_version": {"type": "integer", "minimum": 0},
-            "signal_summary_ref": {"$ref": "#/$defs/Id"}
-          },
-          "required": ["run_kind", "context_manifest", "chat_turn_id", "base_state_version", "base_package_version", "signal_summary_ref"]
-        }
-      ]
-    },
-    "ConvergenceRunRequest": {
-      "allOf": [
-        {"$ref": "#/$defs/BaseRunRequest"},
-        {
-          "type": "object",
-          "properties": {
-            "run_kind": {"const": "convergence"},
-            "convergence_run_id": {"$ref": "#/$defs/Id"},
-            "base_state_version": {"type": "integer", "minimum": 0},
-            "base_package_version": {"type": "integer", "minimum": 0},
-            "proposal_schema_ref": {"$ref": "#/$defs/Id"},
-            "proposal_capture_tool_ref": {"$ref": "#/$defs/Id"}
-          },
-          "required": ["run_kind", "context_manifest", "package_id", "convergence_run_id", "base_state_version", "base_package_version", "proposal_schema_ref", "proposal_capture_tool_ref"]
-        }
-      ]
-    },
-    "AssistantMessage": {
-      "type": "object",
-      "properties": {
-        "content_blocks": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "properties": {
-              "type": {"type": "string", "enum": ["text"]},
-              "text": {"type": "string", "maxLength": 200000}
-            },
-            "required": ["type", "text"],
-            "additionalProperties": true
-          }
+          "description": "Original Pi-supported user message. Product context must not be concatenated into this object."
         }
       },
-      "required": ["content_blocks"],
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    "Usage": {
+    "UserSubmissionReceipt": {
       "type": "object",
+      "required": [
+        "contract_type",
+        "schema_version",
+        "status",
+        "submission_id",
+        "content_hash",
+        "session_id",
+        "entry_id",
+        "binding_status"
+      ],
       "properties": {
-        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
-        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
-        "total_tokens": {"type": ["integer", "null"], "minimum": 0},
-        "provider_usage_ref": {"type": ["string", "null"]}
+        "contract_type": {"const": "user_submission_receipt"},
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "status": {"type": "string", "enum": ["accepted", "duplicate"]},
+        "submission_id": {"$ref": "#/$defs/Id"},
+        "content_hash": {"$ref": "#/$defs/ContentHash"},
+        "session_id": {"$ref": "#/$defs/Id"},
+        "entry_id": {"$ref": "#/$defs/Id"},
+        "binding_status": {"const": "ready"}
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    "ModelIdentity": {
+    "ToolContext": {
       "type": "object",
+      "required": [
+        "workspace_id",
+        "session_id",
+        "turn_id",
+        "entry_id",
+        "invocation_id",
+        "tool_call_id",
+        "actor_id",
+        "capabilities",
+        "current_revision_id",
+        "instruction_bundle_version",
+        "active_skill_versions"
+      ],
       "properties": {
-        "provider_id": {"$ref": "#/$defs/Id"},
-        "model_id": {"$ref": "#/$defs/Id"},
-        "adapter_version": {"$ref": "#/$defs/Id"},
-        "protocol_version": {"$ref": "#/$defs/Id"}
+        "workspace_id": {"$ref": "#/$defs/Id"},
+        "session_id": {"$ref": "#/$defs/Id"},
+        "turn_id": {"$ref": "#/$defs/Id"},
+        "entry_id": {"$ref": "#/$defs/Id"},
+        "invocation_id": {"$ref": "#/$defs/Id"},
+        "tool_call_id": {"$ref": "#/$defs/Id"},
+        "actor_id": {"$ref": "#/$defs/Id"},
+        "capabilities": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "uniqueItems": true},
+        "current_revision_id": {"$ref": "#/$defs/Id"},
+        "instruction_bundle_version": {"$ref": "#/$defs/Id"},
+        "active_skill_versions": {"type": "array", "items": {"$ref": "#/$defs/Id"}, "uniqueItems": true}
       },
-      "required": ["provider_id", "model_id", "adapter_version", "protocol_version"],
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    "ChatRunResult": {
+    "SemanticOperation": {
       "type": "object",
-      "properties": {
-        "run_id": {"$ref": "#/$defs/Id"},
-        "assistant_message": {"anyOf": [{"$ref": "#/$defs/AssistantMessage"}, {"type": "null"}]},
-        "finish_reason": {"type": "string", "enum": ["completed", "length", "tool_failed", "cancelled", "error"]},
-        "events_summary": {"type": "object"},
-        "usage": {"$ref": "#/$defs/Usage"},
-        "model_identity": {"$ref": "#/$defs/ModelIdentity"},
-        "context_manifest_id": {"$ref": "#/$defs/Id"}
-      },
-      "required": ["run_id", "assistant_message", "finish_reason", "events_summary", "usage", "model_identity", "context_manifest_id"],
-      "additionalProperties": true
-    },
-    "JudgementRunResult": {
-      "type": "object",
-      "properties": {
-        "run_id": {"$ref": "#/$defs/Id"},
-        "decision": {"type": "string", "enum": ["skip", "defer", "trigger"]},
-        "reason_codes": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "through_message_seq": {"type": "integer", "minimum": 1},
-        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
-        "usage": {"$ref": "#/$defs/Usage"},
-        "model_identity": {"$ref": "#/$defs/ModelIdentity"},
-        "context_manifest_id": {"$ref": "#/$defs/Id"}
-      },
-      "required": ["run_id", "decision", "reason_codes", "through_message_seq", "confidence", "usage", "model_identity", "context_manifest_id"],
-      "additionalProperties": true
-    },
-    "ProposalOperation": {
-      "type": "object",
+      "required": ["operation_id", "operation_type", "payload"],
       "properties": {
         "operation_id": {"$ref": "#/$defs/Id"},
-        "operation_type": {"$ref": "#/$defs/Id"},
-        "target_object_id": {"type": ["string", "null"]},
-        "temporary_target_ref": {"type": ["string", "null"]},
-        "before_ref": {"type": ["string", "null"]},
-        "payload": {"type": "object"},
-        "source_refs": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "confirmation_refs": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "unresolved_refs": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
-        "reason_codes": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "atomic_group_id": {"type": ["string", "null"]}
-      },
-      "required": ["operation_id", "operation_type", "target_object_id", "temporary_target_ref", "before_ref", "payload", "source_refs", "confirmation_refs", "unresolved_refs", "risk_level", "reason_codes", "atomic_group_id"],
-      "additionalProperties": true
-    },
-    "ConvergenceProposal": {
-      "type": "object",
-      "properties": {
-        "proposal_schema_version": {"const": "evocanvas.convergence-proposal.v1"},
-        "proposal_id": {"$ref": "#/$defs/Id"},
-        "run_id": {"$ref": "#/$defs/Id"},
-        "package_id": {"$ref": "#/$defs/Id"},
-        "from_message_seq": {"type": "integer", "minimum": 1},
-        "through_message_seq": {"type": "integer", "minimum": 1},
-        "base_state_version": {"type": "integer", "minimum": 0},
-        "base_package_version": {"type": "integer", "minimum": 0},
-        "operations": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/ProposalOperation"}}
-      },
-      "required": ["proposal_schema_version", "proposal_id", "run_id", "package_id", "from_message_seq", "through_message_seq", "base_state_version", "base_package_version", "operations"],
-      "additionalProperties": true
-    },
-    "ConvergenceRunResult": {
-      "type": "object",
-      "properties": {
-        "run_id": {"$ref": "#/$defs/Id"},
-        "proposal": {"anyOf": [{"$ref": "#/$defs/ConvergenceProposal"}, {"type": "null"}]},
-        "finish_reason": {"type": "string", "enum": ["completed", "not_ready", "tool_failed", "cancelled", "error"]},
-        "tool_trace": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "usage": {"$ref": "#/$defs/Usage"},
-        "model_identity": {"$ref": "#/$defs/ModelIdentity"},
-        "context_manifest_id": {"$ref": "#/$defs/Id"}
-      },
-      "required": ["run_id", "proposal", "finish_reason", "tool_trace", "usage", "model_identity", "context_manifest_id"],
-      "additionalProperties": true
-    },
-    "EventEnvelope": {
-      "type": "object",
-      "properties": {
-        "schema_version": {"const": "pi-runtime.event.v1"},
-        "event_id": {"$ref": "#/$defs/Id"},
-        "run_id": {"$ref": "#/$defs/Id"},
-        "sequence": {"type": "integer", "minimum": 1},
-        "timestamp": {"type": "string", "format": "date-time"},
-        "type": {"$ref": "#/$defs/EventType"},
-        "trace_context": {"$ref": "#/$defs/TraceContext"},
+        "operation_type": {
+          "type": "string",
+          "enum": [
+            "create_object",
+            "update_object",
+            "change_status",
+            "supersede_object",
+            "create_relation",
+            "remove_relation",
+            "record_confirmation",
+            "confirm_handoff",
+            "suspend_handoff",
+            "invalidate_handoff"
+          ]
+        },
         "payload": {"type": "object"}
       },
-      "required": ["schema_version", "event_id", "run_id", "sequence", "timestamp", "type", "trace_context", "payload"],
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    "EventType": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "description": "Known v1 values are documented in the interface contract; unknown values are forward-compatible and must not break the main chain."
-    },
-    "ToolCallRequest": {
+    "WorkspaceCommitRequest": {
       "type": "object",
+      "required": [
+        "contract_type",
+        "schema_version",
+        "tool_context",
+        "base_revision_id",
+        "idempotency_key",
+        "request_hash",
+        "operations",
+        "confirmation_refs",
+        "change_summary"
+      ],
       "properties": {
-        "schema_version": {"const": "pi-runtime.tool-call.v1"},
-        "tool_call_id": {"$ref": "#/$defs/Id"},
+        "contract_type": {"const": "workspace_commit_request"},
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "tool_context": {"$ref": "#/$defs/ToolContext"},
+        "base_revision_id": {"$ref": "#/$defs/Id"},
+        "idempotency_key": {"$ref": "#/$defs/Id"},
+        "request_hash": {"$ref": "#/$defs/ContentHash"},
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/SemanticOperation"}
+        },
+        "confirmation_refs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Id"},
+          "uniqueItems": true
+        },
+        "change_summary": {"type": "string", "minLength": 1, "maxLength": 2000}
+      },
+      "additionalProperties": false
+    },
+    "ToolExecutionRecord": {
+      "type": "object",
+      "required": [
+        "contract_type",
+        "schema_version",
+        "tool_name",
+        "tool_version",
+        "tool_context",
+        "side_effect_class",
+        "replay",
+        "result_status",
+        "request_hash",
+        "started_at",
+        "finished_at"
+      ],
+      "properties": {
+        "contract_type": {"const": "tool_execution_record"},
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
         "tool_name": {"$ref": "#/$defs/Id"},
         "tool_version": {"$ref": "#/$defs/Id"},
-        "run_id": {"$ref": "#/$defs/Id"},
-        "run_kind": {"$ref": "#/$defs/RunKind"},
+        "tool_context": {"$ref": "#/$defs/ToolContext"},
+        "side_effect_class": {"type": "string", "enum": ["none", "workspace", "external"]},
+        "replay": {"type": "string", "enum": ["safe", "never"]},
+        "result_status": {"type": "string", "enum": ["success", "failed", "unknown"]},
+        "request_hash": {"$ref": "#/$defs/ContentHash"},
+        "idempotency_key": {"$ref": "#/$defs/Id"},
+        "effect_id": {"$ref": "#/$defs/Id"},
+        "error_code": {"$ref": "#/$defs/Id"},
+        "started_at": {"$ref": "#/$defs/Timestamp"},
+        "finished_at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "SessionLifecycleCommand": {
+      "type": "object",
+      "required": [
+        "contract_type",
+        "schema_version",
+        "lifecycle_operation_id",
+        "workspace_id",
+        "action",
+        "idempotency_key"
+      ],
+      "properties": {
+        "contract_type": {"const": "session_lifecycle_command"},
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "lifecycle_operation_id": {"$ref": "#/$defs/Id"},
         "workspace_id": {"$ref": "#/$defs/Id"},
-        "conversation_id": {"$ref": "#/$defs/Id"},
-        "package_id": {"type": ["string", "null"]},
-        "message_range": {"type": "object"},
-        "arguments": {"type": "object"},
-        "attempt": {"type": "integer", "minimum": 1},
-        "trace_context": {"$ref": "#/$defs/TraceContext"}
+        "action": {"type": "string", "enum": ["close", "archive", "replace", "delete"]},
+        "idempotency_key": {"$ref": "#/$defs/Id"},
+        "replacement_session_id": {"$ref": "#/$defs/Id"}
       },
-      "required": ["schema_version", "tool_call_id", "tool_name", "tool_version", "run_id", "run_kind", "workspace_id", "conversation_id", "arguments", "attempt", "trace_context"],
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    "ToolCallResult": {
+    "SessionLifecycleResult": {
       "type": "object",
+      "required": [
+        "contract_type",
+        "schema_version",
+        "lifecycle_operation_id",
+        "workspace_id",
+        "action",
+        "outcome",
+        "residual_targets"
+      ],
       "properties": {
-        "schema_version": {"const": "pi-runtime.tool-result.v1"},
-        "tool_call_id": {"$ref": "#/$defs/Id"},
-        "status": {"type": "string", "enum": ["succeeded", "failed", "denied", "timed_out", "cancelled"]},
-        "summary": {"type": "string", "maxLength": 20000},
-        "data": {"type": ["object", "array", "string", "number", "boolean", "null"]},
-        "data_ref": {"type": ["string", "null"]},
-        "source_refs": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "artifacts": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
-        "error": {"anyOf": [{"$ref": "#/$defs/ErrorEnvelope"}, {"type": "null"}]},
-        "completed_at": {"type": "string", "format": "date-time"}
+        "contract_type": {"const": "session_lifecycle_result"},
+        "schema_version": {"$ref": "#/$defs/SchemaVersion"},
+        "lifecycle_operation_id": {"$ref": "#/$defs/Id"},
+        "workspace_id": {"$ref": "#/$defs/Id"},
+        "action": {"type": "string", "enum": ["close", "archive", "replace", "delete"]},
+        "outcome": {
+          "type": "string",
+          "enum": ["closed", "archived", "replaced", "deleted", "partial", "retention_held"]
+        },
+        "residual_targets": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Id"},
+          "uniqueItems": true
+        },
+        "retention_reason": {"$ref": "#/$defs/Id"},
+        "replacement_session_id": {"$ref": "#/$defs/Id"}
       },
-      "required": ["schema_version", "tool_call_id", "status", "summary", "source_refs", "artifacts", "error", "completed_at"],
-      "additionalProperties": true
-    },
-    "ErrorEnvelope": {
-      "type": "object",
-      "properties": {
-        "schema_version": {"const": "pi-runtime.error.v1"},
-        "error_code": {"$ref": "#/$defs/ErrorCode"},
-        "category": {"type": "string", "enum": ["temporary_error", "input_error", "permission_denied", "not_ready", "stale", "governance_rejected", "commit_unknown", "projection_failed", "engine_unavailable"]},
-        "message": {"type": "string", "maxLength": 2000},
-        "retryable": {"type": "boolean"},
-        "run_id": {"type": ["string", "null"]},
-        "trace_id": {"type": ["string", "null"]},
-        "details": {"type": "object"}
-      },
-      "required": ["schema_version", "error_code", "category", "message", "retryable", "details"],
-      "additionalProperties": true
-    },
-    "ErrorCode": {
-      "type": "string",
-      "enum": [
-        "invalid_request",
-        "schema_invalid",
-        "run_id_conflict",
-        "run_not_found",
-        "runtime_not_ready",
-        "provider_unavailable",
-        "model_capability_missing",
-        "tool_denied",
-        "tool_invalid_arguments",
-        "tool_timeout",
-        "proposal_invalid",
-        "run_cancelled",
-        "run_timeout",
-        "stream_interrupted",
-        "runtime_internal_error"
-      ]
-    },
-    "CancelRequest": {
-      "type": "object",
-      "properties": {
-        "schema_version": {"const": "pi-runtime.cancel.v1"},
-        "run_id": {"$ref": "#/$defs/Id"},
-        "reason_code": {"$ref": "#/$defs/Id"},
-        "requested_by": {"$ref": "#/$defs/Id"},
-        "trace_context": {"$ref": "#/$defs/TraceContext"}
-      },
-      "required": ["schema_version", "run_id", "reason_code", "requested_by", "trace_context"],
-      "additionalProperties": true
-    },
-    "Capabilities": {
-      "type": "object",
-      "properties": {
-        "schema_version": {"const": "pi-runtime.capabilities.v1"},
-        "runtime_version": {"$ref": "#/$defs/Id"},
-        "pi_agent_core_version": {"$ref": "#/$defs/Id"},
-        "pi_ai_version": {"$ref": "#/$defs/Id"},
-        "node_version": {"$ref": "#/$defs/Id"},
-        "provider_id": {"$ref": "#/$defs/Id"},
-        "adapter_version": {"$ref": "#/$defs/Id"},
-        "protocol_version": {"$ref": "#/$defs/Id"},
-        "capability_profile_version": {"$ref": "#/$defs/Id"},
-        "supported_run_kinds": {"type": "array", "items": {"$ref": "#/$defs/RunKind"}},
-        "structured_output": {"type": "boolean"},
-        "tool_calling": {"type": "boolean"},
-        "streaming": {"type": "boolean"},
-        "cancellation": {"type": "boolean"},
-        "usage_reporting": {"type": "boolean"}
-      },
-      "required": ["schema_version", "runtime_version", "pi_agent_core_version", "pi_ai_version", "node_version", "provider_id", "adapter_version", "protocol_version", "capability_profile_version", "supported_run_kinds", "structured_output", "tool_calling", "streaming", "cancellation", "usage_reporting"],
-      "additionalProperties": true
+      "allOf": [
+        {
+          "if": {"properties": {"outcome": {"const": "retention_held"}}},
+          "then": {"required": ["retention_reason"]}
+        },
+        {
+          "if": {"properties": {"outcome": {"const": "replaced"}}},
+          "then": {"required": ["replacement_session_id"]}
+        }
+      ],
+      "additionalProperties": false
     }
   }
 }

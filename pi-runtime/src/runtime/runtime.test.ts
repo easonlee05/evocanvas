@@ -6,7 +6,7 @@ import { createPiRuntimeServer } from "../server.js";
 import type { ChatRunRequest, ChatRunResult, EventEnvelope } from "../contracts.js";
 import { FakeRunExecutor, type RunExecutor } from "./executor.js";
 import { RunIdConflictError, RunRegistry } from "./run-registry.js";
-import { validateRunRequest } from "../validation.js";
+import { RuntimeProviderNotReadyError, toErrorEnvelope, validateRunRequest } from "../validation.js";
 
 function chatRequest(runId = "run-test-1"): ChatRunRequest {
   return {
@@ -89,6 +89,18 @@ test("Pi Runtime validates tool profile scope, budgets, and gateway pairing", ()
   }, "chat"));
 });
 
+test("Pi Runtime maps provider readiness failures to a stable not_ready error", () => {
+  const envelope = toErrorEnvelope(
+    new RuntimeProviderNotReadyError("deepseek", "deepseek-v4-flash", "missing credentials"),
+    "run-not-ready",
+    "trace-not-ready",
+  );
+  assert.equal(envelope.error_code, "runtime_not_ready");
+  assert.equal(envelope.category, "not_ready");
+  assert.equal(envelope.retryable, false);
+  assert.equal(envelope.details.provider_id, "deepseek");
+});
+
 test("Pi Runtime accepts the shared Python-assembled runtime_inputs fixture", () => {
   const fixture = JSON.parse(readFileSync(
     new URL("../../../docs/technical-specs/schemas/pi-runtime/fixtures/runtime-inputs-chat-request.json", import.meta.url),
@@ -168,7 +180,7 @@ test("Pi Runtime turns an exceeded run deadline into a stable failed terminal", 
     const terminal = await fetch(`${baseUrl}/v1/runs/run-deadline`);
     const summary = await terminal.json() as { status: string; error: { error_code: string } };
     assert.equal(summary.status, "failed");
-    assert.equal(summary.error.error_code, "deadline_exceeded");
+    assert.equal(summary.error.error_code, "run_timeout");
   } finally {
     await runtime.close();
   }

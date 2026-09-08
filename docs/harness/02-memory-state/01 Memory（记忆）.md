@@ -1,193 +1,93 @@
 # Memory（记忆）
 
-> 当前成熟度层级：`L3 可指导实现的治理规格层`
-> 编码门槛：`可作为 1.0 包身份、包 Schema、不可变版本、索引检索、复水和保留策略的实现输入`
+> 方法成熟度：`L3 可指导实现的治理规格层`
+> 目标实现归属：`Pi Primary Session + 结构化工作包 Revision 存储`
+> 当前实现状态：`合同已定，代码待迁移`
+> 实现说明：过程记忆与稳定记忆分开；不从聊天摘要推断当前状态。
 
-## 1. 职责边界
+## 1. 控制目标
 
-Memory 定义系统如何保存原始记录与结构化包、如何定位相关历史，以及何时必须回到原文核对。
+保证历史可追溯、当前状态可直接读取，并避免 Session、工作包和 Canvas 各自保存一份相互漂移的业务真相。
 
-它不负责创造业务事实，不在每轮 Chat 后生成新的语义摘要，也不把画布快照当作模型记忆。
+## 2. 过程记忆
 
-## 2. 包身份
+Pi Session 至少持久化：
 
-一个结构化包根记录至少包含：
+```text
+session_id
+entry_id
+parent_entry_id / branch
+entry_type
+actor
+content or tool payload
+created_at
+model / tool identity
+technical outcome
+```
 
-| 字段 | 含义 |
+候选理解、未采用方向、工具读取结果和用户原话均留在 Session。压缩只新增派生摘要 Entry，不覆盖原 Entry。
+
+## 3. 稳定记忆
+
+一个结构化工作包 Revision 至少包含：
+
+```text
+workspace_id
+package_id
+revision_id
+parent_revision_id?
+created_at
+created_by
+base_revision_id
+commit_id
+idempotency_key
+objects[]
+relations[]
+confirmations[]
+handoff_state
+current_handoff_revision_id?
+latest_confirmed_handoff_revision_id?
+source_refs[]
+instruction_and_skill_versions[]
+```
+
+`objects` 和 `relations` 保存规范化领域对象图；不保存 Canvas 坐标、完整 Session 正文、重复交接文档或 Provider 消息格式。
+
+## 4. 对象与关系身份
+
+- 语义持续不变：沿用原 `object_id`。
+- 仅修改措辞但语义和治理范围不变：更新同一对象并产生新 Revision。
+- 实质替代：创建新 `object_id`，建立 `supersedes` 关系，旧对象状态为 `superseded`。
+- 合并或拆分：创建目标对象和显式派生关系，不复用一个 ID 冒充多个语义对象。
+- 删除业务含义：使用对象类型允许的归档、关闭、替代或移除关系等语义操作，不从历史 Revision 擦除。
+
+## 5. 来源引用与复水
+
+内部 Session 来源使用 `session_id + entry_id`；外部来源使用稳定 `source_id + locator + captured_at`。对象只保存引用和必要的来源状态，不复制完整正文。
+
+来源读取工具必须返回准确引用、读取结果和错误。无法读取时，原引用保留，相关判断进入 `unverified` 或 `review_required`，不以模型记忆替代。
+
+## 6. 保留与清理
+
+- Revision、确认记录和被交接引用的来源不得按普通缓存过期。
+- 原始 Session Entry 的保留服从 Pi Session 策略，但工作包引用的 Entry 在删除前必须完成合规归档或明确使相关对象不可验证。
+- Canvas 投影、快照缓存和派生摘要可以重建，不作为长期保留的唯一副本。
+- 删除 Workspace 时，按产品删除策略处理 Session、工作包、来源和投影；任一层失败必须可见，不得留下“已删除”假象。
+
+## 7. 失败与恢复
+
+| 原因码 | 处理 |
 | --- | --- |
-| `package_id` | 稳定包标识 |
-| `workspace_id` | 所属工作区 |
-| `scope` | 当前主题、目标、范围内与范围外边界 |
-| `lifecycle_status` | `active / archived` |
-| `current_version` | 当前工作版本 |
-| `latest_confirmed_version` | 最近仍可作为正式交接依据的版本，可空 |
-| `state_version` | 当前权威对象图版本 |
-| `created_at / updated_at` | 创建与最近事实更新时间 |
+| `memory.session_unavailable` | 稳定状态仍可读；禁止声称已核对缺失对话 |
+| `memory.revision_unavailable` | 关闭稳定写入和交接确认 |
+| `memory.source_unavailable` | 保留引用并降级相关事实状态 |
+| `memory.identity_conflict` | 拒绝复用 ID，要求显式替代或合并 |
+| `memory.retention_conflict` | 阻止删除仍被有效对象或交接引用的记录 |
 
-### 2.1 创建规则
+## 8. 验收场景
 
-- 一个活跃工作上下文对应一个主题（1:1）；切换主题意味着切换到另一个包。工作区内可以有多个活跃包，但每次 Chat 只有一个当前绑定的活跃工作上下文。
-- 工作区没有可承接当前主题的活跃包时，创建新的 `package_id`。
-- 同一主题跨多轮 Chat、多个会话继续推进时，保持原 `package_id`。
-- 用户明确开启独立主题，或范围边界已经无法在原包中成立时，创建新包。
-- 不允许仅凭文本相似度自动合并两个包。
-- 需要拆分时，新包记录 `derived_from_package_ids`；旧包保持不变。
-- 需要合并时，1.0 通过创建一个引用原包的新包完成，不原地拼接历史版本链。
-
-Conversation 只是消息组织范围，不决定包身份；画布栏目和选中卡片也不决定包身份。
-
-## 3. 结构化包 Schema
-
-每个不可变包版本使用同一确定性骨架：
-
-| 模块 | 最小内容 | 权威边界 |
-| --- | --- | --- |
-| `version` | Schema 版本、包版本、父版本、状态版本和形成来源 | 系统确定性装配 |
-| `scope` | 当前主题、目标、范围内与范围外边界 | 受治理语义内容 |
-| `background` | 背景摘要与关键来源引用 | 摘要可由收敛整理，来源引用必须真实 |
-| `objects` | 对象 ID、类型化状态、正文、来源、确认和未决引用 | 包内唯一业务对象正文 |
-| `relations` | 对象间来源、支持、阻塞、冲突、替代和产出关系 | 必须引用真实对象 |
-| `handoff` | 各交接模块的对象引用 | 不复制对象正文，不另设状态 |
-| `source_refs` | 本版本依赖的消息、来源和工具结果引用 | 只保存引用与最小元数据 |
-
-### 3.1 对象快照
-
-每个 `objects` 条目至少包含：
-
-| 字段 | 含义 |
-| --- | --- |
-| `object_id` | 稳定对象标识 |
-| `object_type` | 证据、问题、待澄清、约束或待决策对象 |
-| `object_status` | 该类型唯一权威的业务状态 |
-| `content` | 类型化正文，不是自由页面片段 |
-| `source_refs` | 来源消息、材料或工具结果 |
-| `confirmation_refs` | 支撑当前稳定地位的确认记录，可空 |
-| `unresolved_refs` | 仍未一起解决的问题，可空 |
-| `validation_state` | `unverified / valid / warning / invalid` |
-| `created_at / updated_at` | 对象创建与最近语义更新时间 |
-
-对象 ID、类型、版本、真实引用和时间由系统装配或验证。模型可以整理 `content`，但不能伪造这些确定性字段。
-
-### 3.2 交接模块
-
-`handoff` 不重新保存一份总结正文，至少包含：
-
-| 字段 | 含义 |
-| --- | --- |
-| `current_goal_ref` | 指向 `scope` 中当前目标 |
-| `background_ref` | 指向 `background` |
-| `confirmed_constraint_refs` | 已生效约束对象引用 |
-| `completed_decision_refs` | 已决定对象引用 |
-| `unresolved_refs` | 未解决问题引用 |
-| `pending_decision_refs` | 待拍板事项引用 |
-| `recommended_actions` | 推荐动作、关联对象和来源引用 |
-| `key_source_refs` | 关键来源引用 |
-| `milestone_ref` | 里程碑投影依据；1.0 不实现里程碑，本字段预留、恒空 |
-
-工作包与结构化交接物使用这同一 Schema。交接有效性只读取包版本的 `initial_governance_status` 及状态账本叠加出的 `effective_status`，其中可以包含后续的 `outdated`；`handoff` 模块不再维护一套独立状态。二者的区别来自版本治理状态和交接引用是否达到可用条件，不来自复制出第二份文档。
-
-## 4. 不可变包版本
-
-每个包版本至少记录：
-
-| 字段 | 含义 |
-| --- | --- |
-| `package_id` | 所属包 |
-| `package_version` | 包内单调递增版本号 |
-| `parent_version` | 直接父版本，可空 |
-| `state_version` | 对应权威对象图版本 |
-| `schema_version` | 包 Schema 版本 |
-| `input_from_seq / input_through_seq` | 本版本消费的消息范围 |
-| `created_by_run_id` | 形成该版本的收敛回合 |
-| `operation_id` | 幂等提交键 |
-| `initial_governance_status` | 创建时的草稿、待确认或已确认地位 |
-| `content_checksum` | 不可变正文校验值 |
-| `created_at` | 形成时间 |
-
-版本正文一经提交不可修改。后来发生确认、过时、风险标注或归档时，追加状态账本事件并更新派生索引，不回写版本正文。
-
-**版本号关系：** 在 1.0 中，`package_version` 和 `state_version` 随每次正文提交同步递进；消费者不得假设二者编号相等，预留未来「同对象图多包快照」等分叉场景。两者语义不同：`package_version` 标识不可变内容快照，`state_version` 是对象图修订计数，用于乐观并发控制（如 `base_version_changed` 检测）。纯治理提交不推进任一版本（见 State Ledger §7.2）。
-
-## 5. 轻量访问结构
-
-### 5.1 活跃范围摘要
-
-用于快速找到工作区当前活跃包，至少包含：
-
-- `workspace_id`
-- 活跃 `package_id` 列表
-- 最近使用包
-- 包标题和少量路由关键词
-- `updated_at`
-
-它可以由包根元数据确定性更新，不保存对象正文，也不拥有事实地位。
-
-### 5.2 结构化包索引
-
-每条索引至少包含：
-
-| 字段 | 含义 |
-| --- | --- |
-| `workspace_id / package_id` | 定位范围 |
-| `topic_label / scope_terms` | 路由关键词，不是事实正文 |
-| `current_version` | 当前工作版本 |
-| `latest_confirmed_version` | 当前可用确认版本，可空 |
-| `state_version` | 当前状态版本 |
-| `lifecycle_status` | 活跃或已归档 |
-| `last_message_seq` | 最近纳入结构化状态的消息边界 |
-| `source_ids` | 关键来源 ID 集合 |
-| `updated_at` | 索引更新时间 |
-
-索引与包正文冲突时，以包根、不可变版本和状态账本为准，索引必须重建。
-
-## 6. 检索与复水
-
-默认按以下顺序执行：
-
-1. 当前 Chat 已绑定 `package_id` 时直接读取当前版本。
-2. 用户明确引用包、对象、来源或历史消息时执行精确定位。
-3. 没有明确绑定时，先按 Workspace、活跃状态和主题边界筛选包索引。
-4. 候选过多时可使用关键词或语义相关性排序，但只用于排序候选。
-5. 读取候选包的当前版本或指定历史版本。
-6. 需要核对措辞、确认范围、冲突或工具结果时，再复水原始记录。
-
-语义检索阈值、返回数量和时间窗口属于可配置评测参数。每次检索必须记录 `query_scope`、候选包、排序原因、使用版本和是否复水原文。
-
-检索结果不能直接写入当前包。被采纳内容必须保留原包版本和来源引用，并通过当前收敛与治理流程形成新版本。
-
-## 7. 跨上下文复用
-
-- 旧包中的内容默认作为参考或候选。
-- 旧包的“已确认”只说明它在旧作用域中成立，不自动迁移。
-- 作用域完全一致且来源仍有效时，可以减少重复追问，但仍需由当前收敛验证适用性。
-- 冲突、过时或范围不明时，形成待澄清、冲突或待决策候选。
-- 采用后，当前包对象记录 `adopted_from` 的包、版本和对象引用。
-
-## 8. 归档与保留
-
-1.0 不对原始消息、包版本和状态账本执行自动时间删除：
-
-- `archived` 只将包移出默认活跃检索，不删除历史。
-- 冷历史按需复水，不默认注入模型。
-- 来源、确认、替代和过时关系不得因归档断裂。
-- 用户主动删除工作区时的物理清理、备份和合规保留属于存储与账号策略，不在本层自行推断。
-
-## 9. 旧实现迁移
-
-当前代码中的卡片集合、`workspace.metadata.state_ledger`、阶段字段和交接元数据不是目标 Memory 模型。迁移时：
-
-1. 为现有工作区创建初始 `package_id` 与版本 `1`。
-2. 将卡片迁移为类型化对象，将关系和来源引用一并迁移。
-3. 将可验证的历史确认迁移为确认记录；旧 `confirmation_queue` 只保留为历史提案或消息证据，不迁移成新的审批任务。
-4. 旧 `stage_node / checkpoint` 不进入包身份或事实状态。
-5. 初始版本生成迁移事件和校验报告，无法验证的字段标为 `warning`，不得猜测补全。
-
-## 10. L3 验收场景
-
-- 同一主题跨会话继续时仍读取同一 `package_id`。
-- 普通 Chat 完成后只有原始消息增加，包版本不变。
-- 正文收敛成功后创建不可变新版本并推进 `current_version`；纯治理提交不复制正文。
-- 当前草稿更新后，旧的可用 `latest_confirmed_version` 仍可被定位。
-- 索引损坏后可以由包根、版本和账本重建。
-- 旧包检索结果不会自动继承确认状态。
-- 归档包默认不进入当前上下文，但可按引用完整复水。
+1. 删除 Canvas 缓存后，所有稳定对象可从 Revision 恢复。
+2. 压缩 Session 后，仍能通过 Entry 引用读取交接关键依据。
+3. 对象被新方案实质替代时，新旧 ID 和 `supersedes` 关系均可追溯。
+4. 来源失效不会删除对象，但会使相关判断和交接状态按规则降级。
+5. Session 和 Revision 对同一内容不一致时，以 Revision 判断当前稳定状态，以 Session 解释形成过程。

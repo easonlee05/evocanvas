@@ -12,9 +12,9 @@
 
 ## 当前模块
 
-1. [cards.md](/Users/apple/Desktop/evocanvas/docs/vision/modules/cards.md)
+1. [cards.md](./cards.md)
    卡片模块阅读文档，聚焦业务对象与包版本的卡片投影、卡片类型、关系和迁移规则。
-2. [widgets.md](/Users/apple/Desktop/evocanvas/docs/vision/modules/widgets.md)
+2. [widgets.md](./widgets.md)
    挂件模块阅读文档，聚焦系统挂件、个人挂件预留以及项目时间轴和活跃缺口的边界。
 
 ## 建议阅读顺序

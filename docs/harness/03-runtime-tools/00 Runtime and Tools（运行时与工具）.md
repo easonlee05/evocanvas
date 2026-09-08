@@ -1,66 +1,64 @@
 # Runtime and Tools（运行时与工具）
 
-> 当前成熟度层级：`L3 可指导实现的治理规格层`
-> 编码门槛：`可作为 EvoCanvas 1.0 运行记录、调度器、提交器、工具桥接与失败恢复的实现输入`
+> 方法成熟度：`L3 可指导实现的治理规格层`
+> 目标实现归属：`Pi Agent Core + EvoCanvas 工具能力`
+> 当前实现状态：`合同已定，代码待迁移`
+> 实现说明：Pi 原生管理 Agent Loop、Session、流式、取消、压缩和技术 Trace；EvoCanvas 只提供领域工具及其确定性治理。
 
-## 1. 分组目的
+## 1. 控制目标
 
-本组定义一次正常 Chat 如何持续可用，后台收敛如何低频触发，以及结构化状态如何在工具、并发和失败条件下安全写入。
+保证所有对话、推理和工具调用都运行在同一个 Pi 核心中，同时确保只有受治理的工具结果能改变稳定工作包或产生外部副作用。
 
-- 运行时（runtime）负责消息顺序、运行记录、触发调度、并发、版本和提交边界。
-- 工具（tools）负责外部读取、验证、转换和受控能力接入。
-- 失败恢复（failure and recovery）负责重试、过期、未知提交结果和投影修复。
+## 2. 职责边界
 
-运行时不决定产品结论，工具也不拥有事实裁决权。
+| 能力 | 归属 |
+| --- | --- |
+| 模型调用、Tool Loop、消息、流式、取消、重试、窗口和压缩 | Pi Agent Core |
+| Primary Session、分支、Entry 和技术运行 Trace | Pi Agent Core |
+| 结构化工作包读取与语义提交工具 | EvoCanvas 能力装入 Pi |
+| 对象、来源、确认、版本和幂等门禁 | EvoCanvas 工具 Schema / Hooks |
+| Canvas 投影 | EvoCanvas Renderer |
+| 产品语义裁决 | 当前 Pi 提议，用户确认 |
 
-## 2. L3 主链
+不建立外部 Product Kernel、独立运行状态机或 `ChatTurn / ConvergenceRun` 持久对象。
+
+## 3. 主链
 
 ```text
-原始消息持久化
-  -> 正常 Chat 回复
-  -> 轻量后置判断
-  -> 达到条件后创建收敛回合
-  -> 结构化提案
-  -> 验证与治理
-  -> 幂等原子提交
-  -> 状态账本与结构化包新版本
-  -> 画布和提示显影
+Primary Pi Session 收到 User Entry
+-> Pi 进入正常 Agent Tool Loop
+-> 按需读 Skill、工作包、历史和来源
+-> 直接回复，或展示待确认的稳定变更
+-> 用户确认后调用 workspace.commit
+-> 工具确定性校验并原子创建 Revision
+-> Pi 读取提交结果并回复
+-> Renderer 异步显影 Revision
 ```
 
-这条主链有三个不变量：
+## 4. 权威结果
 
-1. Chat 不直接写结构化状态，也不被后台收敛阻塞。
-2. 判断器只决定是否值得收敛，不生成对象、不写事实。
-3. 只有统一提交器可以推进结构化状态版本和包版本。
+- Pi Session Entry 是运行过程真相。
+- Tool Result 是工具实际执行真相。
+- 工作包 Revision 是稳定业务状态真相。
+- 外部系统回执是外部副作用真相。
+- Pi 的自然语言总结、Canvas 和 Toast 均不能替代上述权威结果。
 
-## 3. 运行记录
+## 5. 失败边界
 
-EvoCanvas 主路径使用四类专用运行记录：
+技术调用失败只改变本次运行结果，不自动改变业务状态；工作包提交成功后即使回复或投影失败，Revision 仍有效。外部副作用结果未知时必须先核对，不得把超时当成未执行。
 
-- Chat 回合记录（`ChatTurn`）。
-- 收敛判断记录（`ConvergenceJudgement`）。
-- 收敛回合记录（`ConvergenceRun`）。
-- 提交尝试记录（`CommitAttempt`）。
+## 6. L3 验收场景
 
-它们通过因果 ID 关联，但不强行映射为旧式工作流任务。现有事件、工具、错误、模型适配和持久化底座继续复用。
+1. 一次对话内读取来源、确认和提交都出现在同一 Pi Session / Tool Loop。
+2. 模型生成了正确 JSON 但未实际调用提交工具时，工作包不改变。
+3. 提交成功后回复流断开，重新读取仍能发现新 Revision。
+4. Canvas 投影失败不会回滚已提交 Revision。
+5. 运行取消后不会留下半可见 Revision 或未记录的外部副作用。
+6. 第一条用户消息因网络重试重复到达时只产生一个 User Entry；不同身份层不会共用同一 ID。
+7. 进程在工具返回前崩溃时，只自动恢复 `replay=safe` 的调用；`replay=never` 且结果未知的调用停在人工核对。
 
-## 4. 并发基线
+## 7. 子规格
 
-- 用户消息先持久化并获得单调递增的消息序号，不因后台收敛或待处理结果返回 `409`。
-- 同一会话的 Assistant 回复保持有序。
-- 每个 `(workspace_id, package_id)` 同时最多一个活跃收敛回合。
-- 后续判断请求合并为一个“待重新判断水位”，不逐条排队，也不丢弃。
-- 结构化提交使用期望版本校验；过期结果停止且不覆盖新状态。
-
-## 5. 事实与显影边界
-
-- 原始 `user / assistant / tool` 消息是可追溯记录。
-- 结构化包是模型当前工作的主要事实工作面。
-- 状态账本记录变化原因与版本关系。
-- 画布、Active Todos 和 Toast 都是提交后投影，可以重建，不参与事实事务。
-
-## 6. 核心阅读入口
-
-- [Runtime（运行时）](./01%20Runtime%EF%BC%88%E8%BF%90%E8%A1%8C%E6%97%B6%EF%BC%89.md)：定义四类运行记录、触发调度、并发、生命周期和原子提交。
-- [Tool Contract（工具契约）](./02%20Tool%20Contract%EF%BC%88%E5%B7%A5%E5%85%B7%E5%A5%91%E7%BA%A6%EF%BC%89.md)：定义工具规格、调用记录、权限、来源入链和副作用边界。
-- [Failure and Recovery（失败与恢复）](./03%20Failure%20and%20Recovery%EF%BC%88%E5%A4%B1%E8%B4%A5%E4%B8%8E%E6%81%A2%E5%A4%8D%EF%BC%89.md)：定义错误分类、重试、进程恢复、未知提交结果和投影修复。
+- [Runtime（运行时）](./01%20Runtime%EF%BC%88%E8%BF%90%E8%A1%8C%E6%97%B6%EF%BC%89.md)
+- [Tool Contract（工具契约）](./02%20Tool%20Contract%EF%BC%88%E5%B7%A5%E5%85%B7%E5%A5%91%E7%BA%A6%EF%BC%89.md)
+- [Failure and Recovery（失败与恢复）](./03%20Failure%20and%20Recovery%EF%BC%88%E5%A4%B1%E8%B4%A5%E4%B8%8E%E6%81%A2%E5%A4%8D%EF%BC%89.md)

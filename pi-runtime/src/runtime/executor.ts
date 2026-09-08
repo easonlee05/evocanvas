@@ -17,6 +17,7 @@ import type {
   Usage,
 } from "../contracts.js";
 import { createRunToolRuntime, type RunToolRuntime } from "./tools.js";
+import { RuntimeProviderNotReadyError } from "../validation.js";
 
 export interface RunEventSink {
   (type: EventEnvelope["type"], payload: Record<string, unknown>): Promise<void> | void;
@@ -42,7 +43,9 @@ export class UnconfiguredRunExecutor implements RunExecutor {
   constructor(private readonly providerId: string) {}
 
   async execute(_request: RunRequest, _emit: RunEventSink, _signal: AbortSignal): Promise<RunResult> {
-    throw new Error(
+    throw new RuntimeProviderNotReadyError(
+      this.providerId,
+      undefined,
       `Pi Runtime provider ${this.providerId} is not configured; set PI_PROVIDER and install a real adapter`,
     );
   }
@@ -194,6 +197,7 @@ function buildRuntimeTools(
   runtime: RunToolRuntime,
   emit: RunEventSink,
   toolTrace: string[],
+  toolState: { failed: boolean },
   signal: AbortSignal,
 ): AgentTool[] {
   return request.tool_profile.allowed_tools.map((name) => ({
@@ -210,6 +214,7 @@ function buildRuntimeTools(
         emit,
         toolSignal ?? signal,
       );
+      if (result.status !== "succeeded") toolState.failed = true;
       return {
         content: [{ type: "text" as const, text: resultText(result as unknown as Record<string, unknown>) }],
         details: result,
@@ -287,7 +292,11 @@ function assistantBlocks(message: import("@earendil-works/pi-ai").AssistantMessa
   return message.content.flatMap((block) => block.type === "text" ? [{ type: "text" as const, text: block.text }] : []);
 }
 
-function chatFinishReason(message: import("@earendil-works/pi-ai").AssistantMessage): "completed" | "length" | "cancelled" | "error" {
+function chatFinishReason(
+  message: import("@earendil-works/pi-ai").AssistantMessage,
+  toolFailed: boolean,
+): "completed" | "length" | "tool_failed" | "cancelled" | "error" {
+  if (toolFailed) return "tool_failed";
   if (message.stopReason === "aborted") return "cancelled";
   if (message.stopReason === "error") return "error";
   if (message.stopReason === "length") return "length";
@@ -342,12 +351,21 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
 
   async execute(request: RunRequest, emit: RunEventSink, signal: AbortSignal, tools?: RunToolRuntime): Promise<RunResult> {
     const model = this.resolveModel();
+    const auth = await this.models.getAuth(model);
+    if (!auth) {
+      throw new RuntimeProviderNotReadyError(
+        this.providerId,
+        model.id,
+        `Pi Runtime provider ${this.providerId} has no resolved credentials`,
+      );
+    }
     const runtime = tools ?? createRunToolRuntime(request);
     const toolTrace: string[] = [];
+    const toolState = { failed: false };
     const judgementCapture: { value: CapturedJudgement | null } = { value: null };
     const agentTools = request.run_kind === "judgement"
       ? [buildJudgementTool(judgementCapture)]
-      : buildRuntimeTools(request, runtime, emit, toolTrace, signal);
+      : buildRuntimeTools(request, runtime, emit, toolTrace, toolState, signal);
     const agent = new Agent({
       initialState: {
         systemPrompt: providerPrompt(request),
@@ -382,7 +400,7 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
       await emit("usage.updated", { ...usage });
       const identity = modelIdentity(lastAssistant);
       if (request.run_kind === "chat") {
-        const finishReason = chatFinishReason(lastAssistant);
+        const finishReason = chatFinishReason(lastAssistant, toolState.failed);
         const assistantMessage = finishReason === "completed" || finishReason === "length"
           ? { content_blocks: assistantBlocks(lastAssistant) }
           : null;
@@ -418,10 +436,15 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
       }
       const proposal = runtime.proposalCapture?.getProposal() ?? null;
       if (!proposal) {
+        const finishReason = toolState.failed
+          ? "tool_failed"
+          : lastAssistant.stopReason === "aborted"
+            ? "cancelled"
+            : lastAssistant.stopReason === "error" ? "error" : "not_ready";
         return {
           run_id: request.run_id,
           proposal: null,
-          finish_reason: lastAssistant.stopReason === "aborted" ? "cancelled" : "not_ready",
+          finish_reason: finishReason,
           tool_trace: toolTrace,
           usage,
           model_identity: identity,

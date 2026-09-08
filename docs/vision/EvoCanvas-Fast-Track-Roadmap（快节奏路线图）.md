@@ -10,7 +10,7 @@
 - 明确每一阶段的目标、必做项、不要做项和验收问题
 - 防止高开发速度把产品做散
 
-如果本文档与 `docs/vision/EvoCanvas1.0-PRD.md` 冲突，以主 PRD 为准；如果与 [EvoCanvas-Positioning-Memo（定位判断备忘）.md](</Users/apple/Desktop/evocanvas/docs/vision/EvoCanvas-Positioning-Memo（定位判断备忘）.md>) 冲突，以定位 memo 里的主线判断为准。
+如果本文档与 [EvoCanvas1.0-PRD.md](./EvoCanvas1.0-PRD.md) 或 [EvoCanvas-Positioning-Memo（定位判断备忘）.md](./EvoCanvas-Positioning-Memo%EF%BC%88%E5%AE%9A%E4%BD%8D%E5%88%A4%E6%96%AD%E5%A4%87%E5%BF%98%EF%BC%89.md) 冲突，统一以主 PRD 为准；定位 memo 只保留决策背景，不拥有更高产品权威。
 
 ## 2. 路线总原则
 

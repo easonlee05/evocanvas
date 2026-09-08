@@ -1,196 +1,76 @@
 # Lifecycle（生命周期）
 
-> 当前成熟度层级：`L3 可指导实现的治理规格层`
-> 编码门槛：`可作为 1.0 运行记录终态、包版本演化、对象信息地位和过时规则的实现输入`
+> 方法成熟度：`L3 可指导实现的治理规格层`
+> 目标实现归属：`Pi Session + 结构化工作包 + Canvas 投影`
+> 当前实现状态：`合同已定，代码待迁移`
+> 实现说明：技术运行、稳定状态和派生投影分别拥有生命周期，不能互相代替。
 
-## 1. 职责边界
+## 1. 控制目标
 
-生命周期定义不同记录如何开始、结束、替代和过时。它不把“感觉接入、对话塑形、结构收敛、画布显影、结构化交接”做成主题必须逐步经过的持久化阶段。
+明确各类记录何时创建、何时成为当前状态、何时结束或过时，以及故障后从哪里恢复。
 
-EvoCanvas 需要区分四类演化：
+## 2. 生命周期矩阵
 
-1. 原始消息与来源的保存。
-2. Chat、判断、收敛和提交等运行记录的终止。
-3. 同一结构化包的不可变版本演化。
-4. 包内业务对象的信息地位变化。
+| 对象 | 创建 | 当前性 | 结束 / 过时 | 权威恢复源 |
+| --- | --- | --- | --- | --- |
+| Workspace–Session Binding | 第一条真实用户消息，先写 `binding` | `ready` 指向唯一 Primary Session | `unavailable / archived / deleted` | Binding Store + Pi Session Store |
+| Pi Session | Binding 预留 ID 后创建 | `ready` Binding 指向的 Primary Session | close 仅释放资源；archive 保留；受控换代或协调删除 | Pi Session Store |
+| Session Entry | 用户、助手或工具事件 | 当前分支可见 | 不修改；可被压缩摘要覆盖模型窗口 | 原 Entry |
+| Pi 技术运行 | 新 Prompt / 恢复动作 | Main Lane active operation | completed / cancelled / failed / suspended | Pi Session + Trace |
+| 工作包 Revision | 原子稳定提交 | `current_revision_id` | 被后续 Revision 取代当前性，历史不删除 | Revision Store |
+| 稳定对象 | 用户固定语义后首次进入 Revision | current Revision 中使用主 PRD 的唯一类型化状态 | 按类型进入已关闭 / 已归档 / 已替代等终态 | 对应 Revision |
+| 确认记录 | 对具体内容与范围确认 | 内容哈希和依赖仍匹配 | 不再覆盖新内容，历史保留 | 对应 Revision |
+| 交接 | 从 Revision 生成 | 最近有效 confirmed 版本 | suspended / invalidated / superseded | 已确认 Revision |
+| Canvas 投影 | 消费 Revision | 标记其 `projected_revision_id` | 新投影替代或缓存删除 | Revision 重建 |
 
-这四类记录可以关联，但不能共用一套状态字段。
+## 3. Revision 发布
 
-## 2. 原始消息与来源
+新 Revision 只有在完整快照、确定性验证、确认校验和依赖传播全部成功后，才能原子更新 current 指针。创建了内部草稿但未更新指针的记录不得对读者可见，需由恢复任务清理。
 
-原始 `user / assistant / tool` 消息和导入来源一经持久化，不因后续判断、收敛、撤回或过时而改写。
+## 3.1 Session Binding 发布
 
-- 新解释通过结构化包版本表达，不回写原文。
-- 用户否定旧判断时，新增否定消息和替代关系，不删除旧消息。
-- 消息序号决定收敛输入边界；时间戳只用于展示和诊断。
-- 冷却、归档和上下文压缩只改变检索方式，不改变原始记录的权威性。
+仅打开空 Workspace 不创建 Session。第一条真实消息按以下顺序建立绑定：
 
-## 3. 运行记录生命周期
+1. 以 `workspace_id + submission_id + content_hash` 取得创建权并预留 `primary_session_id`，状态为 `binding`；
+2. 使用预留 ID 创建单 Session SQLite 文件并持久化首条 User Entry；
+3. 校验 Entry 哈希后将 Binding 发布为 `ready`，返回稳定 `entry_id`；
+4. 任何重试复用同一 `submission_id` 和预留 Session ID，不创建第二个 Session。
 
-### 3.1 Chat 回合
+崩溃后若 Session 文件和首条 Entry 已存在则完成发布；尚未创建则以同一预留 ID 重试；内容不匹配或无法判定时转为 `unavailable` 并进入人工恢复。孤立文件只可隔离或回收，不能自动成为另一个 Workspace 的 Session。
 
-```text
-queued -> running -> completed
-                  -> failed
-                  -> cancelled
-```
+## 4. 对象推进
 
-- `completed` 只表示主 Assistant 回复已经完成，不表示结构化状态发生变化。
-- Chat 没有等待结构化确认的运行状态。
-- User 消息已经持久化后，即使 Assistant 回复失败，后续也可以继续处理该消息。
+候选不是稳定生命周期状态。对象第一次进入工作包时即应具有明确的信息地位和生命周期状态。对象正文、关系、状态或确认变化均通过新 Revision 表达；历史 Revision 永不原地修改。
 
-### 3.2 收敛判断
+## 5. 交接推进
 
-判断从创建进入已评估或失败；已评估后通过 `decision` 表达：
+交接 `draft / confirmed / suspended / invalidated / superseded` 的转换及 current 与 latest-confirmed 双指针见 Memory & State 规格。下游只能使用有效的 confirmed 版本。
 
-```text
-skip / defer / trigger
-```
+## 6. 删除与保留
 
-- `skip` 和 `defer` 都是正常结果。
-- 判断记录不得变成业务对象，也不直接产生包版本。
-- 同一消息范围被更晚水位覆盖时，旧判断保留 trace，但不再调度写回合。
+- 业务撤回使用状态而非物理删除历史 Revision。
+- Canvas 和快照缓存可物理清除并重建。
+- `close` 只结束当前 Agent 句柄、释放 Session 文件锁和运行资源，不改变 Binding、Entry 或 Revision。
+- `archive` 将 Binding 与 Workspace 标记为归档，保留原 Session、Entry、Revision 和来源引用；恢复时仍打开原 Session。
+- 受控 Session 换代只在原 Session 无法继续使用或格式迁移时发生：新 Session 必须记录前任引用和迁移映射，旧 Entry 仍可解析；不得用换代掩盖普通故障。
+- Workspace `delete` 是独立高风险动作，协调处理 Session、工作包、来源和投影，并返回唯一终态：`deleted`（目标均已删除）、`partial`（存在明确残留和可重试步骤）、`retention_held`（因保留策略未物理删除）。
+- `partial / retention_held` 均不得向用户显示为删除成功；重复删除请求复用同一幂等键和进度记录。
 
-### 3.3 收敛回合
+## 7. 失败与恢复
 
-```text
-created -> queued -> running -> validating -> committing -> completed
-                           -> failed
-                           -> stale
-                           -> cancelled
-```
+- current 指针更新前失败：新 Revision 不可见，安全重试同一幂等请求。
+- 指针更新后响应失败：按幂等键或 current 指针确认成功。
+- 投影落后：比较 `projected_revision_id` 与 `current_revision_id` 后重放。
+- 确认依赖变化：更新交接和复核标记，不删除旧确认。
+- Session 技术运行无法恢复：稳定 Revision 不受影响；必须先恢复原 Session，或按受控换代规则建立可追溯的新 Session，才能以 current Revision 作为业务状态继续；不得在 `unavailable` 状态下另建伪接续 Session。
+- Primary Session 暂时不可用：current Revision 只读；恢复原 Session 或完成受控换代前关闭稳定写入。
 
-技术状态与业务结果分开：
+## 8. 验收场景
 
-```text
-applied / no_change / not_ready / rejected_by_governance
-```
-
-- 只有 `applied` 表示成功完成了正文或治理提交；提交记录中的 `commit_kind` 区分二者。
-- `applied + content` 创建新包版本；`applied + governance` 只追加治理事件并按需移动确认版本指针。
-- `completed + no_change`、`completed + not_ready` 和 `completed + rejected_by_governance` 都不执行事实或治理提交。
-- `stale` 是技术终态，不得自动恢复为运行中，也不得重放旧提案。
-
-### 3.4 提交尝试
-
-```text
-started / applied / duplicate / stale / failed / unknown
-```
-
-- `duplicate` 返回同一 `operation_id` 的原结果。
-- `unknown` 必须先查询提交结果，不能直接重试。
-- 提交尝试失败不回退或改写已经完成的 Chat。
-
-### 3.5 Structured Package Input 派生快照
-
-Structured Package Input 是运行期派生快照，不是第五类权威记录，也不拥有独立业务状态机。
-
-1. 同一 `package_id + package_version + state_version + assembly_policy_version` 在关联推进链中只生成一份不可变快照。
-2. Chat、实际调用模型的判断与收敛共用该快照的 ID 和内容哈希，不每次重建。
-3. 关联判断以 `skip / defer / failed` 终止且未创建收敛回合，或关联收敛回合进入任一技术终态后，该推进链视为终止。
-4. 推进链终止后，快照正文可按保留策略过期或物理清理；输入 ID、内容哈希、Context Manifest、装配策略版本和权威引用继续保留。
-5. 快照过期不改变包版本、状态账本、对象地位或画布投影，也不触发新收敛。
-6. 活跃期间快照丢失时，可从 Manifest 所指权威版本、来源和装配策略重建；只有内容哈希相同才能继续原推进链，否则关联收敛不得稳定写入。
-
-### 3.6 History Compaction Artifact（历史压缩产物）
-
-History Compaction Artifact 是模型可见历史的运行期派生表示，不是业务事实、确认记录或结构化包版本。
-
-1. Conversation History 命中 Token 触发线时，基于明确的原始消息范围生成一份不可变压缩产物。
-2. 新压缩产物成为后续调用的活动检查点；旧压缩产物保留 Trace 引用，但不与新产物重复进入模型工作面。
-3. 压缩不删除、合并或改写原始 `user / assistant / tool` 消息；原始记录继续用于回放、确认取证与精确复水。
-4. 压缩产物可以随运行保留策略过期，但 `history_compaction_id`、来源消息范围、内容哈希、压缩策略版本和 Context Manifest 引用继续保留。
-5. 活动压缩产物丢失时，只能从 Manifest 指向的原始消息范围和相同压缩策略重建；内容哈希不一致时不得冒充原产物。
-6. 供应商原生压缩项可以作为传输引用附着于该产物，但不能取代供应商中立的压缩记录或阻止后续切换 Adapter。
-
-## 4. 结构化包生命周期
-
-一个活跃工作上下文保持稳定 `package_id`，每次正文发生结构化变化时创建不可变 `package_version`：
-
-```text
-package_id
-  current_version -> 当前 Chat 与收敛读取的版本
-  latest_confirmed_version -> 最近仍可供正式交接使用的版本
-```
-
-规则：
-
-1. 新版本必须记录 `parent_version`、基础消息边界和提交 `operation_id`。
-2. 新草稿版本推进 `current_version`，但不自动推进 `latest_confirmed_version`。
-3. 当前版本达到已确认地位后，治理层才允许推进 `latest_confirmed_version`。
-4. 回退通过基于旧版本创建新版本完成，不原地改写历史版本。
-5. 关键依赖变化时，旧已确认版本可以进入已过时，但正文保持不变。
-6. 只确认已有版本、标记过时或追加风险时，不复制正文；通过纯治理提交追加账本事件并按需移动 `latest_confirmed_version`。
-
-包版本的持久化结构由记忆与状态层定义；本层只约束何时创建、推进指针和进入终态。
-
-## 5. 对象信息地位生命周期
-
-业务对象至少区分三种语义层：
-
-| 信息地位 | 含义 | 是否可自动形成 |
-| --- | --- | --- |
-| 草稿或候选 | 当前结构化理解，仍可挑战 | 可以 |
-| 待确认 | 已足够具体，但尚未获得所需确认 | 可以 |
-| 已生效、已决定或已确认 | 可以作为后续依据或正式交接输入 | 必须有有效确认依据 |
-
-具体卡片状态继续由状态账本和对象治理定义。本层补充以下演化规则：
-
-1. 创建证据片段、问题、Chat 后仍影响推进的待澄清、待决策候选或达到可评审条件的交接草稿，不因“生成了对象”本身要求用户确认。
-2. 约束卡不经过画布候选态；新增、实质修改或替代约束时，必须直接携带来源、确认范围和原始消息引用。
-3. 进入已决定、已澄清、关键关闭或已确认状态时，必须携带来源、确认范围和原始消息引用。
-4. Chat 已经包含完整确认时，同一原子提交可以同时记录“创建对象”和“信息地位升级”，不要求先提交一版仅用于等待确认的中间版本。
-5. 上述同提交升级仍须在状态账本中保留有序变化和确认记录，不能只写最终状态而丢失原因。
-6. 确认只覆盖明确作用范围；未被一起确认的字段、对象和未决继续保持原地位。
-7. 撤回、冲突或新来源推翻旧判断时，通过降级、替代、重开或过时表达，不删除历史。
-8. 待澄清卡不会通过修改 `object_type` 变成约束卡或待决策卡；原对象保留解决历史，确认结果以新对象或既有目标对象更新承接，并建立 `澄清了 / 产出为` 等关系。
-9. 一次确认同时完成取舍并形成后续稳定边界时，可以同时形成已决定事项和已生效约束；前者保存取舍与结果，后者保存当前规则与适用范围。
-10. 一张约束卡以“可独立治理的规则”为身份边界。可以独立确认、修改、替代或废止的规则应拆分；必须共同存在才表达完整含义的内容保持为一个对象。
-11. 约束的标题、措辞、示例或来源补充未改变规则含义时沿用原对象；核心判断、范围、阈值、例外、优先级或下游行为变化时创建新约束，并将旧约束置为已替代。
-12. 新陈述与旧约束冲突时，不得仅凭时间更晚自动建立替代；只有明确替代意图，或当前 Chat 唯一指向修改该旧约束时，才允许替代。否则旧约束保持原生效状态，同时显性保留冲突并进入待澄清或待决策，直至用户完成裁决。
-
-## 6. 等待、取消与过时
-
-### 6.1 不存在普通确认等待态
-
-普通结构化更新没有长期 `awaiting_confirmation`：
-
-- Chat 没聊清楚时继续正常对话。
-- 收敛发现确认不足时，以 `not_ready` 结束，或在有合法候选变化时提交候选版本并以 `applied` 结束。
-- 后续新消息再通过判断器决定是否启动新的收敛。
-
-### 6.2 取消
-
-只有尚未进入不可逆提交的运行可以取消。取消只终止运行，不删除原始消息、来源或已经提交的版本。
-
-### 6.3 过时
-
-以下任一条件使收敛回合在提交前进入 `stale`：
-
-- 实际 `state_version` 与期望版本不一致。
-- 实际 `package_version` 与基础版本不一致。
-- 出现晚于 `input_through_seq` 且会改变本次语义范围的新消息。
-- 相关对象被用户语义编辑、替代或删除。
-
-过时回合留痕后停止。是否再次收敛由最新水位上的新判断决定。
-
-## 7. 投影生命周期
-
-画布、Active Todos、里程碑和 Toast 没有独立事实生命周期：
-
-1. 事实提交成功后，Outbox 发布投影事件。
-2. 投影消费事件并更新可见状态。
-3. 投影失败时重放事件或从当前包版本重建。
-4. 对象被替代、归档或过时时，投影随当前状态更新，不反向修改结构化包。
-5. 已澄清或已关闭的待澄清对象默认退出当前画布与 Active Todos；已决定事项保留在当前画布但退出 Active Todos。
-
-## 8. L3 不变量
-
-- Chat 完成不等于收敛完成。
-- 收敛完成不等于产生包版本。
-- 创建候选不等于用户确认。
-- 画布出现对象不等于对象已经生效。
-- 已确认版本不等于当前版本不会继续演化。
-- 运行失败、取消或过时不抹除原始输入与 trace。
-- Structured Package Input 是可过期的运行期派生快照，其过期不删除权威包版本、来源、Manifest 或 Trace。
-- History Compaction Artifact 只替换模型可见历史表示，其生成或过期不删除原始消息，也不改变业务事实与确认状态。
+1. 历史 Revision 可重放得到当时完整状态。
+2. 工作包新版本发布中途失败，读者只能看到旧完整版本或新完整版本。
+3. 已关闭、已归档或已替代对象仍可在历史版本和来源链中审计。
+4. Canvas 明确显示所投影的 Revision，落后时不冒充最新。
+5. Pi 技术运行失败不会把交接状态改成 failed。
+6. 空 Workspace 被反复打开不会产生 Session 文件；第一条消息重试只产生一个 Session 和一个 User Entry。
+7. 归档后恢复打开原 Session；删除部分失败时返回残留清单而不是成功。

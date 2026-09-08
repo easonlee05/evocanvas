@@ -1,108 +1,94 @@
 # Trace Model（追踪模型）
 
-> 当前成熟度层级：`L2 对象与流程定义层`
+> 方法成熟度：`L3 可指导实现的治理规格层`
+> 目标实现归属：`Pi Trace + EvoCanvas 关联索引`
+> 当前实现状态：`合同已定，代码待迁移`
+> 实现说明：Pi 保存技术运行 Trace；Revision 保存业务生效审计；关联索引不复制两者正文。
 
-## 1. 这一层回答什么问题
+## 1. 控制目标
 
-追踪模型定义系统至少记录哪些结构化 trace，才能解释正常 Chat 如何触发收敛、为什么发生对象变化，以及异步结果为什么被应用、过期或拒绝。
+提供从用户输入到稳定显影的双向追溯，并能区分模型说了什么、工具实际做了什么和当前业务状态是什么。
 
-Trace 面向系统回看、诊断和治理，不要求全部展示给用户。用户前台主要看到正常 Chat 和画布当前投影。
-
-## 2. Chat、判断与收敛追踪
-
-系统至少记录三类关联事件：
+## 2. 关联模型
 
 ```text
-chat_turn_id
-  -> convergence_judgement_id
-  -> convergence_run_id
-  -> operation_id
+User Submission
+  -> Session Entry
+  -> Pi Turn / model call
+  -> Skill and Tool Invocation
+  -> Confirmation Reference
+  -> Semantic Operation
+  -> Commit
+  -> Revision
+  -> Handoff state change
+  -> Projection
 ```
 
-### 2.1 Chat 回合
+并非每个 Entry 都会产生 Commit，也并非每个 Revision 都来自 Pi；用户直接编辑可从 actor / UI action 直接关联 Commit。
 
-最小字段包括：
+## 3. 记录职责
 
-- `chat_turn_id`、工作区 ID、当前工作面引用和 `context_manifest_id`。
-- 用户原始消息、助手消息和关联工具消息引用。
-- 创建与完成时间。
-- 是否产生后置收敛判断。
+### 3.1 Pi Technical Trace
 
-### 2.2 判断事件
+记录模型标识、指令/Skill 版本、上下文快照哈希、消息范围、工具调用、Token、重试、取消和技术终态。
 
-最小字段包括：
+### 3.2 Revision Audit
 
-- `convergence_judgement_id` 与触发它的 `chat_turn_id`。
-- 判断实际调用模型时对应的 `context_manifest_id`；纯规则判断记录 `rule_only`，不伪造 Manifest。
-- 规则命中、模型判断和判断依据摘要。
-- 连续消息合并范围。
-- 结果：不触发或创建收敛回合。
+记录 actor、base/new Revision、语义操作、确认引用、Policy 版本、依赖复核和交接影响。
 
-### 2.3 收敛回合
+### 3.3 Projection Trace
 
-最小字段包括：
+记录目标 Revision、Renderer 版本、结果、节点差异和重建次数。
 
-- `convergence_run_id`、触发它的判断事件与 Chat 回合。
-- 收敛请求对应的 `context_manifest_id`。
-- 基础消息序号、基础状态版本和关键上下文对象。
-- 提案、验证、风险和治理结果。
-- 运行状态与业务结果：已应用、无变化、尚未准备好、治理拒绝、已过期或运行失败。
-- `operation_id`、包版本和提交结果（如发生提交）。
-- `created_at`、`started_at`、`completed_at`。
+## 4. 最小关联记录
 
-消息序号和状态版本保证正确性；时间戳支持排序、耗时分析和回放。
+```text
+trace_link_id
+workspace_id
+submission_id?
+session_id?
+entry_id?
+invocation_id?
+tool_call_id?
+operation_id?
+commit_id?
+revision_id?
+handoff_id?
+projection_id?
+created_at
+```
 
-### 2.4 上下文装配追踪
+该记录只做关联，不保存消息正文、对象快照或外部敏感结果。
 
-Chat、判断和收敛的每次模型调用都必须关联一份独立、不可变的 `Context Manifest`。Manifest 的字段与降级底线由 [Context Assembly §8](../01-instructions-context/03%20Context%20Assembly%EF%BC%88%E4%B8%8A%E4%B8%8B%E6%96%87%E8%A3%85%E9%85%8D%EF%BC%89.md#8-context-manifest%E4%B8%8A%E4%B8%8B%E6%96%87%E8%A3%85%E9%85%8D%E6%B8%85%E5%8D%95) 定义，Trace 只保留引用和本运行结果，不再复制一份上下文清单。
+## 5. 成功口径
 
-每次实际模型调用必须分配唯一 `model_call_id`，并由它串联 Context Manifest、供应商、Adapter / 协议 / 能力配置版本、调用尝试与供应商返回的请求 / 响应 ID（如可得）。系统不创建通用请求 DTO；各 Adapter 只在调用过程中构造供应商原生临时请求，例如 OpenAI Responses Adapter 的 `ResponsesApiRequest` 和 Anthropic Adapter 的 Messages API 请求。Trace 不持久化这些请求、最终响应载荷或二者的整体内容哈希；Structured Package Input 与已定义内容指纹的来源片段继续使用各自已有的校验哈希，消息正文以不可变消息引用为准，Adapter 映射正确性由统一一致性套件与各自版本化契约测试保证。
+- 对话成功：依据 Pi 技术终态。
+- 工具成功：依据 Tool Result。
+- 稳定写入成功：依据 current Revision 和 Commit Result。
+- 交接成功：依据 confirmed handoff 状态和确认记录。
+- 显影成功：依据 projected Revision。
 
-同一 `chat_turn_id -> convergence_judgement_id -> convergence_run_id` 推进链中实际发生的模型调用 Manifest 应保留各自的调用差异，但必须引用相同的 `structured_package_input_id` 和内容哈希。若两者不一致，Trace 必须将其标记为上下文基线冲突，相关收敛结果不得稳定写入。
+任何一个成功不能推导其他层必然成功。
 
-Structured Package Input 快照可在推进链终止后过期，但 Trace 必须继续保留其 ID、内容哈希、装配策略版本、权威引用与保留状态。如果后续重建的快照哈希与原记录不一致，Trace 必须显式记录重建失配，不得将重建结果表达为当时的原始输入。
+## 6. 保留、脱敏与访问
 
-追踪查询至少应能回答：
+Trace 保留期按安全和审计要求配置；被有效 Revision / 交接引用的关键关联不得早于其审计期限删除。敏感参数使用摘要哈希或受控引用，访问 Trace 仍需 Workspace 和诊断权限。
 
-1. 这次模型调用基于哪个包版本、状态版本、活动历史窗口、压缩检查点、复水消息和必要工具链。
-2. 哪些来源被纳入、裁剪或因不可用而缺失。
-3. 哪些原文由 Source Resolver 实际读取，对应哪个原始工具结果，是否通过内容指纹校验。
-4. 使用了哪个装配规则版本，以及是否发生过预算或语义降级。
-5. 本次结果失败时，问题发生在上下文装配、来源读取、模型判断还是后续验证与治理。
-6. 本次调用经过哪个供应商、Adapter、协议与能力配置版本发送，对应哪个 `model_call_id` 和供应商请求 / 响应记录。
-7. 当前供应商与协议版本是否属于正式支持矩阵，以及所依据的一致性套件版本。
-8. Conversation History 是否触发压缩、压缩前后各有多少 Token、保留了哪些连续原文、复水了哪些旧消息，以及 Raw User Message 是否保持独立且未重复。
-9. 本次使用哪个共享上下文档、原始窗口与 90% / 95% 边界分别是多少、五个逻辑输入面和 Tool / Schema 各占多少，以及调用前还剩多少共享余量。
-10. History 压缩前后，其他四个逻辑输入面与本次 Tool / Schema 的引用和内容哈希是否保持一致；若发生变化，是否被正确记录为重新装配而非同一次压缩。
+## 7. 失败与恢复
 
-## 3. 状态差异追踪
+| 原因码 | 行为 |
+| --- | --- |
+| `trace.link_missing` | 从权威标识重建，不能猜测关联 |
+| `trace.audit_unavailable` | 阻止要求强审计的写入或外部动作 |
+| `trace.projection_gap` | 比较 Revision 指针并重放投影 |
+| `trace.redaction_failed` | 不写入敏感 Trace，按风险关闭相关操作 |
+| `trace.inconsistent_success` | 标记层间矛盾并以各层权威记录纠正界面 |
 
-状态差异追踪只记录收敛回合实际造成的工作面变化：
+## 8. 验收场景
 
-- 新增或更新对象。
-- 状态与关系变化。
-- Active Todos、里程碑和交接物投影变化。
-- 触发变化的 Chat、判断和收敛回合。
-
-没有结构化变化的普通 Chat 不应伪造状态差异。
-
-## 4. 治理与确认追踪
-
-高影响信息地位升级的追踪至少包含：
-
-- 动作类型、受影响对象、风险等级和触发规则。
-- Chat 中的提议、确认范围、用户确认或否定消息引用。
-- 引用了该确认依据的收敛回合及最终状态。
-
-画布卡片、Toast 和前台提示不能替代这份确认来源链。
-
-## 5. 异常与过期追踪
-
-异常追踪至少包含：
-
-- 模型、工具、上下文、验证、治理或写入异常。
-- 受影响的 Chat、判断或收敛回合。
-- 保底动作与是否污染事实层。
-- 过期原因：消息序号或状态版本已变化。
-
-过期收敛回合必须保留 trace，但不得写入，也不应自动续跑。
+1. 一个未调用工具的自然语言“已完成”不会显示 Commit 或 Revision。
+2. 用户直接编辑的 Revision 能追溯 actor 和 UI action，但没有伪造 Pi Turn。
+3. 同一提交可关联多个确认和多个受影响对象。
+4. Trace 脱敏后仍能判断工具成败和关联 Revision。
+5. 技术运行失败但此前提交成功时，两种状态可同时准确呈现。
+6. 同一 `submission_id` 的重试关联同一 `entry_id`，同一 Commit 内的 `operation_id` 与触发它的 `invocation_id` 可区分并双向查询。

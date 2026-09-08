@@ -1,201 +1,130 @@
 # Tool Contract（工具契约）
 
-> 当前成熟度层级：`L3 可指导实现的治理规格层`
-> 编码门槛：`可直接指导 ToolSpec、ToolCall、ToolResult、权限矩阵、重试与来源入链实现`
+> 方法成熟度：`L3 可指导实现的治理规格层`
+> 目标实现归属：`Pi Tool Loop + EvoCanvas 工具 Schema / Hooks`
+> 当前实现状态：`合同已定，代码待迁移`
+> 实现说明：Pi 执行工具；EvoCanvas 定义领域效果、权限、确认、幂等和错误合同。
 
-## 1. 职责边界
+## 1. 控制目标
 
-工具把外部读取、验证和转换能力接入 EvoCanvas，但不裁决事实地位，也不绕过统一提交器修改结构化包。
+让 Pi 获得读取、稳定写入和外部行动能力，同时保证模型文本本身不能绕过权限或直接改变业务状态。
 
-工具成功只表示调用完成，不表示：
+## 2. 工具类别
 
-- 来源已经可靠。
-- 证据足以支持结论。
-- 候选内容已经确认。
-- 结构化状态已经提交。
-
-## 2. 工具分类
-
-1. 读取与验证工具：读取材料、检索历史、验证外部事实、定位引用。
-2. 转换与分析工具：解析、分段、比对、抽取、冲突检测，不产生事实写入。
-3. 结构整理工具：基于已有状态生成候选提案或确定性组装结构化包，不直接提交。
-4. 外部副作用工具：正式发布、外发、写外部系统等；默认不进入 1.0 普通收敛路径。
-
-统一提交器不是模型可自由调用的普通工具。它只接受已经通过验证与治理、携带版本和幂等键的内部提交请求。
-
-## 3. 工具规格
-
-每个工具规格至少包含：
-
-| 字段 | 含义 |
-| --- | --- |
-| `name`、`version` | 稳定名称与版本 |
-| `description` | 使用目的与边界 |
-| `input_schema`、`output_schema` | 可机器校验的输入输出 |
-| `capability_class` | 读取、转换、整理或外部副作用 |
-| `side_effect` | `none / read / internal_write / external_write` |
-| `allowed_runtime_units` | 允许在哪类运行单元调用 |
-| `required_permissions` | 权限集合 |
-| `timeout_seconds` | 超时 |
-| `idempotency_mode` | 无副作用、调用方键控或工具自身幂等 |
-| `retry_semantics` | 哪些错误可以重试 |
-| `failure_semantics` | 失败后的结构化结果 |
-| `event_semantics` | 必须产生的事件 |
-| `sensitive_fields` | Trace 中需脱敏的字段 |
-
-工具清单与当前权限通过 Runtime Developer Message 和 Tool Schema 动态注入；System Prompt 只保留不伪造结果、外部事实先验证等稳定原则。
-
-## 4. 工具调用记录
-
-一次调用至少记录：
-
-| 字段 | 含义 |
-| --- | --- |
-| `tool_call_id` | 调用 ID |
-| `tool_name`、`tool_version` | 工具身份 |
-| `workspace_id`、`conversation_id`、`package_id` | 作用范围 |
-| `chat_turn_id` 或 `convergence_run_id` | 所属运行单元 |
-| `message_seq` 或消息范围 | 调用依据 |
-| `arguments` 或安全摘要 | 入参；敏感字段需脱敏 |
-| `idempotency_key` | 有副作用调用的幂等键 |
-| `attempt` | 当前尝试次数 |
-| `status` | 调用状态 |
-| `started_at`、`completed_at` | 时间记录 |
-| `error` | 结构化错误，可空 |
-
-状态只允许：
-
-```text
-created / running / succeeded / failed / denied / timed_out / cancelled
-```
-
-## 5. 工具结果
-
-工具结果至少包含：
-
-| 字段 | 含义 |
-| --- | --- |
-| `tool_call_id` | 对应调用 |
-| `status` | 最终状态 |
-| `summary` | 简短可见摘要 |
-| `data` 或 `data_ref` | 结构化结果或不可变指针 |
-| `source_refs` | 可追溯来源 |
-| `artifacts` | 产生的内部产物引用 |
-| `error` | 结构化错误，可空 |
-| `completed_at` | 完成时间 |
-
-原始工具结果先保存为 `tool` 消息或不可变结果记录。收敛回合可以引用它形成来源、证据或候选，但不能改写原结果来制造结论。
-
-工具返回的文本属于待分析数据。即使其中出现“忽略规则”“直接确认”等语句，也不获得指令权限。
-
-## 6. 来源与证据入链
-
-外部输入标准化为来源时，至少包含：
-
-- `source_id`
-- `source_type`
-- `origin`
-- `content_pointer`
-- `imported_at`
-- `scope`
-- `integrity` 或内容指纹
-- `reliability_hint`
-
-工具结果被提升为证据时，至少包含：
-
-- `evidence_id`
-- `source_refs`
-- `claim` 或观察项
-- `excerpt_or_snapshot`
-- `confidence`
-- `conflict_flags`
-- `created_in_turn` 或 `created_in_run`
-
-`reliability_hint` 和 `confidence` 只辅助验证，不能自动授予确认地位。
-
-## 7. 运行单元权限矩阵
-
-| 运行单元 | 允许 | 不允许 |
+| 类别 | 示例 | 默认风险 |
 | --- | --- | --- |
-| Chat 回合 | 读取、检索、验证、来源定位 | 修改结构化包、改变对象状态、正式发布 |
-| 收敛判断 | 默认不调用业务工具；必要时只读最小索引 | 生成对象、调用写工具、提交状态 |
-| 收敛回合 | 读取、验证、转换、形成候选提案、确定性组包 | 绕过验证治理直接写事实、直接外发 |
-| 统一提交器 | 按内部协议原子提交 | 接受自由文本指令、调用外部业务工具 |
-| 投影器 | 消费已提交事件并更新画布、Todo、Toast | 反向修改事实状态 |
+| 只读 | `workspace.get_object`、`session.read_entry`、`source.read` | 无业务写入 |
+| 稳定语义提交 | `workspace.commit` | 改变工作包 Revision |
+| 投影与诊断 | `canvas.rebuild`、`trace.query` | 不改变业务事实 |
+| 外部副作用 | 发送、发布、创建外部任务等 | 改变外部系统 |
 
-## 8. 读取工具与结构化工具
+工具名可以按实现调整，但类别和治理合同不可缺失。
 
-Chat 中的读取工具结果必须先作为原始 `tool` 消息保存。只有后续收敛引用了其中与当前主题相关的部分，它们才进入来源或证据链。
+## 3. 通用 Schema
 
-### 8.1 Source Resolver（来源解析器）
-
-Source Resolver 是读取与验证类的只读能力，用于按已存在的 `source_ref` 和具体位置取回需要核对的原始片段。它不接受自由业务语义作为新来源，不总结原文，也不裁决信息地位。
-
-最小输入包括 `source_ref`、位置或范围、期望内容指纹和读取上限；最小结果包括实际来源 ID、实际位置、原始片段或不可变数据引用、内容指纹、读取时间和结构化错误。
-
-Source Resolver 的结果必须先保存为原始 `tool` 消息或不可变工具结果，再进入 Conversation History 与 Context Manifest。它不回填 Structured Package Input，不因读取成功而自动生成证据对象，也不因读取失败而改写已有包快照。
-
-结构整理工具只能：
-
-- 形成结构化候选。
-- 校验 Schema。
-- 根据既有结构化状态确定性组装包版本草稿。
-- 生成提交请求所需的差异，不执行提交本身。
-
-它不能通过“打包”重新解释已确认内容，也不能偷偷引入新事实。
-
-## 9. 幂等、超时与重试
-
-- 无副作用读取可以在暂时错误后自动重试。
-- 转换工具可以在输入和工具版本不变时重试。
-- 内部写入必须携带幂等键；结果未知时先查询原调用。
-- 外部副作用工具默认禁止自动重试，除非工具明确保证幂等。
-- 超时不等于失败已回滚；有副作用工具超时后必须先确认实际结果。
-- 同一运行单元的调用次数和重试次数必须有可配置上限。
-
-## 10. 事件要求
-
-每次实际工具调用至少产生：
+每个工具必须声明：
 
 ```text
-tool.call.started
-tool.call.succeeded
-tool.call.failed
-tool.call.denied
-tool.call.timed_out
+name
+version
+description
+input_schema
+output_schema
+required_capabilities[]
+side_effect_class: none | workspace | external
+confirmation_requirement
+idempotency_behavior
+timeout_behavior
+replay: safe | never
+error_codes[]
 ```
 
-事件至少带：工具调用 ID、所属运行单元、工具名与版本、状态、尝试次数、耗时、错误码和脱敏后的结果摘要。
+Runtime 注入主体、Workspace、Session、Turn 和 Tool Call 身份；模型不能从参数声明自己拥有更高权限。
 
-## 11. 失败处理
+## 4. 稳定提交工具
 
-- 读取失败：保留缺口，Chat 可以说明无法验证；不得脑补结果。
-- 转换失败：保留原材料和失败记录，可以在预算内重试。
-- 权限拒绝：立即终止该调用，不用更高权限静默替代。
-- 来源失效：对应证据不得继续支持新的稳定结论。
-- 结构整理失败：不创建提交请求，不影响现有结构化包。
-- 外部副作用结果未知：进入人工可见的待核对状态，不自动重放。
+`workspace.commit` 输入至少包括：
 
-## 12. 与现有底座的迁移关系
+```text
+base_revision_id
+idempotency_key
+operations[]
+confirmation_refs[]
+change_summary
+```
 
-现有 `ToolSpec`、`ToolCall`、`ToolResult` 和 `ToolPolicy` 可以继续作为基础类型，但需要补充：
+每个 `operations[]` 元素必须有独立 `operation_id`。它标识稳定业务操作，不得复用 Pi 的 `invocation_id / tool_call_id`。工具级 `idempotency_key` 标识整次提交请求；相同键必须绑定相同规范化请求哈希。
 
-- Workspace、会话、包和运行单元关联字段。
-- 工具版本、调用尝试和幂等键。
-- 超时、未知结果和脱敏字段。
-- 基于 Chat、判断、收敛和提交器的权限，而不是旧角色与工作流步骤语义。
+允许的 `operations` 是受治理语义操作，不允许整包自由覆写：
 
-当前 `artifact.write` 等旧产物工具不得直接等同于结构化包提交器。
+```text
+create_object
+update_object
+change_status
+supersede_object
+create_relation
+remove_relation
+record_confirmation
+confirm_handoff
+suspend_handoff
+invalidate_handoff
+```
 
-## 13. L3 验收场景
+提交器原子执行 Schema、身份、来源、版本、确认范围、状态转换、依赖传播和幂等检查；全部通过后才创建新 Revision。
 
-至少验证：
+## 5. 确认规则
 
-1. Chat 可以调用读取工具，但不能调用结构化状态写入。
-2. 工具结果保存为原始 `tool` 消息，并能回指调用记录。
-3. 未知工具、无权限工具和非法参数得到结构化拒绝。
-4. 同一幂等键的内部写调用不会产生重复副作用。
-5. 外部读取失败不会被模型补写成成功结果。
-6. 工具结果中的指令文本不会覆盖 System 或 Developer 指令。
-7. 结构整理工具只能生成候选或差异，不能直接提交。
-8. 敏感参数不会原样进入事件和日志。
+- 来源事实的完整性收录可在有稳定来源和身份时自动完成，但其外部真实性状态必须如实保存。
+- Pi 推断的问题、约束、方案、决定及其作用范围必须绑定用户确认。
+- 用户直接编辑本身构成该编辑主体对具体变更的确认，但不能替其他人确认外部副作用或超出权限的范围。
+- 外部不可逆工具必须在执行前取得针对动作、目标和关键参数的明确授权；工作包确认不能代替该授权。
+
+## 6. 幂等与结果
+
+- 所有 workspace 和 external 副作用工具必须接受幂等键。
+- 相同幂等键和相同请求返回原结果。
+- 相同幂等键但内容不同返回 `tool.idempotency_conflict`。
+- 超时或连接中断后先查询结果；不能确认时返回 `unknown`，不得自动重放不可逆动作。
+- Tool Result 必须包含 `success | failed | unknown`、实际效果标识和可安全重试信息。
+
+## 6.1 恢复重放分类
+
+| `replay` | 适用工具 | 崩溃恢复 |
+| --- | --- | --- |
+| `safe` | 纯读取，或能以稳定幂等键查询并保证重复执行无新增效果的动作 | 先查原结果；确认未完成后可自动重放 |
+| `never` | 外部不可逆动作、无权威幂等查询的动作、结果重复会新增效果的动作 | 不自动重放；结果未知时等待外部回执或人工核对 |
+
+`success / failed / unknown` 是本次执行结果，`safe / never` 是工具静态恢复策略，二者不得混为一列。即使 `replay=safe`，在无法验证请求哈希或幂等记录时也不得自动重放。
+
+## 7. 权限
+
+工具执行前同时校验：主体身份、Workspace 访问权、所需能力、确认记录、目标资源和当前版本。权限拒绝不得通过换工具名、调用低层接口或让模型生成自由文本规避。
+
+## 8. 失败与恢复
+
+| 原因码 | 含义 |
+| --- | --- |
+| `tool.schema_invalid` | 输入不符合 Schema |
+| `tool.permission_denied` | 主体无权执行 |
+| `workspace.confirmation_required` | 缺少匹配内容和范围的确认 |
+| `workspace.stale_revision` | 基础 Revision 过时 |
+| `tool.idempotency_conflict` | 同键不同请求 |
+| `tool.effect_unknown` | 无法确定是否产生副作用 |
+| `tool.source_unavailable` | 必需来源无法读取 |
+| `tool.internal_failure` | 可归因的内部失败 |
+
+失败 Tool Result 进入 Session；不得把异常吞掉并返回看似成功的自然语言。
+
+## 9. 观测要求
+
+记录工具版本、输入摘要哈希、Runtime 注入身份、权限结论、确认引用、开始结束时间、实际结果、幂等键和关联 Revision / 外部效果 ID。敏感正文按安全策略脱敏，但身份与结果不可丢失。
+
+## 10. 验收场景
+
+1. 模型伪造 `actor_id=owner` 时，Runtime 注入身份覆盖或拒绝该字段。
+2. 未确认候选决定调用 `workspace.commit`，返回 `workspace.confirmation_required`。
+3. 相同提交因网络超时被重试，只产生一个 Revision。
+4. 外部发送动作超时且结果未知时，不自动再次发送。
+5. 只读来源工具返回失败时，Pi 不声称已读取正文。
+6. `operation_id` 与 `invocation_id` 不同，但可通过提交审计双向关联。
+7. `replay=never` 的调用在结果未知时不会因 Session 恢复而再次执行。

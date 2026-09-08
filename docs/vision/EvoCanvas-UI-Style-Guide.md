@@ -7,11 +7,12 @@
 | 文档名称 | EvoCanvas UI 风格与组件规范 |
 | 文档类型 | 视觉与组件规范文档 |
 | 对应产品 | EvoCanvas 1.0 |
-| 对应主 PRD | [EvoCanvas1.0-PRD.md](/Users/apple/Desktop/evocanvas/docs/vision/EvoCanvas1.0-PRD.md) |
-| 相关模块文档 | [cards.md](/Users/apple/Desktop/evocanvas/docs/vision/modules/cards.md)、[widgets.md](/Users/apple/Desktop/evocanvas/docs/vision/modules/widgets.md) |
-| 相关前端契约 | [02 Frontend Contract（前端工作台契约）.md](/Users/apple/Desktop/evocanvas/docs/technical-specs/02%20Frontend%20Contract%EF%BC%88%E5%89%8D%E7%AB%AF%E5%B7%A5%E4%BD%9C%E5%8F%B0%E5%A5%91%E7%BA%A6%EF%BC%89.md) |
+| 对应主 PRD | [EvoCanvas1.0-PRD.md](./EvoCanvas1.0-PRD.md) |
+| 相关模块文档 | [cards.md](./modules/cards.md)、[widgets.md](./modules/widgets.md) |
+| 相关技术边界 | [System Architecture（系统总架构）](../technical-specs/01%20System%20Architecture%EF%BC%88%E7%B3%BB%E7%BB%9F%E6%80%BB%E6%9E%B6%E6%9E%84%EF%BC%89.md) |
 | 参考视觉稿 | `卡片 UI Kit v2.0`、`工作台组件 UI Kit v2.0` |
-| 修订日期 | 2026-06-30 |
+| 当前状态 | 与主 PRD V1.4 对齐，待视觉实现验证 |
+| 修订日期 | 2026-09-08 |
 
 ---
 
@@ -464,7 +465,7 @@ EvoCanvas 的平台气质建议统一为以下关键词：
 4. 内框内容层
    用于承接列表、引用、规则条目等结构化信息，是第二阅读区。
 5. 协作尾部层
-   用于承接计数、来源、责任人、置信度、进度等协作信息。
+   用于承接计数、来源、责任人、来源/核验状态、进度等协作信息。
 
 强约束如下：
 
@@ -578,7 +579,7 @@ EvoCanvas 的平台气质建议统一为以下关键词：
 2. 第二行：业务标题
 3. 第三行：摘要
 4. 第四行：内框结构化内容
-5. 第五行：计数 / 标签 / 置信度等元信息
+5. 第五行：计数 / 标签 / 来源或核验状态等元信息
 6. 第六行：来源 / 责任人 / 进度
 
 落地约束：
@@ -586,7 +587,7 @@ EvoCanvas 的平台气质建议统一为以下关键词：
 1. 顶部右侧标签与更多操作必须共享同一横排，不单独占一整行。
 2. 计数行默认只保留轻信息，不再额外加外框。
 3. 来源头像与名字必须垂直居中对齐，不能出现头像在一行、名字像掉下去的情况。
-4. 证据卡的置信度如果需要展示，优先放在计数行右侧或底部右侧，不新增第三个信息容器。
+4. 证据卡的来源完整性或核验状态如果需要展示，优先放在计数行右侧或底部右侧，不新增第三个信息容器。
 
 ### 11.3.5 问题卡专属规则
 
@@ -607,7 +608,7 @@ EvoCanvas 的平台气质建议统一为以下关键词：
 问题卡不建议：
 
 1. 顶部同时出现多个属性标签。
-2. 底部堆叠来源、置信度、进度三套系统。
+2. 底部堆叠来源、核验状态、进度三套系统。
 3. 摘要区过长并依赖省略号隐藏主体信息。
 4. 只有标签是红色，但外框与内框仍停留在中性黑灰体系。
 
@@ -625,7 +626,7 @@ EvoCanvas 的平台气质建议统一为以下关键词：
 5. 计数区统一使用：
    引用 / 评论，而不是清单类图标。
 6. 来源信息优先展示在底部左侧，体现“这条证据从哪里来”。
-7. 置信度如需保留，应作为弱协作信息，不应抢过证据标题与正文。
+7. 来源完整性和核验状态如需展示，应作为弱协作信息；不得用 AI 自报置信度替代来源与核验。
 
 证据卡不建议：
 

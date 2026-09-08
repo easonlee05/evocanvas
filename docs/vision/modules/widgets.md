@@ -6,11 +6,11 @@
 | --- | --- |
 | 模块名称 | 挂件模块（Widgets） |
 | 文档类型 | 1.0 模块产品需求文档 |
-| 对应主 PRD | [EvoCanvas1.0-PRD.md](/Users/apple/Desktop/evocanvas/docs/vision/EvoCanvas1.0-PRD.md) |
-| 对应主 PRD 版本 | V1.1 |
-| 模块文档版本 | V1.0 |
-| 当前状态 | 待评审 |
-| 修订日期 | 2026-06-19 |
+| 对应主 PRD | [EvoCanvas1.0-PRD.md](../EvoCanvas1.0-PRD.md) |
+| 对应主 PRD 版本 | V1.4 |
+| 模块文档版本 | V1.1 |
+| 当前状态 | 与主 PRD 对齐，待实现验证 |
+| 修订日期 | 2026-09-08 |
 
 本文件是 EvoCanvas 1.0 挂件模块的展开文档，用于把主 PRD 中关于系统挂件和个人挂件的定义细化为可设计、可实现、可验收的模块要求。
 

@@ -31,6 +31,17 @@ export class RuntimeDeadlineError extends Error {
   }
 }
 
+export class RuntimeProviderNotReadyError extends Error {
+  constructor(
+    readonly providerId: string,
+    readonly modelId: string | undefined,
+    readonly reason: string,
+  ) {
+    super(reason);
+    this.name = "RuntimeProviderNotReadyError";
+  }
+}
+
 const RUN_KINDS = new Set<RunKind>(["chat", "judgement", "convergence"]);
 
 function asRecord(value: unknown, field: string): Record<string, unknown> {
@@ -189,13 +200,29 @@ export function toErrorEnvelope(error: unknown, runId?: string, traceId?: string
   if (error instanceof RuntimeDeadlineError) {
     return {
       schema_version: "pi-runtime.error.v1",
-      error_code: "deadline_exceeded",
+      error_code: "run_timeout",
       category: "temporary_error",
       message: error.message,
       retryable: true,
       run_id: runId ?? error.runId,
       trace_id: traceId,
       details: { deadline_ms: error.deadlineMs },
+    };
+  }
+  if (error instanceof RuntimeProviderNotReadyError) {
+    return {
+      schema_version: "pi-runtime.error.v1",
+      error_code: "runtime_not_ready",
+      category: "not_ready",
+      message: "Pi Runtime provider is not ready",
+      retryable: false,
+      run_id: runId,
+      trace_id: traceId,
+      details: {
+        provider_id: error.providerId,
+        model_id: error.modelId ?? null,
+        reason: error.reason,
+      },
     };
   }
   return {

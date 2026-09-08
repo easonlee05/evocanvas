@@ -11,6 +11,7 @@ import type {
   JudgementRunResult,
 } from "../contracts.js";
 import { createConfiguredRunExecutor, PiProviderRunExecutor } from "./executor.js";
+import { RuntimeProviderNotReadyError } from "../validation.js";
 
 function manifest(requestKind: "chat" | "judgement" | "convergence") {
   return {
@@ -210,6 +211,23 @@ test("PiProviderRunExecutor captures convergence proposals through the in-memory
   assert.ok(emitted.includes("proposal.captured"));
 });
 
+test("PiProviderRunExecutor reports a denied tool as tool_failed", async () => {
+  const executor = setup(fauxAssistantMessage(fauxToolCall("source.resolve", { source_ref_id: "missing" })));
+  const request: ChatRunRequest = {
+    ...chatRequest(),
+    tool_profile: {
+      ...chatRequest().tool_profile,
+      allowed_tools: ["source.resolve"],
+      max_calls: 1,
+    },
+  };
+
+  const { result } = await run(executor, request);
+  const chatResult = result as ChatRunResult;
+  assert.equal(chatResult.finish_reason, "tool_failed");
+  assert.equal(chatResult.assistant_message, null);
+});
+
 test("configured Pi Runtime defaults to DeepSeek V4 Flash without faking readiness", async () => {
   const previousProvider = process.env.PI_PROVIDER;
   const previousModel = process.env.PI_MODEL;
@@ -224,6 +242,29 @@ test("configured Pi Runtime defaults to DeepSeek V4 Flash without faking readine
     assert.equal(readiness.provider_id, "deepseek");
     assert.equal(readiness.model_id, "deepseek-v4-flash");
     assert.equal(readiness.ready, false);
+  } finally {
+    if (previousProvider === undefined) delete process.env.PI_PROVIDER;
+    else process.env.PI_PROVIDER = previousProvider;
+    if (previousModel === undefined) delete process.env.PI_MODEL;
+    else process.env.PI_MODEL = previousModel;
+    if (previousApiKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = previousApiKey;
+  }
+});
+
+test("configured Pi Runtime fails explicitly when the default provider has no credentials", async () => {
+  const previousProvider = process.env.PI_PROVIDER;
+  const previousModel = process.env.PI_MODEL;
+  const previousApiKey = process.env.DEEPSEEK_API_KEY;
+  delete process.env.PI_PROVIDER;
+  delete process.env.PI_MODEL;
+  delete process.env.DEEPSEEK_API_KEY;
+  try {
+    const executor = createConfiguredRunExecutor();
+    await assert.rejects(
+      () => executor.execute(chatRequest(), async () => {}, new AbortController().signal),
+      RuntimeProviderNotReadyError,
+    );
   } finally {
     if (previousProvider === undefined) delete process.env.PI_PROVIDER;
     else process.env.PI_PROVIDER = previousProvider;

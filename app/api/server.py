@@ -520,11 +520,12 @@ def create_app(task_service: TaskService | None = None):
                 },
             )
         except PiRuntimeError as exc:
+            runtime_not_ready = exc.error_code == "runtime_not_ready" or exc.category == "not_ready"
             return JSONResponse(
-                status_code=502,
+                status_code=503 if runtime_not_ready else 502,
                 content={
                     "workspace_id": workspace_id,
-                    "reason": "runtime_error",
+                    "reason": "runtime_not_ready" if runtime_not_ready else "runtime_error",
                     "error_code": exc.error_code,
                     "run_id": exc.run_id,
                     "message": str(exc),

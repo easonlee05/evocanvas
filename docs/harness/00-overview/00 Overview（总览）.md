@@ -1,167 +1,102 @@
 # Overview（总览）
 
-> 当前成熟度层级：`L2 对象与流程定义层`
-> 编码门槛：`未达到 L3，不应直接作为稳定实现规格；可指导后续补齐对象、状态与验证规则`
+> 方法成熟度：`L3 可指导实现的治理规格层`
+> 目标实现归属：`Pi Agent Core + EvoCanvas 产品能力 + Canvas 显影`
+> 当前实现状态：`目标合同已定，整体迁移未完成`
+> 实现说明：本总览定义十二项 Harness 的共同地基和实现边界；每项细则以对应 L3 文档为准。
 
-## 1. 文档目的
+## 1. 控制目标
 
-本文档定义 EvoCanvas harness 的总视角。
+EvoCanvas Harness 的最高目标是：**降低需求从模糊输入、对话理解、结构固定到下游交接之间的失真。**
 
-这里的 harness 不等于 prompt，也不等于某个 agent runtime。它是包裹在模型外的控制系统，用来把 AI 提案转化为受控的工作状态变化。
+它不是为了让模型生成更多内容，也不是为了建立 Pi 之外更复杂的流程。成功必须表现为：冲突和未决可见、稳定判断可追溯、确认范围准确、过时交接被拦截、下游误解和返工减少。
 
-在 EvoCanvas 1.0 中，这套控制系统服务的不是传统“需求文档生成”，而是 `Vibe Shaping`。
+## 2. 统一架构地基
 
-也就是说，系统首先要接住用户尚未成形的感觉、直觉和零散表达，再通过对话塑形、结构收敛和画布显影，把它逐步推进为可判断、可交接的结构化产品上下文。
+1. Pi Agent Core 是唯一 Agent 运行核心。
+2. 空 Workspace 可以没有 Session；第一条真实消息后，一个 Workspace 对应一个长期 Primary Pi Session。
+3. EvoCanvas 以 System Instructions、Skills、结构化工作包工具、治理 Hooks 和 Canvas Renderer 装入 Pi。
+4. Pi Session 保存原始过程；结构化工作包不可变 Revision 保存稳定业务状态。
+5. 用户与 Pi 共用同一语义提交能力。
+6. 候选内容留在 Session；只有来源完整性记录和经确认的语义变更进入工作包。
+7. Canvas 只显影已提交 Revision，不参与事实裁决。
+8. 结构化交接物是已确认 Revision 的派生视图。
+9. 不建立 Pi 外部 Product Kernel、Supervisor、独立收敛运行、平行历史、Context Manifest 或状态账本。
+10. 用户入口、Session Entry、稳定操作和工具调用使用不同身份；工具恢复策略与执行结果分开表达。
 
-本文档回答三类总问题：
+## 3. 十二项 Harness
 
-1. EvoCanvas 到底想把什么系统控制住。
-2. 这套 harness 优先治理哪些对象、流程和生效边界。
-3. 当前文档成熟度是否已经足够支撑实现。
-
-## 2. EvoCanvas 对 harness 的定义
-
-在 EvoCanvas 中：
-
-```md
-Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Lifecycle + Safety + Governance + Observability + Verification + Evaluation
+```text
+Harness
+= Instructions + Context + Memory
++ Runtime + Tools + Orchestration + Lifecycle
++ Safety + Governance
++ Observability + Verification + Evaluation
 ```
 
-这套系统要保证：
+| 方法 | 控制问题 | 目标实现归属 |
+| --- | --- | --- |
+| Instructions | Pi 应如何理解、判断和行动 | EvoCanvas 方法装入 Pi |
+| Context | Pi 当前基于什么工作 | Pi Session + transformContext |
+| Memory | 过程和稳定状态如何保存 | Pi Session + 工作包 Revision |
+| Runtime | Agent 如何可靠执行和恢复 | Pi Agent Core |
+| Tools | 如何读取、写入和产生副作用 | Pi Tool Loop + EvoCanvas 工具 |
+| Orchestration | 同一个 Pi 如何选择并推进下一步 | Pi 原生 Tool Loop，不是新组件 |
+| Lifecycle | 各类记录如何开始、结束和过时 | Pi 技术状态 + 工作包稳定状态 |
+| Safety | 如何防止误导、越权和危险效果 | Pi 保护 + 工具护栏 |
+| Governance | 什么内容和动作何时生效 | 用户裁决 + 确定性提交器 |
+| Observability | 如何追溯、回放和归因 | Pi Trace + Revision 审计 + 投影检查点 |
+| Verification | 单次过程和结果是否满足合同 | 确定性验证器 |
+| Evaluation | 系统长期是否降低需求失真 | 离线评估控制面 |
 
-- AI 先暴露不确定性，而不是抢先下结论。
-- 高影响信息地位升级不能绕过确认。
-- 所有稳定事实都必须可追溯。
-- 上下文切换必须结构化，而不是依赖超长聊天历史。
-- 输出必须能被人理解，也能被下游 AI 作为实现、评审或任务拆解输入使用。
+Pi 不是第十三项方法；它是多项方法的统一实现底座。
 
-进一步说，EvoCanvas 的核心系统任务不是“回答问题”，而是“推动状态收敛”。
+## 4. 权威记录
 
-但这个“收敛”不是凭空开始的，它之前还有一个更外层的产品任务：
+| 问题 | 权威答案 |
+| --- | --- |
+| 用户、Pi、工具实际发生过什么 | Primary Pi Session / Technical Trace |
+| 当前稳定对象、关系和确认是什么 | `current_revision_id` 指向的工作包 Revision |
+| 下游默认可使用哪个交接 | `latest_confirmed_handoff_revision_id` |
+| 外部动作是否成功 | 外部工具回执和幂等查询 |
+| Canvas 当前显示什么 | Projection Checkpoint |
 
-- 接住感觉
-- 帮助命名
-- 暴露不确定性
-- 让结构逐步成形
+自然语言回复、摘要、Toast、Canvas 布局和诊断视图均不能取代这些权威记录。
 
-### 2.1 系统架构视图与 Harness 视图
+## 5. 稳定主链
 
-[System Architecture（系统总架构）](<../../technical-specs/03 System Architecture（系统总架构）.md>) 用 User Interfaces、EvoCanvas Agent Core、Domain & Harness Rules、State & Projection、Tools & Providers、Evaluation Control Plane 六个一级子系统解释系统职责与依赖。
-
-Harness 则继续使用 Instructions、Context、Memory、Runtime、Tools、Orchestration、Lifecycle、Safety、Governance、Observability、Verification、Evaluation 十二项控制规格，解释这些系统能力如何被约束、验证和追溯。
-
-两种视图不得互相替代：
-
-- 系统架构图不把六个子系统变成六个 Harness 目录。
-- Harness 目录不要求和部署单元、代码包或页面模块一一对应。
-- 架构节点可以聚合多个 Harness 文档，但不能反向创造新对象、状态机、确认流或事实写入路径。
-- 架构节点的成熟度以完成其职责所需的最低成熟度为准；L2 语义不能借用相邻 L3 底座直接进入实现。
-
-节点和关键依赖的成熟度核对见 [Architecture Traceability（架构可追溯矩阵）](<../../technical-specs/04 Architecture Traceability（架构可追溯矩阵）.md>)。
-
-## 3. 为什么不再用 ETCLOVG 作为主骨架
-
-`ETCLOVG` 是有价值的参考分类法，但它过于抽象，不适合直接充当 EvoCanvas 的文档主骨架。
-
-本轮重构后：
-
-- `ETCLOVG` 保留在 `09-reference-models/`。
-- Harness 文档主路径改为实践型控制规格结构。
-- 文档重点从“七层分类是否完整”转向“后端能力如何落地、如何分责、如何验证”。
-
-## 4. EvoCanvas 1.0 的产品主链
-
-EvoCanvas 1.0 的外层体验旅程是：
-
-```md
-感觉接入 -> 对话塑形 -> 结构收敛 -> 画布显影 -> 结构化交接
+```text
+感觉或材料进入 Primary Pi Session
+-> Pi 理解、追问、显性化冲突和未决
+-> Pi 形成候选并向用户展示待固定含义与范围
+-> 用户确认
+-> 同一 Pi 调用 workspace.commit
+-> 确定性治理和验证原子创建 Revision
+-> 依赖与交接影响更新
+-> Canvas 显影稳定 Revision
+-> 用户可确认交接 Revision 供下游使用
 ```
 
-其中，1.0 的核心治理闭环是：
+来源事实可在完整性检查后收录；Pi 推断的问题、约束、方案和决定必须经用户确认。用户可以接受未验证前提，但其状态和风险必须持续显式保留。
 
-```md
-输入编译 -> 待澄清问题 -> 约束 / 待决策 -> 结构化交接物
-```
+## 6. L3 统一门槛
 
-Harness 的作用不是替用户直接生成完整 PRD，而是让这条收敛链路具备可控性、可追溯性和可验证性。
+每项方法和子规格必须明确：
 
-因此需要明确区分两层：
+1. 控制目标；
+2. 实现归属；
+3. 权威输入输出；
+4. 权限与确认边界；
+5. 状态推进、回退和过时；
+6. 失败与恢复；
+7. 可执行的验收场景。
 
-- 外层产品旅程：从模糊感觉到可交接上下文。
-- 内层治理闭环：从输入编译到待澄清、约束、待决策和交接物。
+达到 L3 表示实现者无需自行发明产品规则；不表示代码已经完成。当前实现状态必须与方法成熟度分别记录。
 
-前者决定 EvoCanvas 为什么不是 PRD 生成器，后者决定 harness 具体控制什么。
+## 7. 目录
 
-关于 1.0 主路径边界和旧产品语义剥离，见 [System Boundaries（系统边界）](./01%20System%20Boundaries%EF%BC%88%E7%B3%BB%E7%BB%9F%E8%BE%B9%E7%95%8C%EF%BC%89.md)。
-
-## 5. 成熟度与编码门槛
-
-为了避免治理规格尚未收稳时过早进入实现，EvoCanvas 当前采用四层成熟度：
-
-- `L1 产品原则层`
-- `L2 对象与流程定义层`
-- `L3 可指导实现的治理规格层`
-- `L4 可直接编码的运行时规格层`
-
-当前 `00-overview` 仍处于 `L2`，因此它可以约束方向，但还不是稳定实现规格。
-
-成熟度分层和编码门槛的详细定义，见 [Maturity Levels（成熟度层级）](./04%20Maturity%20Levels%EF%BC%88%E6%88%90%E7%86%9F%E5%BA%A6%E5%B1%82%E7%BA%A7%EF%BC%89.md)。
-
-## 6. 核心阅读入口
-
-- [System Architecture（系统总架构）](<../../technical-specs/03 System Architecture（系统总架构）.md>)：定义六个一级子系统、控制权与系统级依赖。
-- [Architecture Traceability（架构可追溯矩阵）](<../../technical-specs/04 Architecture Traceability（架构可追溯矩阵）.md>)：区分已有 L3、L2、边界、目标假设与冲突。
-- [System Boundaries（系统边界）](./01%20System%20Boundaries%EF%BC%88%E7%B3%BB%E7%BB%9F%E8%BE%B9%E7%95%8C%EF%BC%89.md)：定义 1.0 做什么和不做什么。
-- [Core Object Model（核心对象模型）](./02%20Core%20Object%20Model%EF%BC%88%E6%A0%B8%E5%BF%83%E5%AF%B9%E8%B1%A1%E6%A8%A1%E5%9E%8B%EF%BC%89.md)：定义 harness 需要治理的核心对象。
-- [Main Runtime Loop（运行主链）](./03%20Main%20Runtime%20Loop%EF%BC%88%E8%BF%90%E8%A1%8C%E4%B8%BB%E9%93%BE%EF%BC%89.md)：定义一次受控推进如何发生。
-- [Convergence Confidence（收敛置信度）](./05%20Convergence%20Confidence%EF%BC%88%E6%94%B6%E6%95%9B%E7%BD%AE%E4%BF%A1%E5%BA%A6%EF%BC%89.md)：定义系统何时适合继续压缩问题空间。
-
-## 7. 第一性原则
-
-### 7.1 产品原则优先于模型能力
-
-模型再强，也不能推翻产品规则。EvoCanvas 的 AI 行为必须服从：
-
-1. 先暴露不确定性。
-2. 再沉淀约束。
-3. 再形成待决策。
-4. 最后生成结构化交接物。
-
-同时，系统入口必须允许用户从模糊开始，而不是要求用户先提交一个已经写清楚的问题定义。
-
-### 7.2 对象优先于文本
-
-系统事实不应只保存在长对话中，而应沉淀为结构化对象。
-
-对话是输入通道，不是事实层。
-
-关于对象与事实分层，见 [Core Object Model（核心对象模型）](./02%20Core%20Object%20Model%EF%BC%88%E6%A0%B8%E5%BF%83%E5%AF%B9%E8%B1%A1%E6%A8%A1%E5%9E%8B%EF%BC%89.md)。
-
-### 7.3 建议权与生效权分离
-
-AI 可以提出建议，但不能天然拥有事实生效权。
-
-系统必须显式区分：
-
-- 原始输入
-- AI 提案
-- 用户确认结果
-- 已发布交接物
-
-### 7.4 可追溯优先于“看起来合理”
-
-在 EvoCanvas 中，内容是否看起来像真的，不足以进入事实层。
-
-只有满足来源、状态和治理条件的对象，才可以被视为稳定产物。
-
-### 7.5 收敛流程优先于聊天流畅性
-
-EvoCanvas 的设计中心不是“对话顺滑”，而是“收敛正确”。
-
-必要时，系统应该追问、保持候选或停止信息地位升级，而不是为了顺滑继续生成。
-
-### 7.6 透明优先于虚假完整
-
-当上下文不足时，系统可以生成可推进草稿，但必须显性披露未决问题、冲突边界、未确认前提和当前收敛置信度。
-
-关于运行主链和推进硬约束，见 [Main Runtime Loop（运行主链）](./03%20Main%20Runtime%20Loop%EF%BC%88%E8%BF%90%E8%A1%8C%E4%B8%BB%E9%93%BE%EF%BC%89.md)。
+- [System Boundaries（系统边界）](./01%20System%20Boundaries%EF%BC%88%E7%B3%BB%E7%BB%9F%E8%BE%B9%E7%95%8C%EF%BC%89.md)
+- [Core Object Model（核心对象模型）](./02%20Core%20Object%20Model%EF%BC%88%E6%A0%B8%E5%BF%83%E5%AF%B9%E8%B1%A1%E6%A8%A1%E5%9E%8B%EF%BC%89.md)
+- [Main Runtime Loop（运行主链）](./03%20Main%20Runtime%20Loop%EF%BC%88%E8%BF%90%E8%A1%8C%E4%B8%BB%E9%93%BE%EF%BC%89.md)
+- [Maturity Levels（成熟度层级）](./04%20Maturity%20Levels%EF%BC%88%E6%88%90%E7%86%9F%E5%BA%A6%E5%B1%82%E7%BA%A7%EF%BC%89.md)
+- [Convergence Readiness（收敛就绪度）](./05%20Convergence%20Readiness%EF%BC%88%E6%94%B6%E6%95%9B%E5%B0%B1%E7%BB%AA%E5%BA%A6%EF%BC%89.md)

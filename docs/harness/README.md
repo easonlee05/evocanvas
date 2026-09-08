@@ -1,171 +1,175 @@
 # EvoCanvas Harness 文档集
 
-> 当前整体判断：`文档集处于重构中，主骨架已从 ETCLOVG 分类法切换为实践型 harness 架构`
-> 编码门槛：`已达到 L3 的子文档可指导第一批实现；未标注或仍为 L1/L2 的子文档只作为设计输入`
+> 当前成熟度：`十二项方法的 47 份现行规范均已达到 L3 可指导实现的治理规格层`
+> 当前同步状态：`Harness、主 PRD、模块文档、现行技术规格与机器 Schema 已对齐；现行规格目录不再保留历史快照`
+> 当前实现状态：`Pi 长期 Session、统一提交器和投影链仍有迁移缺口`
+> 产品真相源：[`docs/vision/EvoCanvas1.0-PRD.md`](../vision/EvoCanvas1.0-PRD.md)
 
-这组文档不是对当前后端实现的逐行解释，也不以现有代码结构作为唯一事实来源。
+## 1. 目的
 
-它们的目的只有一个：
+Harness 的唯一最高目标是：**降低需求从模糊输入、对话塑形、结构固定到下游交接之间的失真。**
 
-- 定义 EvoCanvas 1.0 如何把 AI 从“会生成文本的模型”约束成“能推动产品思考状态收敛的受控系统”。
+L3 表示实现者可以依据这些文档设计接口、状态、门禁和测试，而不需要自行发明产品规则；它不表示当前代码已经实现，也不表示真实 Pi 集成已经验证。
 
-## 1. 主骨架调整
+## 2. 统一架构
 
-本轮重构后，`docs/harness/` 不再把 `ETCLOVG` 当成项目主骨架。
-
-`ETCLOVG` 仍然保留，但降级为参考模型：
-
-- 它适合做 agent harness 缺陷归因、外部论文语境对齐和分层对照。
-- 它不直接决定 EvoCanvas 文档目录、对象模型、状态机或实现优先级。
-
-EvoCanvas 当前采用更贴近工程落地的实践型 harness 公式：
-
-```md
-Harness = Instructions + Context + Memory + Runtime + Tools + Orchestration + Lifecycle + Safety + Governance + Observability + Verification + Evaluation
+```text
+用户
+  <-> 一个 Workspace 的 Primary Pi Session
+        ├─ Pi System Instructions / Skills
+        ├─ 原始 User / Assistant / Tool Entry
+        ├─ transformContext 读取最新稳定 Revision
+        └─ 受治理的 EvoCanvas Tools
+              ├─ 读取对象、历史与来源
+              └─ workspace.commit
+                    -> Workspace Artifact（结构化工作包）的不可变 Revision
+                          ├─ Canvas Renderer 显影
+                          └─ 已确认交接物派生
 ```
 
-这不是为了堆概念，而是为了让每个后端能力都有明确边界：
+共同地基：
 
-- 指令告诉系统“应该怎么做”。
-- 上下文告诉系统“当前正在处理什么”。
-- 记忆告诉系统“过去沉淀了什么，哪些能被复用”。
-- 运行时提供受控执行边界。
-- 工具提供外部能力接入面。
-- 编排决定本轮如何调度。
-- 生命周期定义运行记录、包版本和对象状态如何结束、替代与过时。
-- 安全负责防出事。
-- 治理负责定生效边界。
-- 可观测性负责留痕、回放和归因。
-- 验证负责判断这一次是否做对。
-- 评估负责判断系统长期是否有价值。
+1. Pi Agent Core 是唯一 Agent 运行核心。
+2. 空 Workspace 可以没有 Session；第一条真实消息后，一个 Workspace 对应一个长期 Primary Pi Session 和一个逻辑 Workspace Artifact（结构化工作包）。
+3. Session 保存过程，完整不可变 Revision 保存稳定状态。
+4. EvoCanvas 只给 Pi 安装产品 Instructions、Skills、工具、治理 Hooks 和 Canvas Renderer。
+5. Pi 与用户直接编辑共用同一语义提交能力。
+6. 候选留在 Session；来源事实完整性收录和已确认语义才可进入工作包。
+7. Canvas 只显影稳定 Revision；结构化交接物只派生自已确认 Revision。
+8. 不建立 Pi 外部 Agent Kernel、Supervisor、阶段路由、独立收敛运行、平行历史、上下文清单或状态账本。
+9. User Submission、Session Entry、稳定操作和工具调用分别使用 `submission_id / entry_id / operation_id / invocation_id`。
+10. 工具只声明 `replay: safe | never`；结果 `unknown` 不构成自动重放许可。
 
-### 1.1 与系统目标架构的关系
+## 3. 十二项方法与实现映射
 
-[System Architecture（系统总架构）](<../technical-specs/03 System Architecture（系统总架构）.md>) 使用六个一级子系统解释 EvoCanvas 1.0 的系统组成、控制权和依赖；本文档使用十二项 Harness 控制规格解释这些能力分别受什么规则约束。两种视图职责不同，六个子系统不是六个 Harness 目录，也不替代现有文档骨架。
+| Harness 方法 | L3 控制目标 | 目标实现归属 | 当前实现状态 |
+| --- | --- | --- | --- |
+| Instructions | 永久原则、按需方法、机器门禁和用户原话保真 | EvoCanvas 指令/Skills 装入 Pi | 部分接入 |
+| Context | Session、稳定工作锚点、按需复水和降级 | Pi Session + `transformContext` | 部分接入 |
+| Memory | 过程与稳定状态分离、Revision 和来源保留 | Pi Session + 结构化工作包 | 代码待迁移 |
+| Runtime | 唯一 Agent Loop、恢复、取消、压缩和技术 Trace | Pi Agent Core | 部分接入 |
+| Tools | 读取、稳定写入和外部副作用合同 | Pi Tool Loop + EvoCanvas 工具 | 代码待迁移 |
+| Orchestration | 同一 Pi 如何选择并推进下一步 | Pi 原生 Tool Loop；不是独立组件 | 代码待迁移 |
+| Lifecycle | Session、Revision、对象、交接和投影的终态 | Pi 技术状态 + 工作包稳定状态 | 代码待迁移 |
+| Safety | 防误导、越权、泄露和未知副作用 | Pi 保护 + 工具护栏 | 代码待迁移 |
+| Governance | 信息与动作何时生效、谁裁决 | 用户 + 确定性提交器 | 代码待迁移 |
+| Observability | 从 Entry 到 Revision 和投影的追溯 | Pi Trace + Revision 审计 + 投影检查点 | 代码待迁移 |
+| Verification | 单次结构、来源和 Policy 是否过关 | 确定性验证器 | 代码待迁移 |
+| Evaluation | 长期是否降低需求失真 | EvoCanvas 离线评估控制面 | 评估集待建设 |
 
-[Architecture Traceability（架构可追溯矩阵）](<../technical-specs/04 Architecture Traceability（架构可追溯矩阵）.md>) 负责核对每个架构节点和依赖当前属于 L3、L2、产品或技术边界、目标假设还是冲突。组合节点按完成其职责所需的最低成熟度判断，不能因为某个底层合同已达 L3，就把整个系统节点升级为 L3。
+Pi 不是第十三项 Harness 方法，而是多项方法的统一实现底座。Orchestration 作为方法保留，是为了冻结推进顺序与不可绕过的不变量，不对应新服务。
 
-| 系统目标架构视图 | 主要 Harness 承接 | 控制边界 |
-| --- | --- | --- |
-| User Interfaces（用户界面） | Governance、Observability 与 Verification 约束其确认、投影和事实权限 | 主体由 PRD 与技术契约定义，不形成独立 Harness 层 |
-| EvoCanvas Agent Core（核心运行层） | Context、Runtime、Orchestration、Lifecycle、Governance 与 Verification | 收敛、提交和运行底座已有可实现合同；对话行为与上下文装配仍需继续收敛 |
-| Domain & Harness Rules（领域与 Harness 规则） | Overview、Orchestration、Lifecycle、Governance 与 Verification | 是多个控制规格的聚合视图，不反向决定目录结构 |
-| State & Projection（状态与投影） | Memory、Lifecycle 与 Observability | 权威状态与版本已有可实现合同；完整投影合同仍需继续收敛 |
-| Tools & Providers（工具与能力提供方） | Runtime 与 Tools | Provider 和工具无业务事实裁决权，稳定状态仍只经统一提交器生效 |
-| Evaluation Control Plane（离线评估控制面） | Evaluation，并与 Prompt Control、Context 保持边界 | 仅保留后续演进边界，不属于 1.0 交付承诺，也不定义自动修改线上规则的闭环；成熟度见可追溯矩阵 |
+## 4. 权威记录与确认边界
 
-## 2. 文档组织规范
+| 事实 | 权威记录 |
+| --- | --- |
+| 用户、Pi 和工具实际发生过什么 | Pi Session / Technical Trace |
+| 当前稳定业务状态 | `current_revision_id` 指向的结构化工作包 Revision |
+| 下游默认可用交接 | `latest_confirmed_handoff_revision_id` |
+| 外部副作用是否成功 | 外部工具回执与幂等查询 |
+| Canvas 显示到哪个版本 | Projection Checkpoint |
 
-后续各组默认采用“分组目录 + 主文档 + 子文档”结构：
+Pi 可提出和分析；用户确认产品含义、范围、交接和风险；工具执行身份、版本、Schema、状态、确认和幂等门禁。工作包确认、交接确认和外部行动授权相互独立。
 
-- 顶层目录使用 `00-`、`01-`、`02-` 顺序编号，表达阅读顺序。
-- 每个目录的主文档默认命名为 `00 English Name（中文名）.md`。
-- 子文档默认命名为 `01 English Name（中文名）.md`、`02 English Name（中文名）.md`。
-- 主文档负责讲关系、边界、主链和阅读入口。
-- 子文档只展开主文档里已经出现、且需要单独讲清楚的问题。
-- 不再把子文档链接集中堆在文末，而应放到对应正文位置。
+## 5. L3 统一门槛
 
-## 3. 阅读顺序
+每篇规范性文档必须明确或引用同组权威定义：
 
-建议按以下顺序阅读：
+1. 控制目标；
+2. 实现归属；
+3. 权威输入输出；
+4. 权限与确认边界；
+5. 状态推进、回退和过时；
+6. 失败与恢复；
+7. 验收场景。
 
-1. `00-overview/`：总览、边界、核心对象和运行主链。
-2. `01-instructions-context/`：指令与上下文，定义模型看什么、按什么规则理解任务。
-3. `02-memory-state/`：记忆与状态，定义系统如何记住、如何保持一致。
-4. `03-runtime-tools/`：运行时与工具，定义受控执行和外部能力接入。
-5. `04-orchestration-lifecycle/`：编排与生命周期，定义如何推进、暂停、回流和完成。
-6. `05-safety-governance/`：安全与治理，定义风险拦截、权限和事实生效边界。
-7. `06-observability/`：可观测性，定义 trace、回执、回放和归因。
-8. `07-verification/`：验证，定义单次过程或输出是否过关。
-9. `08-evaluation/`：评估，定义系统长期价值和产品效果如何判断。
-10. `09-reference-models/`：参考模型，保存 ETCLOVG 等外部分类框架。
+成熟度与实现状态分开。代码仍使用旧兼容路径时，应标记迁移缺口，不能让旧实现反向定义目标 Harness。
 
-## 4. 文档清单
+## 6. 阅读顺序
 
-- `00-overview/00 Overview（总览）.md`：定义 harness 总目标、产品边界和主文档地图。
-- `00-overview/01 System Boundaries（系统边界）.md`：定义 EvoCanvas 1.0 的系统边界和不做什么。
-- `00-overview/02 Core Object Model（核心对象模型）.md`：定义来源、解释、待澄清、约束、决策、交接包等核心对象。
-- `00-overview/03 Main Runtime Loop（运行主链）.md`：定义从输入到交接的主推进链路。
+### 6.1 总览与公共模型
 
-- `01-instructions-context/00 Instructions and Context（指令与上下文）.md`：说明指令和上下文的关系。
-- `01-instructions-context/01 Instructions（指令）.md`：定义系统指令、产品指令、任务指令和用户指令的层级。
-- `01-instructions-context/02 Context（上下文）.md`：定义当前工作面包含什么、不包含什么。
-- `01-instructions-context/03 Context Assembly（上下文装配）.md`：定义上下文装配和复水规则。
-- `01-instructions-context/04 AI Assistant Working Surface（AI 助手工作面）.md`：定义右侧 AI 助手如何以正常 Chat 引导收敛，并与后台收敛回合协作。
-- `01-instructions-context/05 Prompt Control（提示控制）.md`：定义主对话 System、Runtime Developer 与 Raw User 三类指令面的职责、边界和写法。
-- `01-instructions-context/06 Context Budget and Compaction（上下文预算与压缩）.md`：L2 规格，定义已确认的 272K 共享上下文池、历史压缩阈值、分别记账规则，以及借鉴 Codex 但保留完整近期对话链的 History 压缩结果。
+- [`00-overview/00 Overview（总览）.md`](<00-overview/00 Overview（总览）.md>)
+- [`00-overview/01 System Boundaries（系统边界）.md`](<00-overview/01 System Boundaries（系统边界）.md>)
+- [`00-overview/02 Core Object Model（核心对象模型）.md`](<00-overview/02 Core Object Model（核心对象模型）.md>)
+- [`00-overview/03 Main Runtime Loop（运行主链）.md`](<00-overview/03 Main Runtime Loop（运行主链）.md>)
+- [`00-overview/04 Maturity Levels（成熟度层级）.md`](<00-overview/04 Maturity Levels（成熟度层级）.md>)
+- [`00-overview/05 Convergence Readiness（收敛就绪度）.md`](<00-overview/05 Convergence Readiness（收敛就绪度）.md>)
 
-- `02-memory-state/00 Memory and State（记忆与状态）.md`：L3 主文档，定义原始记录、不可变包版本和状态账本三类权威记录及其边界。
-- `02-memory-state/01 Memory（记忆）.md`：L3 规格，定义包身份、统一包 Schema、不可变版本、轻量索引、复水和保留策略。
-- `02-memory-state/02 State Ledger（状态账本）.md`：L3 规格，定义追加式账本、类型化对象状态、派生治理分组、确认记录和版本指针。
-- `02-memory-state/03 Stable State and Handoff（稳定状态与交接）.md`：L3 规格，定义交接引用、确认版本、过时判断和下游版本选择。
+### 6.2 Instructions 与 Context
 
-- `03-runtime-tools/00 Runtime and Tools（运行时与工具）.md`：L3 主文档，说明 Chat、判断、收敛、提交与工具的关系。
-- `03-runtime-tools/01 Runtime（运行时）.md`：L3 规格，定义四类运行记录、触发调度、按包并发和幂等原子提交。
-- `03-runtime-tools/02 Tool Contract（工具契约）.md`：L3 规格，定义工具 Schema、权限、幂等、来源入链和副作用边界。
-- `03-runtime-tools/03 Failure and Recovery（失败与恢复）.md`：L3 规格，定义错误分类、租约恢复、未知提交核对、Outbox 重放和投影重建。
+- [`01-instructions-context/00 Instructions and Context（指令与上下文）.md`](<01-instructions-context/00 Instructions and Context（指令与上下文）.md>)
+- [`01-instructions-context/01 Instructions（指令）.md`](<01-instructions-context/01 Instructions（指令）.md>)
+- [`01-instructions-context/02 Context（上下文）.md`](<01-instructions-context/02 Context（上下文）.md>)
+- [`01-instructions-context/03 Context Assembly（上下文装配）.md`](<01-instructions-context/03 Context Assembly（上下文装配）.md>)
+- [`01-instructions-context/04 AI Assistant Working Surface（AI 助手工作面）.md`](<01-instructions-context/04 AI Assistant Working Surface（AI 助手工作面）.md>)
+- [`01-instructions-context/05 Prompt Control（提示控制）.md`](<01-instructions-context/05 Prompt Control（提示控制）.md>)
+- [`01-instructions-context/06 Context Budget and Compaction（上下文预算与压缩）.md`](<01-instructions-context/06 Context Budget and Compaction（上下文预算与压缩）.md>)
 
-- `04-orchestration-lifecycle/00 Orchestration and Lifecycle（编排与生命周期）.md`：L3 主文档，定义判断、收敛、治理、提交和投影的连接主链。
-- `04-orchestration-lifecycle/01 Orchestration（编排）.md`：L3 规格，定义触发来源、判断决策、合并调度、结果路由和过期处理。
-- `04-orchestration-lifecycle/02 Lifecycle（生命周期）.md`：L3 规格，定义运行记录、不可变包版本、对象信息地位和投影的生命周期。
-- `04-orchestration-lifecycle/03 Convergence Operations（收敛操作）.md`：L3 规格，定义结构化操作、复杂输入提案策略、部分放行和 Chat 分工。
-- `04-orchestration-lifecycle/04 Gate Adjudication（门禁裁决）.md`：L3 规格，定义候选整理、信息地位升级和外部不可逆动作的三类门禁边界。
-- `04-orchestration-lifecycle/05 Implementation Baseline（实现基线）.md`：L3 规格，汇总实现单元、原因码、迁移边界和验收场景。
+### 6.3 Memory 与 State
 
-- `05-safety-governance/00 Safety and Governance（安全与治理）.md`：说明安全与治理的关系。
-- `05-safety-governance/01 Safety（安全）.md`：定义语义安全、风险拦截和防误导边界。
-- `05-safety-governance/02 Governance（治理）.md`：定义事实生效、确认、回退和追溯边界。
-- `05-safety-governance/03 Governance Baseline（治理基线）.md`：汇总状态机、Chat 确认记录和治理 trace 的最小基线。
-- `05-safety-governance/04 Facts and Risk（事实与风险）.md`：定义事实可用性层级和风险分级。
-- `05-safety-governance/05 Object Governance（对象治理）.md`：定义核心卡片对象的状态与治理规则。
-- `05-safety-governance/06 Handoff Governance（交接物治理）.md`：定义结构化交接物的确认、过时与禁令。
-- `05-safety-governance/07 Authority and Guardrails（权限与护栏）.md`：定义 AI、系统与用户之间的动作权限。
+- [`02-memory-state/00 Memory and State（记忆与状态）.md`](<02-memory-state/00 Memory and State（记忆与状态）.md>)
+- [`02-memory-state/01 Memory（记忆）.md`](<02-memory-state/01 Memory（记忆）.md>)
+- [`02-memory-state/02 State Model（状态模型）.md`](<02-memory-state/02 State Model（状态模型）.md>)
+- [`02-memory-state/03 Stable State and Handoff（稳定状态与交接）.md`](<02-memory-state/03 Stable State and Handoff（稳定状态与交接）.md>)
+- [`02-memory-state/04 Convergence Decisions（收敛决策基线）.md`](<02-memory-state/04 Convergence Decisions（收敛决策）.md>)
 
-- `06-observability/00 Observability（可观测性）.md`：定义 trace、回执、来源链和诊断口径。
-- `06-observability/01 Projection Signals（显影提示）.md`：定义画布状态变化的显影方式与低打扰提示边界。
-- `06-observability/02 Trace Model（追踪模型）.md`：定义回合、状态差异、治理、来源链和异常追踪。
-- `06-observability/03 Diagnostic Views（诊断视角）.md`：定义输入、上下文、编排、治理和验证问题的诊断视角。
-- `07-verification/00 Verification（验证）.md`：定义单次过程 / 输出的过关标准。
-- `08-evaluation/00 Evaluation（评估）.md`：定义长期系统价值和产品效果评估。
-- `08-evaluation/01 Independent Evaluation（独立评估）.md`：定义高价值结果的额外复核口径。
-- `08-evaluation/02 Evaluation Metrics（评估指标）.md`：定义待澄清、冲突、约束、交接物和下游误解相关指标。
-- `09-reference-models/00 Reference Models（参考模型）.md`：定义外部参考模型的使用方式。
-- `09-reference-models/01 ETCLOVG Framework（ETCLOVG 模型总览）.md`：保留 ETCLOVG 原始框架说明。
-- `09-reference-models/02 ETCLOVG Mapping（ETCLOVG 映射）.md`：说明 ETCLOVG 如何映射到 EvoCanvas 当前实践骨架。
+### 6.4 Runtime 与 Tools
 
-## 5. 两个硬边界
+- [`03-runtime-tools/00 Runtime and Tools（运行时与工具）.md`](<03-runtime-tools/00 Runtime and Tools（运行时与工具）.md>)
+- [`03-runtime-tools/01 Runtime（运行时）.md`](<03-runtime-tools/01 Runtime（运行时）.md>)
+- [`03-runtime-tools/02 Tool Contract（工具契约）.md`](<03-runtime-tools/02 Tool Contract（工具契约）.md>)
+- [`03-runtime-tools/03 Failure and Recovery（失败与恢复）.md`](<03-runtime-tools/03 Failure and Recovery（失败与恢复）.md>)
 
-### 5.1 验证和评估必须分开
+### 6.5 Orchestration 与 Lifecycle
 
-- 验证（verification）回答：`这一次是否做对？`
-- 评估（evaluation）回答：`这个系统长期是否真的有用？`
+- [`04-orchestration-lifecycle/00 Orchestration and Lifecycle（编排与生命周期）.md`](<04-orchestration-lifecycle/00 Orchestration and Lifecycle（编排与生命周期）.md>)
+- [`04-orchestration-lifecycle/01 Orchestration（编排）.md`](<04-orchestration-lifecycle/01 Orchestration（编排）.md>)
+- [`04-orchestration-lifecycle/02 Lifecycle（生命周期）.md`](<04-orchestration-lifecycle/02 Lifecycle（生命周期）.md>)
+- [`04-orchestration-lifecycle/03 Convergence Operations（收敛操作）.md`](<04-orchestration-lifecycle/03 Convergence Operations（收敛操作）.md>)
+- [`04-orchestration-lifecycle/04 Gate Adjudication（门禁裁决）.md`](<04-orchestration-lifecycle/04 Gate Adjudication（门禁裁决）.md>)
+- [`04-orchestration-lifecycle/05 Implementation Baseline（实现基线）.md`](<04-orchestration-lifecycle/05 Implementation Baseline（实现基线）.md>)
 
-因此，评估不再作为验证的子章节存在。
+### 6.6 Safety 与 Governance
 
-### 5.2 编排工作流和业务工作流必须分开
+- [`05-safety-governance/00 Safety and Governance（安全与治理）.md`](<05-safety-governance/00 Safety and Governance（安全与治理）.md>)
+- [`05-safety-governance/01 Safety（安全）.md`](<05-safety-governance/01 Safety（安全）.md>)
+- [`05-safety-governance/02 Governance（治理）.md`](<05-safety-governance/02 Governance（治理）.md>)
+- [`05-safety-governance/03 Governance Baseline（治理基线）.md`](<05-safety-governance/03 Governance Baseline（治理基线）.md>)
+- [`05-safety-governance/04 Facts and Risk（事实与风险）.md`](<05-safety-governance/04 Facts and Risk（事实与风险）.md>)
+- [`05-safety-governance/05 Object Governance（对象治理）.md`](<05-safety-governance/05 Object Governance（对象治理）.md>)
+- [`05-safety-governance/06 Handoff Governance（交接物治理）.md`](<05-safety-governance/06 Handoff Governance（交接物治理）.md>)
+- [`05-safety-governance/07 Authority and Guardrails（权限与护栏）.md`](<05-safety-governance/07 Authority and Guardrails（权限与护栏）.md>)
 
-- 编排工作流（orchestration workflow）属于 harness，描述 agent 如何运行。
-- 业务工作流（business workflow）是 harness 服务和改造的对象，描述产品经理如何从模糊输入收敛到交接。
+### 6.7 Observability、Verification 与 Evaluation
 
-EvoCanvas 的 harness 不能把业务流程直接硬编码成单一生成链路，而应该用受控编排去服务产品思考收敛。
+- [`06-observability/00 Observability（可观测性）.md`](<06-observability/00 Observability（可观测性）.md>)
+- [`06-observability/01 Projection Signals（显影提示）.md`](<06-observability/01 Projection Signals（显影提示）.md>)
+- [`06-observability/02 Trace Model（追踪模型）.md`](<06-observability/02 Trace Model（追踪模型）.md>)
+- [`06-observability/03 Diagnostic Views（诊断视角）.md`](<06-observability/03 Diagnostic Views（诊断视角）.md>)
+- [`07-verification/00 Verification（验证）.md`](<07-verification/00 Verification（验证）.md>)
+- [`07-verification/01 Structure Verification（结构验证）.md`](<07-verification/01 Structure Verification（结构验证）.md>)
+- [`07-verification/02 Source Verification（来源验证）.md`](<07-verification/02 Source Verification（来源验证）.md>)
+- [`07-verification/03 Policy Verification（策略验证）.md`](<07-verification/03 Policy Verification（策略验证）.md>)
+- [`08-evaluation/00 Evaluation（评估）.md`](<08-evaluation/00 Evaluation（评估）.md>)
+- [`08-evaluation/01 Independent Evaluation（独立评估）.md`](<08-evaluation/01 Independent Evaluation（独立评估）.md>)
+- [`08-evaluation/02 Evaluation Metrics（评估指标）.md`](<08-evaluation/02 Evaluation Metrics（评估指标）.md>)
 
-## 6. 成熟度层级与编码门槛
+`09-reference-models/` 保留 ETCLOVG 等历史参考，不属于当前十二项方法的规范性成熟度范围，不能覆盖上述 L3 合同。
 
-文档仍沿用四级成熟度：
+## 7. 当前实现差距
 
-- `L1 产品原则层`
-- `L2 对象与流程定义层`
-- `L3 可指导实现的治理规格层`
-- `L4 可直接编码的运行时规格层`
+主 PRD、模块文档、现行技术规格和机器 Schema 已同步到本 Harness 合同；旧技术快照已从现行规格目录移除。现有代码仍包含单次请求、旧运行类型、旧状态和跨进程兼容字段。完成代码迁移至少需要：
 
-当前规则：
+1. 统一升级 Pi `0.85.1` 依赖族，接入官方 SQLite Backend、一个 Session 一个文件和宿主独占写锁；
+2. 建立首条真实消息触发的 Workspace–Primary Pi Session Binding 与恢复；
+3. 接入 Pi Skills、`transformContext` 和长期 Session；
+4. 统一 Pi 与用户直接编辑的 `workspace.commit`；
+5. 落地身份分层、工具 replay 策略和 close/archive/replace/delete 生命周期；
+6. 移除目标路径中的独立判断、收敛调度和自由整包写入；
+7. 接入确认、依赖传播、交接双指针和投影 Outbox；
+8. 建立 Entry–Invocation–Operation–Commit–Revision–Projection 追溯；
+9. 按 Workspace 停写、导入、哈希校验和原子切换迁移旧数据，不长期双写；
+10. 用端到端测试证明未确认不显影、并发不丢失、失败可恢复和下游只读有效交接。
 
-- 达到 `L3` 的模块，可以作为第一批实现、接口设计和测试设计输入。
-- 未达到 `L3` 的模块，只能作为方向和边界参考。
-- 每次重组或改写 harness 文档，都应同步检查受影响模块的成熟度判断。
-
-## 7. 核心立场
-
-- EvoCanvas 不是文档生成器，也不是自由聊天框。
-- EvoCanvas 的核心不是让 AI 抢先给结论，而是让 AI 在受控边界内推动状态收敛。
-- Harness 的第一职责不是增强生成，而是约束生成、验证生成、追溯生成，并把生成结果转化为结构化工作状态。
+这些是实现状态，不影响本 Harness 目标合同当前已达到 L3 的判断。

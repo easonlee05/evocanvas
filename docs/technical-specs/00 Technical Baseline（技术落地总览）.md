@@ -1,101 +1,71 @@
 # Technical Baseline（技术落地总览）
 
-> 文档集状态：`混合成熟度技术入口`
-> 编码门槛：`只有明确映射到 Harness L3 且已核对当前代码的内容，才可直接指导实现`
+> 文档集状态：`Harness L3 的现行技术入口；不包含历史快照`
+> 编码门槛：`以主 PRD、Harness L3 和本目录现行规格为目标合同，并在修改前核对当前代码与测试`
 
 ## 1. 文档定位
 
-这组文档不是新的产品真相源，也不是要替代 `docs/harness/`。
+本目录只保存当前仍可作为实现输入的技术规格，不保存旧 L / G / V 方案、过期接口快照或兼容文件名。
 
-它承担两类不同职责：
+权威顺序固定为：
 
-1. 用系统目标架构和可追溯矩阵解释目标职责、成熟度与冲突；这部分不能直接生成实现合同。
-2. 将已经达到 L3、并重新核对过当前代码的 Harness 规则翻译为技术映射；只有这部分可以指导代码修改。
+1. `docs/vision/EvoCanvas1.0-PRD.md`：产品边界、用户体验和 1.0 最小闭环；
+2. `docs/harness/`：十二项方法的治理规格；
+3. `docs/technical-specs/`：将 L3 规则翻译为架构、运行合同、矩阵和迁移硬门；
+4. 当前代码与测试：实现证据，不得反向覆盖目标规则。
 
-因此，这里的优先级关系固定为：
+发生冲突时先按该顺序修正文档；不能让技术快照成为第二产品真相源。
 
-1. `docs/vision/EvoCanvas1.0-PRD.md`：定义产品边界与 1.0 最小闭环
-2. `docs/harness/`：按十二项控制规格定义运行、状态、治理、验证与评估边界，并分别标注 L1 / L2 / L3 / L4 成熟度
-3. `docs/technical-specs/`：组织目标架构、成熟度追溯、历史迁移快照，以及经 L3 支撑的当前代码承接方式
+## 2. 现行规格清单
 
-如果三者冲突，默认按上面的顺序回看，而不是让技术文档反过来改写产品事实。
+| 顺序 | 文档 | 唯一职责 |
+| --- | --- | --- |
+| 00 | 本文 | 权威顺序、阅读入口和实现边界 |
+| 01 | [System Architecture（系统总架构）](./01%20System%20Architecture%EF%BC%88%E7%B3%BB%E7%BB%9F%E6%80%BB%E6%9E%B6%E6%9E%84%EF%BC%89.md) | 目标子系统、数据方向和事实源 |
+| 02 | [Architecture Traceability（架构可追溯矩阵）](./02%20Architecture%20Traceability%EF%BC%88%E6%9E%B6%E6%9E%84%E5%8F%AF%E8%BF%BD%E6%BA%AF%E7%9F%A9%E9%98%B5%EF%BC%89.md) | PRD、Harness、架构和实现证据的追溯 |
+| 03 | [Pi Runtime Contract（Pi 运行时接口契约）](./03%20Pi%20Runtime%20Contract%EF%BC%88Pi%20%E8%BF%90%E8%A1%8C%E6%97%B6%E6%8E%A5%E5%8F%A3%E5%A5%91%E7%BA%A6%EF%BC%89.md) | Session、身份、工具、恢复和生命周期合同 |
+| 04 | [Pi Runtime Phase 0 Matrices（Pi 运行时阶段 0 矩阵）](./04%20Pi%20Runtime%20Phase%200%20Matrices%EF%BC%88Pi%20%E8%BF%90%E8%A1%8C%E6%97%B6%E9%98%B6%E6%AE%B5%200%20%E7%9F%A9%E9%98%B5%EF%BC%89.md) | 目标与当前资产的逐项迁移矩阵 |
+| 05 | [Pi Runtime Migration Preflight（Pi 运行时迁移前置核对）](./05%20Pi%20Runtime%20Migration%20Preflight%EF%BC%88Pi%20%E8%BF%90%E8%A1%8C%E6%97%B6%E8%BF%81%E7%A7%BB%E5%89%8D%E7%BD%AE%E6%A0%B8%E5%AF%B9%EF%BC%89.md) | 当前证据、数据迁移、回退与删除硬门 |
+| Schema | [Pi Runtime v1 contracts](./schemas/pi-runtime/v1-contracts.json) | 现行机器可读边界与 fixtures |
 
-## 2. 为什么现在要补这层
-
-当前 Harness 只有部分主链满足“可以开始第一批实现”的门槛：
-
-- Memory、Runtime / Tools、Orchestration / Lifecycle、Governance 细化规则和 Verification 已有 L3 合同。
-- Overview、Core Object Model、Instructions / Context、Observability 和 Evaluation 仍包含 L2 合同，不能因为相邻底座已达 L3 就直接编码。
-- 仓库中存在需要结合当前代码与测试重新核对的候选复用路径：
-  - 后端：`app/canvas/`
-  - 前端：`frontend/src/pages/Workspace/`
-  - API：`app/api/server.py`
-
-但 harness 仍然更偏“运行原则与治理规格”，还没有完全沉淀成当前仓库可直接复用的：
-
-- 运行时状态字段
-- 前后端接口契约
-- 验证回执结构
-- 交接物对象的最小字段集
-
-所以现在最合适的做法不是把整个技术目录视为可编码规格，而是按可追溯矩阵逐项判断：L3 部分进入实现，L2 / TARGET 部分先回到 Harness 收敛。
+同一规则只在一个文档中展开：系统边界看 01，追溯看 02，字段和恢复合同看 03，实施对照看 04，当前迁移证据与硬门看 05。
 
 ## 3. 当前实现判断
 
-当前代码并不是一张白纸，但本节只记录需要重新核对的迁移资产，不把旧技术文档或旧命名当作当前实现事实：
+当前代码已复用部分 Pi 和 Canvas 通用底座，但尚未形成目标主链：
 
-- `app/canvas/service.py`
-  - 历史迁移快照记录其曾承接工作区读取、回合开始、提案构建、确认流、交接刷新和快照生成
-- `app/canvas/governance.py`
-  - 历史迁移快照记录其曾把提案分成自动应用或待确认
-- `app/canvas/domain/`
-  - 可能继续复用工作区、卡片、变更提案和交接物等基础领域对象
-- `frontend/src/pages/Workspace/`
-  - 可能继续复用主画布、卡片移动、关系连线和交接视图等工作台能力
+- Pi 依赖仍为 `0.84.1`，且 telemetry override 为 `0.84.2`；目标是同一 `0.85.1` 依赖族；
+- TypeScript 侧仍保留单次运行入口和每请求 Agent；
+- Python 侧仍承担外部上下文组装、判断、收敛和产品运行记录；
+- Workspace–Primary Session Binding、官方 SQLite Session Backend、宿主独占写锁、统一 `workspace.commit` 和 Revision 投影闭环尚未完成；
+- 旧 Schema 已由现行 Session / Tool / Commit / Lifecycle Schema 替换，但业务代码消费者尚未迁移。
 
-这些模块可能继续承接 EvoCanvas 1.0，也可能仍保留旧阶段状态、普通确认队列或旧产品流程。每次实现前必须重新读取代码与测试，并以当前 L3 Harness 为准决定复用、适配或停止扩展；不能仅凭本节清单把旧行为收紧成正式口径。
+详细证据集中在 05，不在其他技术规格重复维护。
 
-## 4. 本目录的边界
+## 4. 实现边界
 
-本目录只处理以下问题：
+本目录处理：
 
-- EvoCanvas 的系统级目标架构、一级子系统、控制权与事实源边界。
-- 每个架构节点和依赖当前属于 L3、L2、BOUNDARY、TARGET 还是 CONFLICT。
-- 已达到 L3 的运行、状态、治理、验证和工具规则如何承接到当前代码。
-- 前端工作台如何只消费后端投影，而不是自己发明事实。
+- Pi 作为唯一 Agent 核心的集成方式；
+- Workspace–Session、Entry、Commit、Revision、Handoff 与 Projection 的权威关系；
+- 工具权限、幂等、恢复、生命周期和迁移硬门；
+- 当前代码资产如何迁移到 Harness L3。
 
-本目录不处理以下问题：
+本目录不处理：
 
-- 不重新定义 PRD
-- 不重新设计完整 UI
-- 不把任何 L1 / L2 / TARGET 节点提前写成稳定规格
-- 不把未来 2.0 / 3.0 的能力偷渡进 1.0
+- 重新定义 PRD、页面或卡片类型；
+- 在 Pi 外新建 Agent Kernel、Supervisor 或阶段路由器；
+- 为兼容旧代码新增长期双写、平行事实源或平行确认流；
+- 把尚未被主 PRD / Harness 支撑的新产品规则写成实现事实；
+- 把文档已收敛误报为代码或生产链已经完成。
 
-## 5. 使用方式
+## 5. 首批实现原则
 
-建议阅读顺序：
-
-1. [03 System Architecture（系统总架构）.md](./03%20System%20Architecture%EF%BC%88%E7%B3%BB%E7%BB%9F%E6%80%BB%E6%9E%B6%E6%9E%84%EF%BC%89.md)
-2. [04 Architecture Traceability（架构可追溯矩阵）.md](./04%20Architecture%20Traceability%EF%BC%88%E6%9E%B6%E6%9E%84%E5%8F%AF%E8%BF%BD%E6%BA%AF%E7%9F%A9%E9%98%B5%EF%BC%89.md)
-3. 矩阵指向的相关 Harness L3 文档。
-4. 当前受影响代码和相邻测试。
-
-其中，系统总架构先定义目标子系统、控制权和事实源边界；可追溯矩阵再核对哪些内容已有 Harness 支撑、哪些仍是目标假设或冲突。只有矩阵确认的 L3 部分，才能继续进入当前代码和测试核对。
-
-[01 Runtime Mapping（运行时映射）.md](./01%20Runtime%20Mapping%EF%BC%88%E8%BF%90%E8%A1%8C%E6%97%B6%E6%98%A0%E5%B0%84%EF%BC%89.md) 与 [02 Frontend Contract（前端工作台契约）.md](./02%20Frontend%20Contract%EF%BC%88%E5%89%8D%E7%AB%AF%E5%B7%A5%E4%BD%9C%E5%8F%B0%E5%A5%91%E7%BA%A6%EF%BC%89.md) 是旧 L / G / V 迁移阶段留下的历史快照，只用于识别旧实现与当前目标的差异，不在当前权威阅读链中，也不能直接生成字段、确认队列或阶段状态机任务。
-
-修改代码时，默认按下面的判断执行：
-
-- 如果矩阵标记为 L3，且当前代码与测试核对后职责一致，可以在既有提交、状态和治理边界内改代码。
-- 如果涉及 L2 / TARGET，或需要新增稳定 Schema、持久化结构、跨端接口、阶段状态、普通确认队列，先补 Harness，不得从目标图或历史快照直接实现。
-- 如果架构节点同时聚合 L2 与 L3，只能实现有明确 L3 依据的子合同，不能把组合节点整体当作编码授权。
-
-## 6. 首批实现原则
-
-首批实现统一遵守以下原则：
-
-- 优先复用经当前代码和测试核对后仍符合 L3 边界的通用底座，不做“看起来全新”的重写。
-- 前端可以保留 `discovery / define / handoff` 的轻量展示带，但不得把它误当成运行时阶段状态机。
-- 高影响信息地位升级必须回指 Chat 中清晰、带范围的确认依据；普通结构化更新不新增持久化确认队列。
-- 交接物是达到治理条件的结构化包版本及其投影视图，不复制独立可编辑正文。
-- 任何新增字段、注释、Docstring 都必须使用 EvoCanvas 1.0 语义，不再回退到旧 `EvoLoop / PRD 生成器 / 任务大厅` 口径。
+- 空 Workspace 不创建 Session；第一条真实消息才创建并绑定 Primary Session。
+- Pi 同族运行依赖统一使用 `0.85.1`，采用官方 SQLite Backend、一个 Session 一个文件和宿主级独占写锁。
+- `submission_id / entry_id / operation_id / invocation_id` 分责并可追溯。
+- 用户直接编辑与 Pi 编辑共用 `workspace.commit`；未确认候选不进入 Revision 或 Canvas。
+- 工具声明 `replay: safe | never`；结果 `unknown` 不自动授予重放权限。
+- 迁移按 Workspace 停写、导入、哈希校验、原子切换，不长期双写。
+- close、archive、replace、delete 分责；删除必须如实返回 `deleted / partial / retention_held`。
+- 实现完成必须由真实入口、恢复、并发、迁移和端到端测试证明。

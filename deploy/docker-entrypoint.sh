@@ -29,7 +29,8 @@ cleanup() {
     wait "$PI_PID" 2>/dev/null || true
     exit 0
 }
-trap cleanup SIGINT SIGTERM
+# POSIX /bin/sh 兼容写法；部分 slim 镜像不接受带 SIG 前缀的信号名。
+trap cleanup INT TERM
 
 # 等待 Pi Runtime 监听启动
 sleep 1

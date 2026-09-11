@@ -1,6 +1,8 @@
 import { executeWorkspaceAgent, type WorkspaceTurnRequest, type WorkspaceExecutionContext } from "./workspace-turn.js";
 import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
 import { createModels, Type, type Model, type MutableModels } from "@earendil-works/pi-ai";
+import { createProvider } from "@earendil-works/pi-ai";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type {
@@ -64,6 +66,15 @@ const REAL_ADAPTER_VERSION = "pi-runtime.pi-agent-core.v1";
 const REAL_PROTOCOL_VERSION = "pi-runtime.protocol.v1";
 export const DEFAULT_PROVIDER_ID = "deepseek";
 export const DEFAULT_MODEL_ID = "deepseek-v4-flash";
+const MODEL_PROVIDER_FALLBACKS = ["deepseek", "openai", "openai-codex"] as const;
+
+function normalizeConfiguredBaseUrl(value: string): string {
+  let baseUrl = String(value || "").trim().replace(/\/+$/, "");
+  for (const suffix of ["/chat/completions", "/responses", "/models"]) {
+    if (baseUrl.endsWith(suffix)) return baseUrl.slice(0, -suffix.length).replace(/\/+$/, "");
+  }
+  return baseUrl;
+}
 
 interface CapturedJudgement {
   decision: "skip" | "defer" | "trigger";
@@ -317,30 +328,87 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
   }
 
   private resolveModel(modelId = this.modelId): Model<any> {
-    const models = this.models.getModels(this.providerId);
-    if (models.length === 0) {
+    const providerIds = modelId
+      ? Array.from(new Set([this.providerId, ...MODEL_PROVIDER_FALLBACKS]))
+      : [this.providerId];
+    const available = providerIds.flatMap((providerId) => this.models.getModels(providerId));
+    if (available.length === 0) {
       throw new Error(`Pi Runtime provider ${this.providerId} has no available models`);
     }
-    const selected = modelId ? models.find((model) => model.id === modelId) : models[0];
+    const selected = modelId ? available.find((model) => model.id === modelId) : available[0];
     if (!selected) {
-      throw new Error(`Pi Runtime model ${this.providerId}/${modelId} was not found`);
+      throw new Error(`Pi Runtime model ${modelId} was not found in configured providers`);
     }
     return selected;
+  }
+
+  private providerFor(model: Model<any>): string {
+    return model.provider || this.providerId;
+  }
+
+  private configuredWorkspaceModel(request: WorkspaceTurnRequest): { models: MutableModels; model: Model<any> } | undefined {
+    const config = request.model_config;
+    if (!config) return undefined;
+    const baseUrl = normalizeConfiguredBaseUrl(config.base_url);
+    const apiKey = String(config.api_key || "").trim();
+    const modelId = String(config.model_id || request.model || this.modelId || DEFAULT_MODEL_ID).trim();
+    if (!baseUrl || !apiKey) {
+      throw new RuntimeProviderNotReadyError(config.provider_id || "configured", modelId, "模型设置缺少 Base URL 或 API Key");
+    }
+    if (!/^https?:\/\//i.test(baseUrl)) throw new Error("模型设置的 Base URL 必须以 http:// 或 https:// 开头");
+
+    const providerId = `configured-${config.provider_id || "openai-compatible"}`;
+    const model: Model<"openai-completions"> = {
+      id: modelId,
+      name: modelId,
+      api: "openai-completions",
+      provider: providerId,
+      baseUrl,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 32768,
+      compat: {
+        supportsStore: false,
+        supportsDeveloperRole: false,
+        maxTokensField: "max_tokens",
+        supportsStrictMode: false,
+        supportsOpenAIGrammarTools: false,
+      },
+    };
+    const provider = createProvider({
+      id: providerId,
+      name: config.provider_name || config.provider_id || "自定义 OpenAI 兼容 Provider",
+      baseUrl,
+      auth: {
+        apiKey: {
+          name: "Configured API key",
+          resolve: async () => ({ auth: { apiKey } }),
+        },
+      },
+      models: [model],
+      api: openAICompletionsApi(),
+    });
+    const models = createModels();
+    models.setProvider(provider);
+    return { models, model };
   }
 
   async readiness(): Promise<RunReadiness> {
     try {
       const model = this.resolveModel();
       const auth = await this.models.getAuth(model);
+      const providerId = this.providerFor(model);
       if (!auth) {
         return {
           ready: false,
-          provider_id: this.providerId,
+          provider_id: providerId,
           model_id: model.id,
-          reason: `Pi Runtime provider ${this.providerId} has no resolved credentials`,
+          reason: `Pi Runtime provider ${providerId} has no resolved credentials`,
         };
       }
-      return { ready: true, provider_id: this.providerId, model_id: model.id };
+      return { ready: true, provider_id: providerId, model_id: model.id };
     } catch (error) {
       return {
         ready: false,
@@ -351,9 +419,11 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
   }
 
   async executeWorkspace(request: WorkspaceTurnRequest, context: WorkspaceExecutionContext, signal: AbortSignal): Promise<Record<string, unknown>> {
-    const model = this.resolveModel(request.model || this.modelId);
-    if (!await this.models.getAuth(model)) throw new RuntimeProviderNotReadyError(this.providerId, model.id, "Provider 凭证不可用");
-    return executeWorkspaceAgent(request, context, signal, this.models, model);
+    const configured = this.configuredWorkspaceModel(request);
+    const models = configured?.models ?? this.models;
+    const model = configured?.model ?? this.resolveModel(request.model || this.modelId);
+    if (!await models.getAuth(model)) throw new RuntimeProviderNotReadyError(this.providerFor(model), model.id, "Provider 凭证不可用");
+    return executeWorkspaceAgent(request, context, signal, models, model);
   }
 
   async execute(request: RunRequest, emit: RunEventSink, signal: AbortSignal, tools?: RunToolRuntime): Promise<RunResult> {
@@ -361,9 +431,9 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
     const auth = await this.models.getAuth(model);
     if (!auth) {
       throw new RuntimeProviderNotReadyError(
-        this.providerId,
+        this.providerFor(model),
         model.id,
-        `Pi Runtime provider ${this.providerId} has no resolved credentials`,
+        `Pi Runtime provider ${this.providerFor(model)} has no resolved credentials`,
       );
     }
     const runtime = tools ?? createRunToolRuntime(request);

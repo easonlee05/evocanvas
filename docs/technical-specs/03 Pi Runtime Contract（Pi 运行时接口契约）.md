@@ -2,7 +2,7 @@
 
 > 文档状态：`与 Harness L3 对齐的现行 Pi 集成合同`
 > 目标实现归属：`Pi Agent Core + EvoCanvas 产品能力`
-> 当前实现状态：`目标合同已定；代码与数据迁移未完成`
+> 当前实现状态：`原生合同已定；主链已接入，数据与边界验证待补齐`
 > 机器合同：[`schemas/pi-runtime/v1-contracts.json`](./schemas/pi-runtime/v1-contracts.json)
 
 ## 1. 控制目标
@@ -131,7 +131,7 @@ original Pi messages
 + write_capability status
 ```
 
-快照不写入 Session，不复制来源正文，不生成独立 Context ID。工作包不可读时保留原消息并关闭稳定写入；不得用旧 Canvas 或缓存冒充 current Revision。
+快照不写入 Session，不复制来源正文，不生成独立 Context ID。工作包不可读时保留原消息并关闭稳定写入；不得用缓存 Canvas 冒充 current Revision。
 
 ## 8. 身份分层
 
@@ -215,7 +215,7 @@ change_summary
 
 - `close`：结束 Agent 句柄并释放宿主锁，不改变 Binding、Session Entry 或 Revision。
 - `archive`：将 Workspace 与 Binding 标记归档，保留原 Session 和来源可解析性；恢复时仍打开原 Session。
-- `replace`：仅用于原 Session 无法继续或格式迁移；新 Session 记录 `predecessor_session_id` 和 Entry 映射，旧 Session 保留只读。
+- `replace`：仅用于原 Session 无法继续或格式切换；新 Session 记录 `predecessor_session_id` 和 Entry 映射，原 Session 保留只读。
 - `delete`：以独立幂等键协调删除 Session、工作包、来源和投影，终态只能是：
   - `deleted`：全部目标已删除；
   - `partial`：有明确残留与可重试步骤；
@@ -223,13 +223,13 @@ change_summary
 
 `partial / retention_held` 均不得显示为删除成功。
 
-## 13. 旧消息迁移与回退边界
+## 13. 历史消息导入与回退边界
 
-迁移以 Workspace 为单位：
+历史消息导入以 Workspace 为单位：
 
 ```text
 短暂停止该 Workspace 写入
--> 导出旧消息和来源映射
+-> 导出历史消息和来源映射
 -> 导入预留的新 Primary Session
 -> 校验数量、顺序、角色、附件引用和内容哈希
 -> 原子切换 Binding
@@ -238,9 +238,9 @@ change_summary
 
 禁止长期双写。回退边界：
 
-1. Binding 切换前：可以放弃新 Session，恢复旧路径写入。
+1. Binding 切换前：可以放弃新 Session，恢复原路径写入。
 2. 切换后、尚无新 Entry / Revision：仅在完整校验通过时允许原子切回。
-3. 切换后已产生新 Entry 或 Revision：旧路径保持只读；只能修复前进或执行下一次受控迁移，不得回到旧路径继续写。
+3. 切换后已产生新 Entry 或 Revision：原路径保持只读；只能修复前进或执行下一次受控导入，不得回到原路径继续写。
 
 ## 14. 失败合同
 
@@ -269,6 +269,6 @@ change_summary
 7. `replay=never` 的未知工具效果不会在恢复时重复执行。
 8. Session 锁竞争不会产生第二个可写 Session。
 9. 归档恢复原 Session；删除部分失败或保留挂起均如实返回。
-10. 迁移全过程不长期双写，切换后的回退不丢新 Entry 或 Revision。
+10. 导入全过程不长期双写，切换后的回退不丢新 Entry 或 Revision。
 11. 未确认候选无法进入 Revision 或 Canvas。
-12. 关闭旧运行入口后，真实 Workspace 主链仍能完成。
+12. 关闭非主链运行入口后，真实 Workspace 主链仍能完成。

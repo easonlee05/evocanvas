@@ -1,4 +1,4 @@
-"""Evoloop 3.1 AgentSession domain contracts.
+"""EvoCanvas AgentSession domain contracts.
 
 AgentSession is the bounded reasoning unit inside a single Playbook agent step.
 It records observable turns, agenda items, and runtime observations instead of

@@ -1,6 +1,6 @@
 """Internal subagent orchestration service.
 
-This service is the single execution primitive for Evoloop internal subagents.
+This service is the single execution primitive for EvoCanvas internal subagents.
 It supports session-local helpers and control-plane-managed formal subtasks
 through a shared contract while enforcing strict budgeting and permission gates.
 """
@@ -256,7 +256,7 @@ class SubagentService:
         schema_keys = ", ".join(request.output_schema.keys())
         return (
             "SESSION HELPER\n"
-            "You are a bounded internal reasoning helper for Evoloop.\n"
+            "You are a bounded internal reasoning helper for EvoCanvas.\n"
             "Work only on the provided task slice. Use read-only tools only when necessary.\n"
             "Return raw JSON only.\n\n"
             f"Goal: {request.goal}\n"

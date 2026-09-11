@@ -1,4 +1,4 @@
-"""Bounded AgentSession runtime for Evoloop 3.1.
+"""Bounded AgentSession runtime for EvoCanvas.
 
 The runtime keeps Playbook topology deterministic while turning a single
 workflow agent step into an auditable bounded session with agenda recording,

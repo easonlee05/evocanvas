@@ -24,10 +24,10 @@ test("真实 Pi Agent 在同一 Session 完成候选、确认、第二次修改�
   const ops = [{ operation_id: "create", operation_type: "create_object", payload: { id: "c1", object_type: "constraint", title: "单机使用", type_status: "effective" } }];
   const edit = [{ operation_id: "edit", operation_type: "update_object", payload: { id: "c1", title: "单机离线使用" } }];
   faux.setResponses([
-    fauxAssistantMessage(fauxToolCall("workspace.propose", { operations: ops, change_summary: "确认单机约束" })), fauxAssistantMessage("建议约束：单机使用。请确认。"),
-    fauxAssistantMessage(fauxToolCall("workspace.commit", {})), fauxAssistantMessage("已应用单机约束。"),
-    fauxAssistantMessage(fauxToolCall("workspace.propose", { operations: edit, change_summary: "改为离线" })), fauxAssistantMessage("建议改为单机离线使用，请确认。"),
-    fauxAssistantMessage(fauxToolCall("workspace.commit", {})), fauxAssistantMessage("已应用离线约束。"),
+    fauxAssistantMessage(fauxToolCall("workspace_propose", { operations: ops, change_summary: "确认单机约束" })), fauxAssistantMessage("建议约束：单机使用。请确认。"),
+    fauxAssistantMessage(fauxToolCall("workspace_commit", {})), fauxAssistantMessage("已应用单机约束。"),
+    fauxAssistantMessage(fauxToolCall("workspace_propose", { operations: edit, change_summary: "改为离线" })), fauxAssistantMessage("建议改为单机离线使用，请确认。"),
+    fauxAssistantMessage(fauxToolCall("workspace_commit", {})), fauxAssistantMessage("已应用离线约束。"),
   ]);
   const turn = async (id: string, text: string) => {
     const message = { role: "user" as const, content: text };
@@ -68,8 +68,8 @@ test("模型调用提交工具也不能把未确认回复当作授权", async ()
   const revisions=new WorkspaceRevisionStore({storageDir:join(dir,"r")});await revisions.init();
   const {faux,executor}=fixtureExecutor();
   faux.setResponses([
-    fauxAssistantMessage(fauxToolCall("workspace.propose",{operations:[{operation_id:"c",operation_type:"create_object",payload:{id:"c",object_type:"constraint",title:"离线使用"}}],change_summary:"离线约束"})),fauxAssistantMessage("建议离线使用。"),
-    fauxAssistantMessage(fauxToolCall("workspace.commit",{})),fauxAssistantMessage("不应展示的成功回复"),
+    fauxAssistantMessage(fauxToolCall("workspace_propose",{operations:[{operation_id:"c",operation_type:"create_object",payload:{id:"c",object_type:"constraint",title:"离线使用"}}],change_summary:"离线约束"})),fauxAssistantMessage("建议离线使用。"),
+    fauxAssistantMessage(fauxToolCall("workspace_commit",{})),fauxAssistantMessage("不应展示的成功回复"),
   ]);
   const turn=async(id:string,text:string)=>{
     const message={role:"user" as const,content:text};const submission=await sessions.submitUserMessage({workspaceId:"w",actorId:"u",submissionId:id,contentHash:computeContentHash(message),piUserMessage:message as any});submission.releaseLock();

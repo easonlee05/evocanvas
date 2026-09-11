@@ -7,7 +7,7 @@
 * Convergence 只把 Pi 返回的完整 proposal 交给唯一的 governed commit port；
 * Pi 运行结果本身不写 Package、Card、Ledger 或 Projection。
 
-Canvas HTTP 已通过 ``CanvasService.run_pi_turn`` 装配到这条边界；旧任务 API 仍作为迁移资产独立存在，不得反向进入本主链。
+Canvas HTTP 已通过 ``CanvasService.run_pi_turn`` 装配到这条边界；辅助任务 API 独立存在，不得反向进入本主链。
 """
 
 from __future__ import annotations

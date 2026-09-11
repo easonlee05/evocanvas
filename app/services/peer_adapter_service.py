@@ -1,6 +1,6 @@
 """PeerAdapter 协作适配服务。
 
-该模块定义 Evoloop 3.1 面向 AI 技术同事的最小派发层：
+该模块定义 EvoCanvas 面向 AI 技术同事的最小派发层：
 - 控制面按 `peer_target` 选择已注册 handler
 - handler 接收 agent package 文本并返回结构化 result bundle
 - 本层只负责协作通道分发，不负责直接修改控制面状态

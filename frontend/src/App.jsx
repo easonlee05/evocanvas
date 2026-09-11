@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description EvoCanvas 前端根组件。只保留新产品方向需要的入口路由：
- * 对话驱动的 Landing 和核心 Workspace，移除旧 EvoLoop 产品大厅类页面。
+ * 对话驱动的 Landing 和核心 Workspace，保持入口聚焦 EvoCanvas 1.0 主链。
  */
 
 import React from 'react';

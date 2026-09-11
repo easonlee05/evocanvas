@@ -2,7 +2,7 @@
 
 > 方法成熟度：`L3 可指导实现的治理规格层`
 > 目标实现归属：`Pi Session + 结构化工作包 + Canvas 投影`
-> 当前实现状态：`合同已定，代码待迁移`
+> 当前实现状态：`原生生命周期已接入，恢复边界待验证`
 > 实现说明：技术运行、稳定状态和派生投影分别拥有生命周期，不能互相代替。
 
 ## 1. 控制目标
@@ -52,7 +52,7 @@
 - Canvas 和快照缓存可物理清除并重建。
 - `close` 只结束当前 Agent 句柄、释放 Session 文件锁和运行资源，不改变 Binding、Entry 或 Revision。
 - `archive` 将 Binding 与 Workspace 标记为归档，保留原 Session、Entry、Revision 和来源引用；恢复时仍打开原 Session。
-- 受控 Session 换代只在原 Session 无法继续使用或格式迁移时发生：新 Session 必须记录前任引用和迁移映射，旧 Entry 仍可解析；不得用换代掩盖普通故障。
+- 受控 Session 换代只在原 Session 无法继续使用或格式切换时发生：新 Session 必须记录前任引用和 Entry 映射，原 Entry 仍可解析；不得用换代掩盖普通故障。
 - Workspace `delete` 是独立高风险动作，协调处理 Session、工作包、来源和投影，并返回唯一终态：`deleted`（目标均已删除）、`partial`（存在明确残留和可重试步骤）、`retention_held`（因保留策略未物理删除）。
 - `partial / retention_held` 均不得向用户显示为删除成功；重复删除请求复用同一幂等键和进度记录。
 

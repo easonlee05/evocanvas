@@ -109,7 +109,7 @@ class ConfirmationRecord:
     def from_dict(cls, data: Dict[str, Any]) -> "ConfirmationRecord":
         """从字典恢复确认记录实例。
 
-        兼容旧持久化数据：缺失 confirmation_path 时按 assistant 提议路径恢复，
+        兼容历史持久化数据：缺失 confirmation_path 时按 assistant 提议路径恢复，
         因为历史记录均走该路径。
         """
 

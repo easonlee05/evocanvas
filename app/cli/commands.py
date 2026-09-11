@@ -1,4 +1,4 @@
-"""Evoloop 3.0 CLI 命令行指令的底层核心执行逻辑。
+"""EvoCanvas CLI 命令行指令的底层核心执行逻辑。
 
 本模块包含 compile (编译)、package (打包)、acceptance (生成验收规范) 与 review (交付物审计)
 等 CLI 子命令的业务流程实现，处理与核心 TaskService 的状态流转、决策网关交互以及产物依赖图自检校验。
@@ -14,7 +14,7 @@ except ImportError:
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Evoloop 3.0 核心契约数据结构导入
+# EvoCanvas 核心契约数据结构导入
 from app.core.work import WorkItem, WorkType, WorkStatus
 from app.core.playbook import ProductContext, DecisionGate, DecisionGateStatus, DecisionOption, GateResolution
 from app.core.artifact_graph import (
@@ -29,10 +29,10 @@ from app.cli.utils import compact_error_text, read_yaml_safe, write_yaml_safe
 
 
 def build_cli_task_service(output_dir: str, fake: bool = False) -> TaskService:
-    """动态构建并初始化 TaskService 实例，并在服务中注册 spec_to_agent 工作流描述。
+    """动态构建并初始化 TaskService 实例，并在服务中注册工作流描述。
 
     Args:
-        output_dir (str): 用于存放 Evoloop 本地运行数据的目标工作区路径。
+        output_dir (str): 用于存放 EvoCanvas 本地运行数据的目标工作区路径。
         fake (bool): 是否使用 Fake 伪存根服务（即无网络大模型和只操作伪文件存储的单元测试/离线模式）。
 
     Returns:
@@ -50,7 +50,7 @@ def build_cli_task_service(output_dir: str, fake: bool = False) -> TaskService:
         from app.workflows.engine import WorkflowEngine
         from app.services.tool_service import ToolService
         
-        storage_root = Path(output_dir) / ".evoloop_storage"
+        storage_root = Path(output_dir) / ".evocanvas_storage"
         storage_root.mkdir(parents=True, exist_ok=True)
         storage = FakeStorage(storage_root)
         tool_service = ToolService.default(root=storage, knowledge=FakeKnowledge())
@@ -66,7 +66,7 @@ def build_cli_task_service(output_dir: str, fake: bool = False) -> TaskService:
     else:
         # 链接后端真实的 API 级别服务配置进行落地执行
         from app.api.server import build_default_task_service
-        service = build_default_task_service(root=Path(output_dir) / ".evoloop_storage")
+        service = build_default_task_service(root=Path(output_dir) / ".evocanvas_storage")
         return service
 
 
@@ -210,7 +210,7 @@ def compile_cmd(intent: str, materials: List[str], output_dir: str, fake: bool =
                 copied_files.append("machine_spec.yaml")
                 
             if "human_brief.md" not in copied_files:
-                brief_content = f"# Human Brief: {intent[:20]}\n\n## Objective\n{intent}\n\nGenerated automatically via Evoloop compile CLI."
+                brief_content = f"# Human Brief: {intent[:20]}\n\n## Objective\n{intent}\n\nGenerated automatically via EvoCanvas compile CLI."
                 dest_file = Path(output_dir) / "human_brief.md"
                 dest_file.write_text(brief_content, encoding="utf-8")
                 copied_files.append("human_brief.md")
@@ -258,7 +258,7 @@ def compile_cmd(intent: str, materials: List[str], output_dir: str, fake: bool =
                 sys.exit(1)
             elif choice == 'd':
                 print("\n[*] Asking AI for diagnosis...")
-                prompt = f"The following error occurred during Evoloop CLI execution:\n{err_msg}\nExplain the root cause and how to fix it."
+                prompt = f"The following error occurred during EvoCanvas CLI execution:\n{err_msg}\nExplain the root cause and how to fix it."
                 diagnosis = _call_llm(prompt, fake, "[Fake AI Diagnosis] Check network connection and API keys.")
                 print(f"\n[AI Diagnosis]:\n{diagnosis}\n")
             elif choice == 'r':
@@ -470,7 +470,7 @@ def review_cmd(
         if not review_artifact and is_compatibility:
             # 兼容性占位模式下，本地做简易检查避免抛异常
             verdict = "blocked" if "TODO" in delivery_content else "PASS"
-            summary = "存在未完成的 TODO 开发项" if verdict == "blocked" else f"Evoloop CLI review for spec: {title}. All criteria satisfied."
+            summary = "存在未完成的 TODO 开发项" if verdict == "blocked" else f"EvoCanvas CLI review for spec: {title}. All criteria satisfied."
             review_md_content = f"# Review Result\n\nVerdict: {verdict}\n\nSummary: {summary}\n"
             review_artifact = service.storage.write_artifact(
                 task_id=result.task_id,
@@ -499,7 +499,7 @@ def review_cmd(
         machine_spec_ref=spec_path,
         acceptance_protocol_ref=acceptance_path,
         verdict=fake_verdict,
-        summary=f"Evoloop CLI review for spec: {title}. All criteria satisfied.",
+        summary=f"EvoCanvas CLI review for spec: {title}. All criteria satisfied.",
         coverage=fake_coverages,
         issues=[],
         fix_tasks=[]

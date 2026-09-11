@@ -1,12 +1,12 @@
 """EvoCanvas 运行时状态辅助。
 
-L3 规格已废弃旧语义：stage_node / checkpoint / pending_gate_ids /
+L3 规格已废弃未类型化语义：stage_node / checkpoint / pending_gate_ids /
 transition_history / next_progression_hint 不再迁入对象状态，也不作为
 主题阶段机。当前工作区运行时状态只保留与 active_turn 相关的最小占位
 （属于 Runtime/Tools 模块范围，后续替换为包级租约）。
 
 本模块现在提供：
-- 基于类型化状态的未决对象提取（替代旧 unresolved_issue_ids_from_cards）。
+- 基于类型化状态的未决对象提取（替代未类型化 unresolved_issue_ids_from_cards）。
 - 账本事件构造辅助，供 service 层在同提交升级中追加事件。
 - 交接物元数据与视图的派生（不再写聊天总结，不再维护主题阶段）。
 
@@ -57,7 +57,7 @@ def ensure_workspace_runtime_defaults(workspace: CanvasWorkspace) -> CanvasWorks
 
     metadata = dict(workspace.metadata or {})
     # 不再写入 lifecycle / verification_summary / state_ledger。
-    # 旧持久化数据中残留的这些字段保留为只读历史，不参与运行时决策。
+    # 历史持久化数据中残留的这些字段保留为只读，不参与运行时决策。
     workspace.metadata = metadata
 
     return workspace
@@ -73,7 +73,7 @@ def build_handoff_metadata(
 ) -> Dict[str, Any]:
     """生成结构化交接物的最小可追溯元数据。
 
-    基于类型化状态派生未决与高置信未确认计数，不再依赖旧 stage_node。
+    基于类型化状态派生未决与高置信未确认计数，不再依赖未类型化 stage_node。
     """
 
     card_list = list(cards)
@@ -113,7 +113,7 @@ def build_handoff_state(
 
     L3 规格要求交接有效性只读取包版本 initial_governance_status 及账本叠加。
     因此只消费调用方传入的包版本投影状态和交接模块元数据；不读取工作区
-    的 legacy handoff_status / handoff_metadata 字段。
+    的历史 handoff_status / handoff_metadata 字段。
     """
 
     del workspace
@@ -144,7 +144,7 @@ def apply_turn_runtime_state(
 
     L3 规格已废弃 stage_node / checkpoint / transition_history 主题阶段机语义。
     本函数不再写入 lifecycle / verification_summary / state_ledger 覆盖式摘要，
-    仅保留工作区元数据的轻量更新，供过渡期使用。
+    仅保留工作区元数据的轻量更新，供当前 UI 运行态使用。
 
     真正的状态变化应通过 append_ledger_event 追加账本事件记录，由 service 层
     在原子提交时调用。本函数仅为兼容现有 service 调用签名而保留。

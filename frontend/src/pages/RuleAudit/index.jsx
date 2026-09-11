@@ -36,7 +36,7 @@ const rules = [
     id: 'R-0020',
     title: 'PRD 成功指标需包含可量化的数值目标',
     desc: '对比 12 份 PRD 修改记录，用户始终将模糊描述替换为带具体数值的指标，如"提升用户满意度"改为"NPS ≥ 45"。',
-    source: '产品需求文档 v2.0 评审',
+    source: '产品需求文档评审',
     sourceId: 'T-0421',
     extractedAt: '今天 09:15',
     confidence: 88,
@@ -285,4 +285,3 @@ export default function RuleAudit() {
     </div>
   );
 }
-

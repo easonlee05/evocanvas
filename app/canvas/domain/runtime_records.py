@@ -1,4 +1,4 @@
-"""Pi 迁移所需的四类 Python 运行记录与包级租约。"""
+"""Pi 运行链所需的四类 Python 运行记录与包级租约。"""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 """
-Evoloop CLI 核心实用工具函数（CliUtils）测试模块。
+EvoCanvas CLI 核心实用工具函数（CliUtils）测试模块。
 
 主要对 CLI 环境下，从用户输入日志中抓取负面或受挫情绪（intercept_user_emotion）
 并自动引导的逻辑，以及大段异常输出文本的折叠缩略逻辑（compact_error_text）进行验证。
@@ -50,4 +50,3 @@ class TestCliUtils(unittest.TestCase):
         self.assertEqual(len(lines), 9)
         # 注意：此处断言因为本地化翻译可能在本地失败，但根据不可改变测试逻辑的黄金规则，本断言保持原样
         self.assertIn("折叠了", lines[4])
-

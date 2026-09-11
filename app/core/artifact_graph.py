@@ -1,4 +1,4 @@
-"""Evoloop 3.0 交付资产关系图（ArtifactGraph）核心契约定义。
+"""EvoCanvas 交付资产关系图（ArtifactGraph）核心契约定义。
 
 本模块构建了以机器规格书（machine_spec）为唯一真相源（Source of Truth），
 管理需求、决策、验收协议、代码包、评审结论等交付资产及其派生/覆盖/评审依赖关系的有向图。
@@ -396,4 +396,3 @@ class ArtifactGraph(FilePersistenceMixin):
             edges=[ArtifactEdge.from_dict(item) for item in data.get("edges", [])],
             metadata=dict(data.get("metadata", {})),
         )
-

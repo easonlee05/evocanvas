@@ -1,6 +1,6 @@
 /**
  * @file index.jsx
- * @description 仪表盘页面。聚合展示 Evoloop 系统整体的状态监控指标，包括：
+ * @description 仪表盘页面。聚合展示 EvoCanvas 工作区的状态监控指标，包括：
  *   - 运行中任务、本周完成任务数、Agent 调用量等指标卡片。
  *   - 当前进行中的任务列表与具体进度。
  *   - 团队内部各 Agent 角色当前的繁忙/空闲状态。
@@ -30,7 +30,7 @@ const stats = [
  * @type {Array<{id: string, title: string, status: 'running'|'review'|'pending'|'done', agent: string, progress: number, priority: 'high'|'medium'|'low'}>}
  */
 const tasks = [
-  { id: 'T-0421', title: '产品需求文档 v2.0 评审', status: 'running', agent: 'PM + Tech + QA', progress: 68, priority: 'high' },
+  { id: 'T-0421', title: '产品需求文档评审', status: 'running', agent: 'PM + Tech + QA', progress: 68, priority: 'high' },
   { id: 'T-0420', title: '用户增长策略 analysis 报告', status: 'review', agent: 'Intern + Reviewer', progress: 92, priority: 'medium' },
   { id: 'T-0419', title: '云原生架构迁移方案', status: 'pending', agent: '待分配', progress: 0, priority: 'high' },
   { id: 'T-0418', title: '竞品功能对比分析', status: 'done', agent: 'Expert', progress: 100, priority: 'low' },
@@ -166,4 +166,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

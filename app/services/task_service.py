@@ -15,7 +15,7 @@ from app.core.subagent import (
     SubagentSpawnRequest,
 )
 
-# 3.0 Frozen Contracts
+# EvoCanvas 工作项与结构化交付合同
 from app.core.work import WorkItem, WorkType, WorkStatus
 from app.core.playbook import (
     ProductContext, SourceInput, Requirement, ProductConstraint,
@@ -31,13 +31,13 @@ class TaskService:
     """任务生命周期管理与数据转换的应用服务。
 
     该类负责处理任务创建、运行、取消、删除等核心控制流，
-    并提供将 1.0 版本的 Task 模型桥接/编译为 3.0 版本（WorkItem、ProductContext、ArtifactGraph）的接口。
+    并提供将任务上下文整理为 EvoCanvas 工作项、产品上下文和交付资产图的接口。
 
     生命周期：
         通常在 Web 框架启动时作为单例被初始化，持有全局的 TaskDefinition 注册表、工作流引擎和持久化存储服务。
     """
 
-    LEGACY_TYPE_ALIASES = {
+    COMPATIBILITY_TYPE_ALIASES = {
         "manual": "legacy_manual",
         "legacy_manual": "legacy_manual",
         "prd": "legacy_prd",
@@ -66,7 +66,7 @@ class TaskService:
                 测试环境可注入实现同一窄端口的 Fake。
             canvas_tool_gateway: Canvas Pi Runtime 使用的内部只读工具网关。
             tenant_id: 当前服务绑定的租户标识，用于内部工具调用范围校验。
-            knowledge: 通用知识检索后端；Canvas 和健康检查可直接使用，不触发旧引擎初始化。
+            knowledge: 通用知识检索后端；Canvas 和健康检查可直接使用，不触发工作流执行引擎初始化。
         """
         self.registry = registry
         self.engine = engine
@@ -82,7 +82,7 @@ class TaskService:
         """创建新任务并保存初始上下文与任务实例。
 
         Args:
-            task_type: 任务类型，支持 Legacy 别名标准化。
+            task_type: 任务类型，支持入口别名标准化。
             payload: 创建任务所需的输入数据，包括 username, title, goal 等。
 
         Returns:
@@ -92,7 +92,7 @@ class TaskService:
             ValueError: 如果任务类型未知，或缺少 TaskDefinition 输入架构所要求的必需字段。
         """
         requested_task_type = task_type
-        # 标准化任务类型，将 manual/prd 等映射为 legacy_manual/legacy_prd
+        # 标准化任务类型，将入口别名映射为工作流规范键。
         public_task_type = self._normalize_task_type(task_type)
         if public_task_type not in self.registry:
             raise ValueError(f"unknown task type: {task_type}")
@@ -858,19 +858,19 @@ class TaskService:
         Returns:
             str: 标准化后的规范任务类型。
         """
-        return cls.LEGACY_TYPE_ALIASES.get(task_type, task_type)
+        return cls.COMPATIBILITY_TYPE_ALIASES.get(task_type, task_type)
 
     def get_work_item(self, task_id: str) -> WorkItem:
-        """将 1.0 的 Task 转换为 3.0 的 WorkItem 状态实体。
+        """将任务转换为 EvoCanvas WorkItem 状态实体。
 
         Args:
             task_id: 任务的唯一标识符。
 
         Returns:
-            WorkItem: 3.0 版本的 WorkItem，包含转换后的状态映射与 Playbook 信息。
+            WorkItem: EvoCanvas 工作项，包含状态映射与 Playbook 信息。
         """
         task = self.storage.load_task(task_id, self.registry)
-        # 将 1.0 Task 状态映射到 3.0 的 WorkStatus
+        # 将 Task 状态映射到 WorkStatus
         status_map = {
             TaskStatus.CREATED: WorkStatus.CREATED,
             TaskStatus.RUNNING: WorkStatus.RUNNING,
@@ -882,16 +882,16 @@ class TaskService:
         }
         work_status = status_map.get(task.status, WorkStatus.CREATED)
         
-        # 兼容处理任务类型的转换
+        # 将入口任务类型转换为 WorkType
         if task.definition.type == "prd":
-            work_type = WorkType.LEGACY_PRD
+            work_type = WorkType.PRD
         elif task.definition.type == "manual":
-            work_type = WorkType.LEGACY_MANUAL
+            work_type = WorkType.MANUAL
         else:
             try:
                 work_type = WorkType(task.definition.type)
             except ValueError:
-                work_type = WorkType.LEGACY_PRD
+                work_type = WorkType.PRD
 
         return WorkItem(
             work_id=task.task_id,
@@ -909,8 +909,8 @@ class TaskService:
             review_cycle_id=task.context.inputs.get("review_cycle_id"),
             max_review_iterations=int(task.context.inputs.get("max_review_iterations", 2)),
             metadata={
-                "legacy_task_id": task.task_id,
-                "legacy_bridge": True,
+                "compatibility_task_id": task.task_id,
+                "compatibility_bridge": True,
                 "subagent_scope": task.context.inputs.get("subagent_scope"),
                 "parent_task_id": task.context.inputs.get("parent_task_id"),
                 "root_task_id": task.context.inputs.get("root_task_id"),
@@ -953,7 +953,7 @@ class TaskService:
         return len(source_ids) == len(set(source_ids))
 
     def get_product_context(self, task_id: str) -> ProductContext:
-        """将 1.0 任务上下文及其关联信息，转换为 3.0 标准的 ProductContext。
+        """将任务上下文及其关联信息整理为 EvoCanvas ProductContext。
 
         提取源材料、核心需求陈述、用户约束条件、已被裁决的 DecisionGate 列表等。
 
@@ -961,7 +961,7 @@ class TaskService:
             task_id: 任务的唯一标识符。
 
         Returns:
-            ProductContext: 3.0 规范的产品上下文。
+            ProductContext: EvoCanvas 产品上下文。
         """
         task = self.storage.load_task(task_id, self.registry)
         ctx = task.context
@@ -1007,7 +1007,7 @@ class TaskService:
             ) for i, c in enumerate(ctx.user_constraints)
         ]
         
-        # 将已完成的决策（user_decisions）转换为 3.0 的决策门 (DecisionGate) 结构
+        # 将已完成的决策（user_decisions）整理为 DecisionGate 结构
         user_decisions = []
         for i, dec in enumerate(ctx.user_decisions):
             gate_id = f"gate_{i}"
@@ -1032,7 +1032,7 @@ class TaskService:
                 work_id=task.task_id,
                 question=dec.decision,
                 options=options,
-                impact_summary="Legacy user decision",
+                impact_summary="Compatibility task user decision",
                 blocking=True,
                 status=DecisionGateStatus.RESOLVED if dec.selected_option else DecisionGateStatus.OPEN,
                 resolution=resolution,
@@ -1072,13 +1072,13 @@ class TaskService:
         )
 
     def get_artifact_graph(self, task_id: str) -> ArtifactGraph:
-        """根据 1.0 的 artifacts 集合与决策状态构建 3.0 的 ArtifactGraph。
+        """根据任务产物集合与决策状态构建 ArtifactGraph。
 
         Args:
             task_id: 任务的唯一标识符。
 
         Returns:
-            ArtifactGraph: 3.0 规范的产物依赖关系图。
+            ArtifactGraph: EvoCanvas 产物依赖关系图。
         """
         task = self.storage.load_task(task_id, self.registry)
         ctx = task.context
@@ -1086,7 +1086,7 @@ class TaskService:
         nodes = []
         edges = []
 
-        # 映射文件名称与 3.0 标准产物类型的关系
+        # 映射文件名称与 EvoCanvas 产物类型的关系
         native_type_map = {
             "machine_spec.yaml": ArtifactNodeType.MACHINE_SPEC,
             "human_brief.md": ArtifactNodeType.HUMAN_BRIEF,
@@ -1140,7 +1140,7 @@ class TaskService:
             art_node_id = f"node_art_{art.artifact_id}"
             node_type = native_type_map.get(art.name)
             if node_type is None:
-                projection_type_str = task.definition.metadata.get("legacy_projection")
+                projection_type_str = task.definition.metadata.get("compatibility_projection") or task.definition.metadata.get("legacy_projection")
                 node_type = ArtifactNodeType.OPTIONAL_PRD
                 if projection_type_str == "optional_manual":
                     node_type = ArtifactNodeType.OPTIONAL_MANUAL

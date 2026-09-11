@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiGet, apiPost, apiPostWithStatus, apiPut, apiUrl, apiUpload } from '../../api';
+import { getSelectedModel, readConfiguredModel, readModelList } from '../../modelConfig';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
@@ -116,16 +117,6 @@ const FileCard = ({ file, onRemove }) => {
   );
 };
 
-// 协作模型选项列表
-const MODELS = [
-  { id: 'gpt-5.4', name: 'GPT-5.4' },
-  { id: 'gpt-5.5', name: 'GPT-5.5' },
-  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
-  { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
-  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
-];
-
 // ── 主组件 ──
 export default function Workspace() {
   const { id: taskId } = useParams();
@@ -138,9 +129,8 @@ export default function Workspace() {
   const [taskTitle, setTaskTitle] = useState('Canvas AI');
   const [isLive, setIsLive] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(true);
-  const [model, setModel] = useState(() => {
-    return localStorage.getItem('evocanvas_selected_model') || 'gpt-5.4';
-  });
+  const [models, setModels] = useState(() => readModelList());
+  const [model, setModel] = useState(() => getSelectedModel());
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [arbitration, setArbitration] = useState(null);
   const [userMessages, setUserMessages] = useState([]);
@@ -171,6 +161,17 @@ export default function Workspace() {
   const writerMsgIdRef = useRef(null);
 
   useEffect(() => { savedRef.current = saved; }, [saved]);
+
+  // 设置页保存模型目录后，工作台模型选择器无需刷新即可同步。
+  useEffect(() => {
+    const syncModelCatalog = () => {
+      const nextModels = readModelList();
+      setModels(nextModels);
+      setModel(current => nextModels.some(item => item.id === current) ? getSelectedModel() : (nextModels[0]?.id || ''));
+    };
+    window.addEventListener('evocanvas:model-config-changed', syncModelCatalog);
+    return () => window.removeEventListener('evocanvas:model-config-changed', syncModelCatalog);
+  }, []);
 
   useEffect(() => {
     apiGet('/api/knowledge', { items: [] }).then(res => {
@@ -430,7 +431,8 @@ export default function Workspace() {
         material_ids: materialIds,
         source_ref_ids: attachedSourceRefs.map(item => item.source_ref_id),
         mode: 'default',
-        model: model
+        model: model,
+        llm_config: readConfiguredModel(model),
       });
 
       if (result.ok) {
@@ -467,7 +469,7 @@ export default function Workspace() {
   const currentDocContent = openedDoc === 'secondary' ? docSecondary : doc;
 
   return (
-    <div className="workspace" style={{ position: 'relative' }}>
+    <div className={`workspace ${isChatOpen ? 'chat-open' : 'chat-closed'}`} style={{ position: 'relative' }}>
       <Canvas 
         isChatOpen={isChatOpen} 
         workspaceId={taskId}
@@ -695,12 +697,12 @@ export default function Workspace() {
                 <div className="bottom-bar-right">
                   <div className="model-selector-wrap">
                     <button className="model-selector-btn" onClick={() => setShowModelMenu(!showModelMenu)} title="选择模型">
-                      <span>{(MODELS.find(m => m.id === model)?.name || model).replace('Claude ', '').replace('DeepSeek ', 'DS ')}</span>
+                      <span>{(models.find(m => m.id === model)?.name || model).replace('Claude ', '').replace('DeepSeek ', 'DS ')}</span>
                       <ChevronDown size={10} style={{ marginLeft: 2 }} />
                     </button>
                     {showModelMenu && (
                       <div className="model-dropdown-menu">
-                        {MODELS.map(m => (
+                        {models.map(m => (
                           <div 
                             key={m.id}
                             className={`model-dropdown-item${m.id === model ? ' selected' : ''}`}

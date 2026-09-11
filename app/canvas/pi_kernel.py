@@ -1,7 +1,7 @@
 """Pi 驱动的 EvoCanvas 产品内核适配层。
 
 生产回合由 Primary Pi Session 和受治理的 workspace.commit 驱动。Python
-只维护 UI 活跃回合和可重建投影；旧合同方法保留为迁移兼容入口。
+只维护 UI 活跃回合和可重建投影；历史合同方法仅保留为辅助边界入口。
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ class PiCanvasKernel:
         return str(record["message_id"])
 
     async def edit_canvas(self, workspace_id: str, actor_id: str, operations: list[dict], summary: str) -> dict[str, Any]:
-        """用户明确编辑通过统一提交器生效，成功后才刷新兼容投影。"""
+        """用户明确编辑通过统一提交器生效，成功后才刷新 Canvas 投影。"""
         projection = await self.refresh_projection(workspace_id)
         result = await self.execution.edit_workspace(workspace_id, actor_id=actor_id,
             submission_id=f"edit_{uuid4().hex}", base_revision_id=projection["projected_revision_id"],
@@ -110,14 +110,14 @@ class PiCanvasKernel:
         return result
 
     async def refresh_projection(self, workspace_id: str) -> dict[str, Any]:
-        """从稳定 Revision 重建兼容画布缓存；缓存不参与治理或提交。"""
+        """从稳定 Revision 重建 Canvas 投影缓存；缓存不参与治理或提交。"""
         from app.canvas.domain.relations import CanvasRelation
         from app.canvas.agent_execution.pi_client import PiRuntimeError
         projection = await self.execution.get_projection(workspace_id)
         revision_id = projection["projected_revision_id"]
         revision = await self.execution.get_revision(workspace_id, revision_id)
         if revision_id == "rev_0" and self.service.repository.load_cards(workspace_id):
-            raise PiRuntimeError("workspace.migration_required", "该工作区仍有旧版卡片，需完成稳定版本迁移；原数据已保留")
+            raise PiRuntimeError("workspace.migration_required", "该工作区仍有未进入稳定 Revision 的卡片；原数据已保留")
         cards = []
         for obj in revision["objects"].values():
             if obj["object_type"] == "handoff" or obj["type_status"] in {"archived", "superseded"}:
@@ -168,6 +168,7 @@ class PiCanvasKernel:
     async def run_turn(
         self, *, workspace_id: str, message: str, selected_card_ids: list[str],
         material_ids: list[str], source_ref_ids: list[str], model: str | None = None,
+        model_config: dict[str, str] | None = None,
         submission_id: str | None = None, actor_id: str = "user",
     ) -> dict[str, Any]:
         """唯一生产主链：真实 Session → Pi 工具循环 → Revision → 画布缓存。"""
@@ -196,7 +197,14 @@ class PiCanvasKernel:
                 submission_id=submission_id, content_hash="sha256:" + hashlib.sha256(normalized.encode()).hexdigest(),
                 workspace_id=workspace_id, actor_id=actor_id, pi_user_message=pi_message,
             ))
-            result = await self.execution.run_workspace(workspace_id, receipt.submission_id, selected_card_ids=selected_card_ids, materials=materials, model=model)
+            result = await self.execution.run_workspace(
+                workspace_id,
+                receipt.submission_id,
+                selected_card_ids=selected_card_ids,
+                materials=materials,
+                model=model,
+                model_config=model_config,
+            )
             if not result.get("assistant_entry_id"):
                 raise PiRuntimeError("protocol_error", "Runtime 没有返回真实 Assistant Entry")
             await self.refresh_projection(workspace_id)

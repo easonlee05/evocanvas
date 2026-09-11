@@ -1,6 +1,6 @@
-"""Evoloop 3.0 核心契约层域异常定义模块。
+"""EvoCanvas 核心契约层域异常定义模块。
 
-定义了在重构后的后端内核中共享的领域级异常与错误模型。
+定义 EvoCanvas 后端内核共享的领域级异常与错误模型。
 """
 from __future__ import annotations
 

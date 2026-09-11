@@ -55,7 +55,7 @@ class CanvasCard:
     summary: str = ""
     status: str = ""
     tags: List[str] = field(default_factory=list)
-    # 来源引用：替代旧 evidence_refs，统一表达对象回指的来源材料、消息或工具结果。
+    # 来源引用：替代历史 evidence_refs，统一表达对象回指的来源材料、消息或工具结果。
     source_refs: List[str] = field(default_factory=list)
     # 确认引用：回指 Chat 中 Assistant 提议与 User 确认消息，支撑高影响升级留痕。
     confirmation_refs: List[str] = field(default_factory=list)
@@ -98,19 +98,19 @@ class CanvasCard:
     def from_dict(cls, data: Dict[str, Any]) -> "CanvasCard":
         """从字典恢复卡片实例。
 
-        兼容旧持久化数据：evidence_refs 自动迁移为 source_refs，
+        兼容历史持久化数据：evidence_refs 自动转换为 source_refs，
         缺失的 source_refs/confirmation_refs/unresolved_refs/validation_state
         补默认值，stage 字段忽略。
         """
 
         kind_raw = str(data.get("kind", "evidence"))
         status_raw = str(data.get("status", ""))
-        kind, status = _migrate_legacy_kind_and_status(kind_raw, status_raw)
-        # 迁移旧 evidence_refs -> source_refs
+        kind, status = _normalize_compatibility_kind_and_status(kind_raw, status_raw)
+        # 兼容历史 evidence_refs -> source_refs
         source_refs = list(data.get("source_refs", data.get("evidence_refs", [])))
         metadata = dict(data.get("metadata", {}))
         if kind_raw != kind.value:
-            metadata.setdefault("legacy_kind", kind_raw)
+            metadata.setdefault("compatibility_kind", kind_raw)
         return cls(
             card_id=data["card_id"],
             kind=kind,
@@ -128,8 +128,8 @@ class CanvasCard:
         )
 
 
-def _migrate_legacy_kind_and_status(kind_raw: str, status_raw: str) -> tuple[CanvasCardKind, str]:
-    """把旧对象枚举和自由状态映射为 L3 的唯一类型化状态。
+def _normalize_compatibility_kind_and_status(kind_raw: str, status_raw: str) -> tuple[CanvasCardKind, str]:
+    """把兼容对象枚举和自由状态映射为 L3 的唯一类型化状态。
 
     该函数只在读取历史数据时调用；新对象必须在构造阶段携带合法状态，
     不能借此绕过 L3 的写入校验。
@@ -137,7 +137,7 @@ def _migrate_legacy_kind_and_status(kind_raw: str, status_raw: str) -> tuple[Can
 
     kind_aliases = {
         "option": CanvasCardKind.DECISION,
-        # 旧交接卡是现在交接模块的平行投影；保留其文本为历史决策，
+        # 历史交接卡是现在交接模块的平行投影；保留其文本为历史决策，
         # 真正交接内容由同工作区的 handoff.json 迁入包版本。
         "handoff": CanvasCardKind.DECISION,
     }
@@ -147,12 +147,12 @@ def _migrate_legacy_kind_and_status(kind_raw: str, status_raw: str) -> tuple[Can
         try:
             kind = CanvasCardKind(kind_raw)
         except ValueError as exc:
-            raise ValueError(f"unsupported legacy canvas card kind: {kind_raw}") from exc
+            raise ValueError(f"unsupported compatibility canvas card kind: {kind_raw}") from exc
 
     if not status_raw:
         return kind, default_status_for_kind(kind.value)
 
-    legacy_statuses = {
+    compatibility_statuses = {
         ("evidence", "open"): "collected",
         ("problem", "open"): "initial",
         ("clarification", "pending"): "pending_confirmation",
@@ -165,12 +165,12 @@ def _migrate_legacy_kind_and_status(kind_raw: str, status_raw: str) -> tuple[Can
         ("handoff", "confirmed"): "decided",
         ("handoff", "draft"): "pending_decision",
     }
-    status = legacy_statuses.get((kind_raw, status_raw), status_raw)
+    status = compatibility_statuses.get((kind_raw, status_raw), status_raw)
     if kind_raw == "option" and status == "confirmed":
         status = "decided"
     if kind_raw == "handoff" and not is_valid_status_for_kind(kind.value, status):
         status = "archived"
     if not is_valid_status_for_kind(kind.value, status):
-        # 无法判定的旧自由字符串不应冒充有效事实，迁为该类型初始状态并留痕。
+        # 无法判定的历史自由字符串不应冒充有效事实，归一为该类型初始状态并留痕。
         status = default_status_for_kind(kind.value)
     return kind, status

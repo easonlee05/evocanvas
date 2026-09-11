@@ -1,7 +1,7 @@
 """
-Evoloop CLI 命令行工具及工具函数集成测试模块。
+EvoCanvas CLI 命令行工具及工具函数集成测试模块。
 
-本测试文件主要验证 Evoloop 命令行实用程序及辅助函数的正确性，主要覆盖以下模块：
+本测试文件主要验证 EvoCanvas 命令行实用程序及辅助函数的正确性，主要覆盖以下模块：
 1. `TestCLIUtils`: 针对命令行输出长文本折叠逻辑（compact_error_text）以及 YAML 文件安全读写（read_yaml_safe / write_yaml_safe）的单元测试。
 2. `TestCLICommands`: 针对产物依赖图（ArtifactGraph）校验规则，以及核心 CLI 子命令：
    - compile_cmd: 编译业务意图为机器规格（machine_spec.yaml）与人机 brief（human_brief.md）。
@@ -99,7 +99,7 @@ class TestCLIUtils(unittest.TestCase):
 
 class TestCLICommands(unittest.TestCase):
     """
-    Evoloop 核心 CLI 命令行命令的单元测试类。
+    EvoCanvas 核心 CLI 命令行命令的单元测试类。
 
     使用临时目录作为执行沙盒，模拟文件读写并校验生成的 Markdown 报表。
     """

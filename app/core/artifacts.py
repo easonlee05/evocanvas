@@ -1,7 +1,7 @@
-"""Evoloop 3.0 核心契约层交付产物域模型定义。
+"""EvoCanvas 核心契约层交付产物域模型定义。
 
 本模块定义了交付资产实体（Artifact）及其持久化元数据格式。
-在 Evoloop 3.0 架构中，Artifact 作为 ArtifactGraph 的节点，用于支持产品迭代链和变更追踪。
+在 EvoCanvas 架构中，Artifact 作为 ArtifactGraph 的节点，用于支持产品迭代链和变更追踪。
 """
 from __future__ import annotations
 

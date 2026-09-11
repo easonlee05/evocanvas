@@ -1,7 +1,7 @@
-"""原生 Evoloop 剧本的 DAG（有向无环图）运行时原语模块。
+"""EvoCanvas 剧本的 DAG（有向无环图）运行时原语模块。
 
 该模块独立于具体的 LLM/工具执行。它将已有的工作流规范（WorkflowSpec）契约转换成
-带有依赖感知的节点（DAGRuntimeNode），使旧版引擎能够在无契约改动的情况下演进为支持真正拓扑调度的 DAG 运行时。
+带有依赖感知的节点（DAGRuntimeNode），为工作流提供真正的拓扑调度能力。
 """
 from __future__ import annotations
 
@@ -232,4 +232,3 @@ class PlaybookDAGRuntime:
             return self.nodes[node_id]
         except KeyError as exc:
             raise DomainError("workflow.dag_unknown_node", f"Unknown workflow DAG node '{node_id}'.") from exc
-

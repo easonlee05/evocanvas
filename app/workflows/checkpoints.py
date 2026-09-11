@@ -1,4 +1,4 @@
-"""包含遗留存储兼容性的工作流检查点助手模块。
+"""包含存储兼容能力的工作流检查点助手模块。
 
 该模块提供了在工作流执行中构建、恢复和持久化检查点（Checkpoint）的核心工具类。
 通过检查点机制，系统能够在任务中断、崩溃或需要用户人工介入后，准确地从最近的有效状态进行恢复和重试。
@@ -223,4 +223,3 @@ class CheckpointReplay:
             "failed_step_id": self.failed_step_id,
             "last_run_id": self.last_run_id,
         }
-

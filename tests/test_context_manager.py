@@ -1,7 +1,7 @@
 """
 上下文管理器（Context Manager）单元测试模块。
 
-本测试文件主要检验 Evoloop 在大模型（LLM）对话上下文溢出时的处理机制：
+本测试文件主要检验 EvoCanvas 在大模型（LLM）对话上下文溢出时的处理机制：
 1. `SlidingWindow` (滑动窗口机制)：
    - 验证对话上下文 Token 数量未超出限制时，不进行压缩/脱水。
    - 验证对话上下文 Token 数量超出限制时，自动触发日志脱水并生成缩略（包含“已触发脱水”信息），同时确保最近的对话消息不被丢失。
@@ -30,11 +30,11 @@ class ContextManagerTests(unittest.TestCase):
         初始化测试环境。
 
         配置：
-        - 独立的工作目录 /tmp/evoloop_test_{uuid}。
+        - 独立的工作目录 /tmp/evocanvas_test_{uuid}。
         - 实例化的 SlidingWindow，软限制 Token 设为 500。
         - 实例化的 RehydrationEngine。
         """
-        self.workspace_root = f"/tmp/evoloop_test_{uuid4().hex[:8]}"
+        self.workspace_root = f"/tmp/evocanvas_test_{uuid4().hex[:8]}"
         os.makedirs(self.workspace_root, exist_ok=True)
         self.window = SlidingWindow(self.workspace_root, max_tokens=1000, soft_limit_ratio=0.5)  # 软限制为 500
         self.rehydrator = RehydrationEngine(self.workspace_root)
@@ -120,4 +120,3 @@ class ContextManagerTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-

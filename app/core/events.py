@@ -1,4 +1,4 @@
-"""Evoloop 3.0 核心契约层结构化事件与 Trace 追踪定义。
+"""EvoCanvas 核心契约层结构化事件与 Trace 追踪定义。
 
 该模块为 API/SSE 消费者以及审计总线提供了统一的结构化事件流模型、Trace Span 模型和进程内事件发布订阅总线（EventBus）。
 """

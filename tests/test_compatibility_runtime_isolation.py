@@ -1,21 +1,21 @@
-"""旧任务执行链与 Pi Canvas 主链的装配隔离测试。"""
+"""兼容工作流执行链与 Pi Canvas 主链的装配隔离测试。"""
 
 from __future__ import annotations
 
 import unittest
 
-from app.services.legacy_runtime import LazyLegacyWorkflowEngine
+from app.services.compatibility_runtime import LazyCompatibilityWorkflowEngine
 
 
-class LegacyRuntimeIsolationTests(unittest.TestCase):
-    def test_legacy_engine_is_created_only_when_legacy_capability_is_used(self) -> None:
+class CompatibilityRuntimeIsolationTests(unittest.TestCase):
+    def test_compatibility_engine_is_created_only_when_compatibility_capability_is_used(self) -> None:
         created: list[str] = []
 
         class Engine:
             llm = object()
             tool_service = object()
 
-        engine = LazyLegacyWorkflowEngine(lambda: created.append("created") or Engine())
+        engine = LazyCompatibilityWorkflowEngine(lambda: created.append("created") or Engine())
 
         self.assertFalse(engine.initialized)
         self.assertEqual(created, [])

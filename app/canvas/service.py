@@ -124,10 +124,11 @@ class CanvasService:
         material_ids: List[str],
         source_ref_ids: Optional[List[str]] = None,
         model: Optional[str] = None,
+        model_config: Optional[Dict[str, str]] = None,
         submission_id: Optional[str] = None,
         actor_id: str = "user",
     ) -> Dict[str, Any]:
-        """执行新的 Pi 主链；未配置时明确失败，不回退旧 CanvasSupervisor。"""
+        """执行 EvoCanvas Pi 主链；未配置时明确失败，不回退到 CanvasSupervisor。"""
 
         if self.pi_kernel is None:
             raise RuntimeError("PiCanvasKernel is not configured for this CanvasService")
@@ -138,12 +139,13 @@ class CanvasService:
             material_ids=list(material_ids),
             source_ref_ids=list(source_ref_ids or []),
             model=model,
+            model_config=model_config,
             submission_id=submission_id,
             actor_id=actor_id,
         )
 
     async def run_product_kernel_chat(self, request: ChatRunRequest) -> ChatKernelOutcome:
-        """执行新 Chat 边界；未注入 ProductKernel 时明确失败，不静默回退旧 LLM。"""
+        """执行 EvoCanvas Chat 边界；未注入 ProductKernel 时明确失败，不静默回退到通用 LLM。"""
 
         if self.product_kernel is None:
             raise RuntimeError("ProductKernel is not configured for this CanvasService")
@@ -194,12 +196,11 @@ class CanvasService:
         items = []
         for workspace in self.repository.list_workspaces()[:limit]:
             handoff = self.repository.load_handoff(workspace.workspace_id)
-            # L3 规格已下线 StructuredHandoff.summary；优先用 metadata.legacy.summary 兼容旧持久化，
+            # L3 规格已下线 StructuredHandoff.summary；优先用 metadata.compatibility.summary，
             # 缺失时回退到 workspace.objective，避免最近项目视图出现空白摘要。
             summary = ""
             if handoff is not None:
-                legacy = dict(handoff.metadata or {}).get("legacy", {})
-                summary = str(legacy.get("summary", "")).strip()
+                summary = str(self._handoff_compatibility(handoff).get("summary", "")).strip()
             if not summary:
                 summary = (workspace.objective or "").strip()
             if not summary:
@@ -509,13 +510,13 @@ class CanvasService:
             handoff = StructuredHandoff(
                 handoff_id=f"handoff_{workspace_id}",
             )
-        # L3 规格要求交接模块不复制对象正文；此处 content 仅作过渡期前端兼容回显，
+        # L3 规格要求交接模块不复制对象正文；此处 content 仅作前端兼容回显，
         # 真正内容应通过 handoff.*_refs 回指源对象渲染。
-        legacy_summary = str(dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""))
+        compatibility_summary = str(self._handoff_compatibility(handoff).get("summary", ""))
         return {
             "workspace_id": workspace_id,
             "status": self._handoff_status(workspace_id, handoff=handoff),
-            "content": legacy_summary,
+            "content": compatibility_summary,
             "handoff": handoff.to_dict(),
         }
 
@@ -541,6 +542,17 @@ class CanvasService:
         if version is None or effective_handoff is None:
             return "not_ready"
         return version.initial_governance_status.value
+
+    @staticmethod
+    def _handoff_compatibility(handoff: StructuredHandoff) -> Dict[str, Any]:
+        """读取交接物的兼容摘要，不把摘要提升为事实正文。"""
+
+        metadata = dict(handoff.metadata or {})
+        compatibility = metadata.get("compatibility")
+        if isinstance(compatibility, dict):
+            return compatibility
+        historical = metadata.get("legacy")
+        return dict(historical) if isinstance(historical, dict) else {}
 
     def refresh_handoff(self, workspace_id: str) -> Dict[str, Any]:
         """基于当前画布状态重新收束结构化交接物草稿，并落一份新快照。"""
@@ -582,7 +594,7 @@ class CanvasService:
                 for ref in list(card.source_refs)
             ],
             metadata={
-                "legacy": {
+                "compatibility": {
                     "summary": self._build_refresh_handoff_summary(cards),
                 }
             },
@@ -592,7 +604,7 @@ class CanvasService:
             snapshot_id=f"snapshot_{uuid4().hex[:10]}",
             workspace_id=workspace_id,
             title="结构化交接物草稿已刷新",
-            summary=dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""),
+            summary=self._handoff_compatibility(handoff).get("summary", ""),
             created_at=refreshed_at,
             active_card_ids=[card.card_id for card in cards],
             active_relation_ids=[relation.relation_id for relation in relations],
@@ -649,7 +661,7 @@ class CanvasService:
         return {
             "workspace_id": workspace_id,
             "status": "draft",
-            "content": dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""),
+            "content": self._handoff_compatibility(handoff).get("summary", ""),
             "handoff": handoff.to_dict(),
             "card": None,
             "snapshot": snapshot.to_dict(),
@@ -773,7 +785,7 @@ class CanvasService:
         """
 
         workspace = self.get_workspace(workspace_id)
-        # 拒绝旧 handoff/option 等已下线类型，强制走 L3 五类合法枚举
+        # 拒绝已退出主链的 handoff/option 类型，强制走 L3 五类合法枚举
         try:
             card_kind = CanvasCardKind(kind)
         except ValueError as exc:
@@ -1079,8 +1091,8 @@ class CanvasService:
     def move_card(self, workspace_id: str, card_id: str, stage: str, reason: str = "") -> Dict[str, Any]:
         """已废弃：L3 规格下线 stage_node 主题阶段机后，卡片不再有 stage 字段。
 
-        为避免破坏迁移期调用方，本方法保留 API 签名但不再持久化 stage 请求，
-        也不触发事件或版本提交。调用方应迁移到受治理的 Chat 提案与确认流程。
+        为保持现有调用方兼容，本方法保留 API 签名但不再持久化 stage 请求，
+        也不触发事件或版本提交。调用方应使用受治理的 Chat 提案与确认流程。
         """
 
         workspace = self.get_workspace(workspace_id)
@@ -1092,7 +1104,7 @@ class CanvasService:
         todo_projection = self._build_todo_projection(workspace_id, cards)
         return {
             "workspace_id": workspace_id,
-            "action": "deprecated_noop",
+            "action": "compatibility_noop",
             "card": card.to_dict(),
             "move": {
                 "from_stage": "",
@@ -1226,7 +1238,7 @@ class CanvasService:
             # 也不再为 HandoffBuilder 创建 HANDOFF 卡片：交接模块只通过引用组织对象。
             elif role_name == "HandoffBuilder":
                 # 只生成 refresh_handoff_draft 变更，正文由源对象维护；
-                # legacy 摘要写入 metadata.legacy.summary 仅供过渡期前端回看。
+                # 兼容摘要写入 metadata.compatibility.summary，仅供前端回看。
                 mutations.append(
                     CanvasMutation(
                         mutation_id=f"mutation_{uuid4().hex[:10]}",
@@ -1255,7 +1267,7 @@ class CanvasService:
                                     and card.status in {"pending_decision", "pending_confirmation"}
                                 ],
                                 "metadata": {
-                                    "legacy": {
+                                    "compatibility": {
                                         "summary": self._build_handoff_summary(message, existing_cards),
                                     },
                                     "source_turn_id": turn_id,
@@ -1396,7 +1408,7 @@ class CanvasService:
                 # 构造真正的 CanvasMutation
                 if role_name == "HandoffBuilder":
                     # L3 规格已下线 HANDOFF 卡片；只生成 refresh_handoff_draft 变更，
-                    # 正文由源对象维护，legacy 摘要写入 metadata.legacy.summary 供过渡期回看。
+                    # 正文由源对象维护，兼容摘要写入 metadata.compatibility.summary 供回看。
                     mutations.append(
                         CanvasMutation(
                             mutation_id=f"mutation_{uuid4().hex[:10]}",
@@ -1425,7 +1437,7 @@ class CanvasService:
                                         and card.status in {"pending_decision", "pending_confirmation"}
                                     ],
                                     "metadata": {
-                                        "legacy": {
+                                        "compatibility": {
                                             "summary": summary,
                                         },
                                         "source_turn_id": turn_id,
@@ -1525,7 +1537,7 @@ class CanvasService:
                 # 检查是否修改了已确认的稳定事实卡片核心字段（冲突替代留痕）
                 title_changed = "title" in mutation.payload and mutation.payload["title"] is not None and str(mutation.payload["title"]).strip() != card.title.strip()
                 summary_changed = "summary" in mutation.payload and mutation.payload["summary"] is not None and str(mutation.payload["summary"]).strip() != card.summary.strip()
-                # L3 规格下稳定态由 (kind, status) 派生，替代旧自由字符串集合。
+                # L3 规格下稳定态由 (kind, status) 派生，替代未类型化自由字符串集合。
                 kind_value = card.kind.value if hasattr(card.kind, "value") else str(card.kind)
                 is_stable = is_stable_status(kind_value, card.status)
 
@@ -1558,8 +1570,8 @@ class CanvasService:
                     # constraint -> superseded；其余类型 -> archived。
                     # 直接赋值不会触发 __post_init__ 校验，但序列化后 from_dict 会校验，
                     # 因此必须写入合法类型化状态，否则重载后状态丢失、治理地位错误降级。
-                    legacy_kind = card.kind.value if hasattr(card.kind, "value") else str(card.kind)
-                    if legacy_kind == "constraint":
+                    kind_value = card.kind.value if hasattr(card.kind, "value") else str(card.kind)
+                    if kind_value == "constraint":
                         card.status = "superseded"
                     else:
                         card.status = "archived"
@@ -1643,13 +1655,13 @@ class CanvasService:
 
         relations = list(relation_index.values())
         if handoff is not None:
-            # L3 规格已下线 StructuredHandoff.summary；快照 summary 改读 metadata.legacy.summary。
-            legacy_summary = str(dict(handoff.metadata or {}).get("legacy", {}).get("summary", ""))
+            # L3 规格已下线 StructuredHandoff.summary；快照 summary 改读兼容摘要。
+            compatibility_summary = str(self._handoff_compatibility(handoff).get("summary", ""))
             snapshot = CanvasSnapshot(
                 snapshot_id=f"snapshot_{uuid4().hex[:10]}",
                 workspace_id=workspace.workspace_id,
                 title="结构化交接物草稿已刷新",
-                summary=legacy_summary,
+                summary=compatibility_summary,
                 created_at=utc_now_iso(),
                 active_card_ids=[card.card_id for card in cards],
                 active_relation_ids=[relation.relation_id for relation in relations],
@@ -1725,7 +1737,7 @@ class CanvasService:
     ) -> Package:
         """把本轮结构化结果提交为新的不可变包版本和追加式账本事件。
 
-        `cards.json`、`relations.json` 与 `handoff.json` 仅在首次读取旧工作区时使用。
+        `cards.json`、`relations.json` 与 `handoff.json` 仅在首次读取历史工作区时使用。
         所有新的画布事实都通过该入口提交，包根指针由仓储在同一工作区锁下推进。
         """
 
@@ -2329,7 +2341,7 @@ class CanvasService:
 
     # L3 规格已下线 stage_node 主题阶段机；_normalize_stage / _validate_stage_move
     # 与 _upsert_handoff_card（依赖已删除的 CanvasCardKind.HANDOFF）一并移除。
-    # move_card 在过渡期保留为 deprecated_noop，不再依赖上述辅助。
+    # move_card 保留为 compatibility_noop，不再依赖上述辅助。
 
     @staticmethod
     def _handoff_items(cards: List[CanvasCard], kind: CanvasCardKind) -> List[str]:
@@ -2345,8 +2357,8 @@ class CanvasService:
         return [card.title for card in cards if card.kind == kind and card.status in allowed]
 
     def _build_handoff_summary(self, message: str, cards: List[CanvasCard]) -> str:
-        # L3 规格要求交接模块不复制对象正文；本方法仅生成过渡期 metadata.legacy.summary
-        # 供前端兼容回看，真正内容仍由源对象维护。
+        # L3 规格要求交接模块不复制对象正文；本方法仅生成兼容摘要
+        # 供前端回看，真正内容仍由源对象维护。
         clarifications = self._handoff_items(cards, CanvasCardKind.CLARIFICATION)
         constraints = self._handoff_items(cards, CanvasCardKind.CONSTRAINT)
         return (
@@ -2355,7 +2367,7 @@ class CanvasService:
         )
 
     def _build_refresh_handoff_summary(self, cards: List[CanvasCard]) -> str:
-        # L3 规格已下线 OPTION 卡片；本方法只输出过渡期 legacy 摘要。
+        # L3 规格已下线 OPTION 卡片；本方法只输出兼容摘要。
         problems = [card.title for card in cards if card.kind == CanvasCardKind.PROBLEM]
         clarifications = self._handoff_items(cards, CanvasCardKind.CLARIFICATION)
         constraints = self._handoff_items(cards, CanvasCardKind.CONSTRAINT)
@@ -2378,7 +2390,7 @@ class CanvasService:
             mutation_type = str(mutation.metadata.get("mutation_type", ""))
             if mutation.target == CanvasMutationTarget.CARD and mutation_type == "create_decision_request":
                 # L3 规格：decision 类型化状态为 pending_decision/pending_confirmation/decided/archived；
-                # 旧自由字符串 "confirmed" 已下线，统一改为 "decided"。
+                # 未类型化自由字符串 "confirmed" 已退出主链，统一改为 "decided"。
                 card_payload = mutation.payload.get("card", {})
                 card_payload["status"] = "decided"
                 mutation.payload["card"] = card_payload
@@ -2409,7 +2421,7 @@ class CanvasService:
                 }
             elif mutation.target == CanvasMutationTarget.CARD and mutation_type == "resolve_clarification":
                 # L3 规格：clarification 类型化状态为 open/pending_confirmation/clarified/blocked/closed；
-                # 旧自由字符串 "resolved" 已下线，统一改为 "clarified"。
+                # 未类型化自由字符串 "resolved" 已退出主链，统一改为 "clarified"。
                 mutation.action = CanvasMutationAction.UPDATE
                 resolution = str(mutation.payload.get("resolution", "")).strip()
                 mutation.payload = {

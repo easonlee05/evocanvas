@@ -14,7 +14,7 @@ import './tasks.css';
  * @type {Array<{id: string, title: string, status: 'running'|'review'|'pending'|'done', agent: string, priority: 'high'|'medium'|'low', updated: string}>}
  */
 const tasks = [
-  { id: 'T-0421', title: '产品需求文档 v2.0 评审', status: 'running', agent: 'PM + Tech + QA', priority: 'high', updated: '10 分钟前' },
+  { id: 'T-0421', title: '产品需求文档评审', status: 'running', agent: 'PM + Tech + QA', priority: 'high', updated: '10 分钟前' },
   { id: 'T-0420', title: '用户增长策略分析报告', status: 'review', agent: 'Intern + Reviewer', priority: 'medium', updated: '1 小时前' },
   { id: 'T-0419', title: '云原生架构迁移方案', status: 'pending', agent: '待分配', priority: 'high', updated: '2 小时前' },
   { id: 'T-0418', title: '竞品功能对比分析', status: 'done', agent: 'Expert', priority: 'low', updated: '昨天' },

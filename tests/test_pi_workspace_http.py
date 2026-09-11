@@ -28,7 +28,7 @@ class PiWorkspaceHttpTests(unittest.IsolatedAsyncioTestCase):
                 service = CanvasService(FakeStorage(Path(temporary) / "python"), execution=client)
                 async def turn(submission, message):
                     return await service.run_pi_turn(workspace_id="w", message=message, selected_card_ids=[], material_ids=[], submission_id=submission, actor_id="u")
-                with patch.object(service.supervisor, "recognize_and_plan", side_effect=AssertionError("禁止进入旧 Supervisor")):
+                with patch.object(service.supervisor, "recognize_and_plan", side_effect=AssertionError("禁止进入非主链 Supervisor")):
                     proposed = await turn("s1", "希望单机使用")
                     self.assertEqual(proposed["action"], "awaiting_chat_confirmation")
                     self.assertEqual(service.repository.load_cards("w"), [])

@@ -81,7 +81,7 @@ class RetryPolicyRuntime:
         """
         policy = dict(step.retry_policy or {})
         
-        # 提取最大尝试次数。支持 max_attempts 或 legacy retries 配置
+        # 提取最大尝试次数。支持 max_attempts 或 compatibility retries 配置
         max_attempts = int(policy.get("max_attempts", policy.get("retries", self.default_max_attempts)))
         if "retries" in policy and "max_attempts" not in policy:
             max_attempts = int(policy["retries"]) + 1
@@ -175,4 +175,3 @@ class RetryPolicyRuntime:
             "error_code": decision.error_code,
             "error_message_redacted": bool(error_message),
         }
-

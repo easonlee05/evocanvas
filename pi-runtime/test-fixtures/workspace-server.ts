@@ -7,12 +7,12 @@ const models = createModels(); models.setProvider(faux.provider);
 const create = [{ operation_id:"create", operation_type:"create_object", payload:{ id:"constraint-1", object_type:"constraint", title:"单机使用", type_status:"effective" } }];
 const update = [{ operation_id:"update", operation_type:"update_object", payload:{ id:"constraint-1", title:"单机离线使用" } }];
 faux.setResponses([
-  fauxAssistantMessage(fauxToolCall("workspace.propose",{ operations:create,change_summary:"单机约束" })),fauxAssistantMessage("建议单机使用，请确认。"),
-  fauxAssistantMessage(fauxToolCall("workspace.commit",{})),fauxAssistantMessage("已应用单机约束。"),
-  fauxAssistantMessage(fauxToolCall("workspace.propose",{ operations:update,change_summary:"离线约束" })),fauxAssistantMessage("建议增加离线，请确认。"),
-  fauxAssistantMessage(fauxToolCall("workspace.commit",{})),fauxAssistantMessage("已应用离线约束。"),
-  fauxAssistantMessage(fauxToolCall("workspace.propose",{operations:[{operation_id:"handoff",operation_type:"confirm_handoff",payload:{}}],change_summary:"确认当前交接"})),fauxAssistantMessage("请确认当前交接内容与未决项。"),
-  fauxAssistantMessage(fauxToolCall("workspace.commit",{})),fauxAssistantMessage("已确认交接。"),
+  fauxAssistantMessage(fauxToolCall("workspace_propose",{ operations:create,change_summary:"单机约束" })),fauxAssistantMessage("建议单机使用，请确认。"),
+  fauxAssistantMessage(fauxToolCall("workspace_commit",{})),fauxAssistantMessage("已应用单机约束。"),
+  fauxAssistantMessage(fauxToolCall("workspace_propose",{ operations:update,change_summary:"离线约束" })),fauxAssistantMessage("建议增加离线，请确认。"),
+  fauxAssistantMessage(fauxToolCall("workspace_commit",{})),fauxAssistantMessage("已应用离线约束。"),
+  fauxAssistantMessage(fauxToolCall("workspace_propose",{operations:[{operation_id:"handoff",operation_type:"confirm_handoff",payload:{}}],change_summary:"确认当前交接"})),fauxAssistantMessage("请确认当前交接内容与未决项。"),
+  fauxAssistantMessage(fauxToolCall("workspace_commit",{})),fauxAssistantMessage("已确认交接。"),
 ]);
 const runtime = createPiRuntimeServer({ host:"127.0.0.1",port:0,storageDir:process.argv[2],executor:new PiProviderRunExecutor({providerId:"cross-language-test",modelId:"test-model",models}) });
 await runtime.listen();

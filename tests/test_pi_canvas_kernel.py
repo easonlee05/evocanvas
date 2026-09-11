@@ -59,7 +59,7 @@ class FailingExecution(TargetPiExecution):
 
 
 class PiCanvasKernelTests(unittest.IsolatedAsyncioTestCase):
-    async def test_pi_turn_uses_session_entries_without_legacy_supervisor(self) -> None:
+    async def test_pi_turn_uses_session_entries_without_compatibility_supervisor(self) -> None:
         with TemporaryDirectory() as temp_dir:
             execution = TargetPiExecution()
             service = CanvasService(

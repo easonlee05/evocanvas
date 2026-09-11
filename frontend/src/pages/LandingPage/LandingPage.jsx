@@ -7,7 +7,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { ArrowUp, Zap, Search, Database, Paperclip, MoreHorizontal, ArrowRight, Loader, Loader2, ChevronDown, Check, Plus, AlertCircle, X, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { apiPost, apiUpload } from '../../api';
+import { apiPostWithStatus, apiUpload } from '../../api';
+import { getSelectedModel, readConfiguredModel, readModelList } from '../../modelConfig';
 import './landing-page.css';
 
 /**
@@ -28,19 +29,6 @@ const chips = [
   { id: 'context', icon: <Search size={13} />, label: '上下文' },
   { id: 'notes', icon: <Database size={13} />, label: '笔记' },
   { id: 'attachment', icon: <Paperclip size={13} />, label: '附件' },
-];
-
-/**
- * 供用户选择的 AI 模型选项
- * @type {Array<{id: string, name: string}>}
- */
-const MODELS = [
-  { id: 'gpt-5.4', name: 'GPT-5.4' },
-  { id: 'gpt-5.5', name: 'GPT-5.5' },
-  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
-  { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
-  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
 ];
 
 /**
@@ -125,9 +113,8 @@ export default function LandingPage() {
   const [value, setValue] = useState('');
   const [status, setStatus] = useState('idle'); // 状态机状态: idle (空闲) | thinking (处理中/创建任务中) | done (完成)
   const [error, setError] = useState('');
-  const [model, setModel] = useState(() => {
-    return localStorage.getItem('evocanvas_selected_model') || 'gpt-5.4';
-  });
+  const [models, setModels] = useState(() => readModelList());
+  const [model, setModel] = useState(() => getSelectedModel());
   const [isModelOpen, setIsModelOpen] = useState(false); // 模型下拉框的展示状态
   const [uploadedMaterials, setUploadedMaterials] = useState([]);
   const fileInputRef = useRef(null);
@@ -143,6 +130,17 @@ export default function LandingPage() {
     // 若在 thinking 状态，将滚动条重置回顶部
     if (status === 'thinking') textarea.scrollTop = 0;
   }, [value, status]);
+
+  // 设置页保存模型目录后，首页下拉框无需刷新即可同步。
+  useEffect(() => {
+    const syncModelCatalog = () => {
+      const nextModels = readModelList();
+      setModels(nextModels);
+      setModel(current => nextModels.some(item => item.id === current) ? getSelectedModel() : (nextModels[0]?.id || ''));
+    };
+    window.addEventListener('evocanvas:model-config-changed', syncModelCatalog);
+    return () => window.removeEventListener('evocanvas:model-config-changed', syncModelCatalog);
+  }, []);
 
   /**
    * 附件上传处理函数
@@ -201,23 +199,27 @@ export default function LandingPage() {
 
     // 生成随机工作区 ID 并在后端初始化新工作区回合
     const workspaceId = 'ws_' + Math.random().toString(36).substring(2, 11);
-    const result = await apiPost(`/api/canvas/workspaces/${workspaceId}/messages`, {
+    const response = await apiPostWithStatus(`/api/canvas/workspaces/${workspaceId}/messages`, {
       message: msg,
       selected_card_ids: [],
       material_ids: materialIds,
-      model: model
-    }, null);
+      model: model,
+      llm_config: readConfiguredModel(model),
+    });
 
-    if (result && result.workspace_id) {
+    if (response.ok && response.data?.workspace_id) {
       // 创建成功后，将本地上传好的文件存入 localStorage 接力给工作台
       if (uploadedMaterials.length > 0) {
-        localStorage.setItem(`evocanvas_materials_${result.workspace_id}`, JSON.stringify(uploadedMaterials));
+        localStorage.setItem(`evocanvas_materials_${response.data.workspace_id}`, JSON.stringify(uploadedMaterials));
       }
       // 重定向至工作台页面
-      navigate(`/workspace/${result.workspace_id}`);
+      navigate(`/workspace/${response.data.workspace_id}`);
       return;
     }
-    setError('工作区初始化失败：请确认后端 API 已启动并可访问。');
+    const detail = response.data?.message || response.data?.detail || response.data?.error_code;
+    setError(response.status === 0
+      ? '工作区初始化失败：无法连接后端 API，请确认本地后端已启动。'
+      : `工作区初始化失败${detail ? `：${detail}` : `（HTTP ${response.status}）`}`);
     setStatus('idle');
   };
 
@@ -314,7 +316,7 @@ export default function LandingPage() {
                   className={`chip-ghost model-chip ${isModelOpen ? 'active' : ''}`}
                   onClick={() => setIsModelOpen(!isModelOpen)}
                 >
-                  {MODELS.find(m => m.id === model)?.name || 'Default'}
+                  {models.find(m => m.id === model)?.name || 'Default'}
                   <ChevronDown size={12} className={`model-chevron ${isModelOpen ? 'open' : ''}`} />
                 </button>
                 {isModelOpen && (
@@ -323,7 +325,7 @@ export default function LandingPage() {
                     <div className="model-dropdown-backdrop" onClick={() => setIsModelOpen(false)} />
                     <div className="model-dropdown">
                       <div className="model-dropdown-header">协作模型</div>
-                      {MODELS.map(m => (
+                      {models.map(m => (
                         <div 
                           key={m.id} 
                           className={`model-item ${m.id === model ? 'selected' : ''}`}

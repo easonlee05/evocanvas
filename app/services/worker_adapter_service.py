@@ -1,8 +1,8 @@
-"""Legacy worker adapter compatibility layer.
+"""Worker adapter compatibility layer.
 
-该模块保留 3.0 时期的 `Worker*` 命名以兼容旧代码，
+该模块保留 `Worker*` 命名以兼容既有调用，
 但语义上应理解为 AI 技术同事协作适配层，而不是“下游从属执行器”。
-在 3.1 中，这一层的目标名称是 PeerAdapter / peer collaboration。
+当前产品语义是 PeerAdapter / peer collaboration。
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class WorkerTargetType:
-    """兼容旧命名的 AI 技术同事协作目标类型常量定义。"""
+    """兼容调用使用的 AI 技术同事协作目标类型常量定义。"""
     CLI = "cli"
     MCP = "mcp"
     CLAUDE_CODE = "claude_code"
@@ -22,7 +22,7 @@ class WorkerTargetType:
 
 
 class WorkerHandler(Protocol):
-    """兼容旧命名的协作适配器执行处理器协议。"""
+    """兼容调用使用的协作适配器执行处理器协议。"""
     
     def execute(self, package_path: str) -> Dict[str, Any]:
         """执行指定路径下的智能体任务包。
@@ -37,7 +37,7 @@ class WorkerHandler(Protocol):
 
 
 class WorkerAdapterService:
-    """兼容旧命名的协作适配器分发服务类。
+    """协作适配器分发服务类。
 
     抽象并隔离不同 AI 技术同事执行端的细节，通过注册适配器实现对各种协作通道的派发。
     """

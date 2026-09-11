@@ -1,8 +1,8 @@
-"""Evoloop 3.0 工作流引擎上下文与产物渲染服务。
+"""EvoCanvas 工作流上下文与结构化产物渲染服务。
 
-该模块实现了 `ContextCompilerService`，负责将步骤执行中积累的动态上下文，
-渲染输出为系统所需的各种类型产物元数据与物理文档。它作为 2.0 遗留产物（如 PRD.md、模块操作手册）
-和 3.0 原资产物（如机器规范 machine_spec.yaml、人类简报 human_brief.md、AI 技术同事协作包 agent_package_codex.md 等）的翻译与表达媒介。
+`ContextCompilerService` 将工作流上下文编译为 EvoCanvas 可追溯的结构化产物，
+包括机器规范、人类简报、AI 协作包、验收材料以及按任务声明生成的文档视图。
+辅助任务输入只在边界内被转换，不参与当前产品事实和治理判断。
 """
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ try:
 except ModuleNotFoundError:
     def render_review_result_artifact(task: Task) -> str:
         raise DomainError(
-            "workflow.legacy_renderer_missing",
-            "review_result renderer is unavailable in the current EvoCanvas-focused runtime.",
+            "workflow.compatibility_renderer_missing",
+            "review_result renderer is unavailable in the current EvoCanvas runtime.",
         )
 
 
@@ -31,7 +31,7 @@ class ContextCompilerService:
     def artifact_payload(self, task: Task, step: WorkflowStep) -> tuple[str, str]:
         """获取需要落盘的产物文件名与对应的文本内容。
 
-        根据剧本版本自动分流至遗留逻辑或原生 3.0 逻辑。
+        根据任务声明选择 EvoCanvas 结构化产物渲染器；辅助任务只作为输入适配。
 
         Args:
             task (Task): 任务实例。
@@ -40,8 +40,8 @@ class ContextCompilerService:
         Returns:
             tuple[str, str]: (产物文件名称, 渲染出的文本内容)
         """
-        if task.definition.metadata.get("is_native_3_0"):
-            return self.native_artifact_payload(task, step)
+        if task.definition.output_spec and step.output_keys:
+            return self.structured_artifact_payload(task, step)
 
         output = task.context.step_outputs.get(
             "writer_final_prd" if task.definition.type == "prd" else "writer_scene_docs",
@@ -53,8 +53,8 @@ class ContextCompilerService:
             return "PRD.md", self.render_prd(task)
         return "模块概览.md", self.render_manual(task)
 
-    def native_artifact_payload(self, task: Task, step: WorkflowStep) -> tuple[str, str]:
-        """渲染 Evoloop 3.0 的原资产物元数据与内容。
+    def structured_artifact_payload(self, task: Task, step: WorkflowStep) -> tuple[str, str]:
+        """渲染 EvoCanvas 结构化产物的元数据与内容。
 
         验证步骤声明并匹配注册的特定渲染器。
 
@@ -70,15 +70,15 @@ class ContextCompilerService:
         """
         if len(step.output_keys) != 1:
             raise DomainError(
-                "workflow.native_artifact_contract_invalid",
-                f"Native artifact step {step.id} must declare exactly one output_key.",
+                "workflow.structured_artifact_contract_invalid",
+                f"Structured artifact step {step.id} must declare exactly one output_key.",
             )
         artifact_key = step.output_keys[0]
         artifact_name = task.definition.output_spec.get(artifact_key)
         if not artifact_name:
             raise DomainError(
-                "workflow.native_artifact_contract_missing_name",
-                f"Native artifact key {artifact_key} is missing from output_spec for {task.definition.type}.",
+                "workflow.structured_artifact_contract_missing_name",
+                f"Structured artifact key {artifact_key} is missing from output_spec for {task.definition.type}.",
             )
         renderers = {
             "machine_spec": self.render_machine_spec,
@@ -92,13 +92,13 @@ class ContextCompilerService:
         renderer = renderers.get(artifact_key)
         if not renderer:
             raise DomainError(
-                "workflow.native_artifact_renderer_missing",
-                f"No native renderer registered for artifact key {artifact_key}.",
+                "workflow.structured_artifact_renderer_missing",
+                f"No EvoCanvas renderer registered for artifact key {artifact_key}.",
             )
         return artifact_name, renderer(task)
 
     def render_prd(self, task: Task) -> str:
-        """为 2.0 遗留任务渲染标准的产品需求文档 (PRD.md)。
+        """为需要文档视图的 EvoCanvas 工作项渲染产品需求文档 (PRD.md)。
 
         Args:
             task (Task): 任务对象。
@@ -185,7 +185,7 @@ class ContextCompilerService:
 """
 
     def render_manual(self, task: Task) -> str:
-        """为遗留 2.0 任务渲染标准的模块操作手册。
+        """为 EvoCanvas 工作项渲染模块操作手册视图。
 
         Args:
             task (Task): 任务对象。
@@ -196,7 +196,7 @@ class ContextCompilerService:
         return f"# {task.context.title} 操作手册\n\n## 模块目标\n{task.context.goal}\n\n## 操作路径\n- 按用户材料和平台知识补全。\n"
 
     def render_machine_spec(self, task: Task) -> str:
-        """渲染生成 Evoloop 3.0 系统的核心机器可读规范文件（machine_spec.yaml）。
+        """渲染 EvoCanvas 的核心机器可读规范文件（machine_spec.yaml）。
 
         该文件是整个数字产品生命周期中的单事实来源（Source of Truth）。
 

@@ -27,6 +27,8 @@ class CanvasMessageRequest(BaseModel):
     source_ref_ids: List[str] = Field(default_factory=list)
     mode: Optional[str] = None
     model: Optional[str] = None
+    # 浏览器本机设置中临时传入的 Provider 配置；不写入画布事实或消息正文。
+    llm_config: Optional[Dict[str, str]] = None
 
 
 class CanvasCardPatchRequest(BaseModel):

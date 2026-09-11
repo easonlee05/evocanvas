@@ -41,7 +41,7 @@ class AgentExecutionPort(Protocol):
     async def submit_user_message(self, request: UserSubmissionRequest) -> UserSubmissionReceipt:
         ...
 
-    async def run_workspace(self, workspace_id: str, submission_id: str, *, selected_card_ids=None, materials=None, model=None) -> dict[str, Any]:
+    async def run_workspace(self, workspace_id: str, submission_id: str, *, selected_card_ids=None, materials=None, model=None, model_config=None) -> dict[str, Any]:
         ...
 
     async def get_messages(self, workspace_id: str) -> dict[str, Any]:

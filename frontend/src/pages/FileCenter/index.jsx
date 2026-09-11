@@ -1,6 +1,6 @@
 /**
  * @file index.jsx
- * @description 文件中心页面组件。展示 Evoloop 项目在运行过程中产生的所有文档产物（如 PRD、操作手册、架构方案等）以及图片或其它形式的附件，包含：
+ * @description 文件中心页面组件。展示 EvoCanvas 工作过程中产生的文档产物、图片和其他附件，包含：
  *   - 文件大类标签页切换 (文档/图片/其他)。
  *   - 搜索输入过滤。
  *   - 视图切换机制（表格列表视图 vs 网格卡片视图）。
@@ -23,8 +23,8 @@ const tabs = ['全部', '文档', '图片', '其他'];
  * @type {Array<{id: number, name: string, type: 'doc'|'img', size: string, updated: string, author: string, task: string}>}
  */
 const files = [
-  { id: 1, name: '产品需求文档 v2.0.md', type: 'doc', size: '48 KB', updated: '10 分钟前', author: 'PM Agent', task: 'T-0421' },
-  { id: 2, name: 'EvoLoop 架构设计文档.md', type: 'doc', size: '92 KB', updated: '2 小时前', author: 'Tech Agent', task: 'T-0420' },
+  { id: 1, name: '产品需求文档.md', type: 'doc', size: '48 KB', updated: '10 分钟前', author: 'PM Agent', task: 'T-0421' },
+  { id: 2, name: 'EvoCanvas 架构设计文档.md', type: 'doc', size: '92 KB', updated: '2 小时前', author: 'Tech Agent', task: 'T-0420' },
   { id: 3, name: '用户增长策略分析报告.md', type: 'doc', size: '64 KB', updated: '昨天', author: 'Intern', task: 'T-0420' },
   { id: 4, name: '竞品功能对比分析.md', type: 'doc', size: '36 KB', updated: '昨天', author: 'Expert', task: 'T-0418' },
   { id: 5, name: 'API 网关压测报告.md', type: 'doc', size: '28 KB', updated: '2 天前', author: 'QA Agent', task: 'T-0416' },
@@ -158,4 +158,3 @@ export default function FileCenter() {
     </div>
   );
 }
-

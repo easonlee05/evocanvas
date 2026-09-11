@@ -1,8 +1,8 @@
 """通用工作流引擎核心调度模块。
 
-该模块实现了 Evoloop 3.0 系统的工作流执行器 `WorkflowEngine`，
+该模块实现了 EvoCanvas 的工作流执行器 `WorkflowEngine`，
 负责解释执行由 `TaskDefinition` 所定义的步骤图（WorkflowSpec），支持多步骤间的顺序及并发（ThreadPoolExecutor）执行、
-异常步骤的自适应重试（Exponential Backoff）、工作流状态快照持久化（Checkpointing）、以及面向人类干预与商业仲裁的执行挂起与恢复流程。
+异常步骤的自适应重试（Exponential Backoff）、工作流状态快照持久化（Checkpointing）、以及面向人类确认与业务裁决的执行挂起与恢复流程。
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from app.workflows.state_store import WorkflowStateStore
 
 
 class TelemetryLLMProxy:
-    """包装大语言模型客户端的代理类，用于在 Evoloop 3.0 的各种同步 invoke 调用时自动收集遥测和审计事件。"""
+    """包装大语言模型客户端的代理类，用于在 EvoCanvas 的同步 invoke 调用中自动收集遥测和审计事件。"""
 
     def __init__(self, engine: WorkflowEngine):
         self._engine = engine
@@ -598,4 +598,3 @@ class WorkflowEngine:
                 task.context.artifacts.append(artifact)
             self.storage.append_event(Event(task_id=task.task_id, type="artifact.created", role=step.role, status="created", payload={"artifact_id": artifact.artifact_id, "name": artifact.name, "version": artifact.version}))
         return StepResult(step.id, StepStatus.SUCCEEDED, "artifact written", outputs={"artifacts": [artifact.to_dict() for artifact in result.artifacts]}, tool_calls=[call])
-

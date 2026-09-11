@@ -1,7 +1,7 @@
-"""旧任务执行链的显式懒加载隔离。
+"""兼容工作流执行链的显式懒加载隔离。
 
-EvoCanvas Canvas 主链只使用 Pi Runtime。旧任务 API 仍作为迁移资产保留时，
-只有真正访问旧任务执行能力才创建旧 WorkflowEngine，避免它在普通 Canvas
+EvoCanvas Canvas 主链只使用 Pi Runtime。兼容任务 API 仍需要保留时，
+只有真正访问兼容执行能力才创建 WorkflowEngine，避免它在普通 Canvas
 请求启动时成为第二个在线模型入口。
 """
 
@@ -11,8 +11,8 @@ from threading import RLock
 from typing import Any, Callable
 
 
-class LazyLegacyWorkflowEngine:
-    """延迟创建并代理旧 WorkflowEngine；不参与 Canvas 主链。"""
+class LazyCompatibilityWorkflowEngine:
+    """延迟创建并代理兼容 WorkflowEngine；不参与 Canvas 主链。"""
 
     def __init__(self, factory: Callable[[], Any]) -> None:
         self._factory = factory

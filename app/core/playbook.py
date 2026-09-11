@@ -1,4 +1,4 @@
-"""Evoloop 3.0 控制面与工作流规范（Playbook）及产品上下文（ProductContext）模型定义。
+"""EvoCanvas 控制面与工作流规范（Playbook）及产品上下文（ProductContext）模型定义。
 
 本模块定义了数字产品经理（Digital PM）的决策门禁（DecisionGate）、工作流程步骤（PlaybookStep）、
 剧本（Playbook）、产品上下文（ProductContext）以及下游 AI 执行单元的对接规格（WorkerAdapter）等冻结契约。
@@ -381,7 +381,7 @@ class GateResolution:
 
 @dataclass
 class DecisionGate(FilePersistenceMixin):
-    """表示一个等待人类决策裁决的决策门禁（Evoloop 3.0 冻结契约）。
+    """表示一个等待人类决策裁决的决策门禁（EvoCanvas 冻结契约）。
 
     当 AI Agent 面对需求冲突、分支不确定性等棘手问题时，通过向此门禁写入待决提问来挂起当前执行流，
     避免做出盲目假设，保障系统演进的安全合规性。
@@ -446,7 +446,7 @@ class DecisionGate(FilePersistenceMixin):
 
 @dataclass
 class ProductContext(FilePersistenceMixin):
-    """表示一个完整数字产品的全局产品上下文（Evoloop 3.0 冻结契约）。
+    """表示一个完整数字产品的全局产品上下文（EvoCanvas 冻结契约）。
 
     作为跨运行期、跨执行单元（Worker Adapter）的单一真相源（Single Source of Truth），
     汇聚了所有的原始材料、已被人类确认的需求、约束、做出的预设假设以及已签署的决策记录。
@@ -566,7 +566,7 @@ class PlaybookStep:
 
 @dataclass
 class Playbook(FilePersistenceMixin):
-    """表示一个完整数字产品经理的工作套路流规范（Evoloop 3.0 冻结契约）。
+    """表示一个完整数字产品经理的工作套路流规范（EvoCanvas 冻结契约）。
 
     指明了针对特定业务触发场景（trigger_types），系统应当遵循的执行步骤、工具边界与期望交付资产。
 
@@ -631,7 +631,7 @@ class Playbook(FilePersistenceMixin):
 
 @dataclass
 class WorkerAdapter(FilePersistenceMixin):
-    """表示一个 downstream AI 适配层（Evoloop 3.0 冻结契约）。
+    """表示一个 downstream AI 适配层（EvoCanvas 冻结契约）。
 
     定义了在执行任务包时，分发对接 Codex、Claude Code、Cursor 等底层具体执行器所遵循的传输格式及限制。
 
@@ -679,4 +679,3 @@ class WorkerAdapter(FilePersistenceMixin):
             result_intake_policy=dict(data.get("result_intake_policy", {})),
             metadata=dict(data.get("metadata", {})),
         )
-

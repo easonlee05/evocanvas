@@ -1,4 +1,4 @@
-"""Evoloop 3.0 核心契约层 Blackboard（黑板）共享内存模型。
+"""EvoCanvas 核心契约层 Blackboard（黑板）共享内存模型。
 
 本模块实现了一个支持动态槽位（Slot）注册、读写权限管控、类型校验与审计机制的 Blackboard（黑板）工作记忆机制，
 用于在 Playbook DAG 流程中的各个步骤节点之间安全地共享上下文状态与中间交付数据。

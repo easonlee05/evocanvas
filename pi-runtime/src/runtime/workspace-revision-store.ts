@@ -133,7 +133,7 @@ export class WorkspaceRevisionStore {
       CREATE TABLE IF NOT EXISTS revisions (workspace TEXT, id TEXT, body TEXT NOT NULL, PRIMARY KEY(workspace,id));
       CREATE TABLE IF NOT EXISTS pointers (workspace TEXT PRIMARY KEY, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS commits (workspace TEXT, key TEXT, hash TEXT, body TEXT NOT NULL, PRIMARY KEY(workspace,key));`);
-    // 兼容迁移已有 JSON Revision；保留源文件，不覆盖已经迁入的工作区。
+    // 兼容导入已有 JSON Revision；保留源文件，不覆盖已经进入工作区的版本。
     let files: string[];
     try { files = await readdir(join(this.dir, "pointers")); }
     catch (error: any) { if (error.code === "ENOENT") return; throw error; }

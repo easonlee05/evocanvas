@@ -58,7 +58,7 @@ docs/
 tests/                    # 后端领域、流程、治理与 API 测试
 ```
 
-EvoCanvas 在 Evoloop 通用基础设施上进行半重构迁移：复用会话、事件、工具、存储、运行时和基础 UI 能力，同时逐步替换旧产品流程适配层。`docs/harness/09-reference-models/` 中的参考模型仅供对照，不能覆盖 1.0 的产品边界。
+EvoCanvas 以统一的会话、事件、工具、存储、运行时和 UI 能力承载自己的产品主链；所有工作流、卡片、治理和交接语义都以 EvoCanvas 1.0 为准。`docs/harness/09-reference-models/` 中的参考模型仅供对照，不能覆盖 1.0 的产品边界。
 
 ## 文档地图
 
@@ -68,7 +68,7 @@ EvoCanvas 在 Evoloop 通用基础设施上进行半重构迁移：复用会话�
 | 正式卡片对象 | [`docs/vision/modules/cards.md`](docs/vision/modules/cards.md) |
 | 系统挂件与个人挂件预留 | [`docs/vision/modules/widgets.md`](docs/vision/modules/widgets.md) |
 | AI 如何被约束为受控收敛系统 | [`docs/harness/README.md`](docs/harness/README.md) |
-| 当前仓库的协作、迁移与验证规则 | [`AGENTS.md`](AGENTS.md) |
+| 当前仓库的协作、实现与验证规则 | [`AGENTS.md`](AGENTS.md) |
 
 主 PRD 是唯一产品真相源。模块文档和 Harness 文档用于展开对象、实现和治理边界；若与主 PRD 冲突，以主 PRD 为准并同步修正。
 
@@ -105,7 +105,9 @@ PI_RUNTIME_PORT=8790 \
 /path/to/node pi-runtime/dist/server.js
 ```
 
-可通过 `PI_PROVIDER` 和 `PI_MODEL` 覆盖默认值。Runtime 未配置真实凭证时不会进入 ready 状态，也不会静默使用 Fake Provider；合同测试可以显式使用 `PI_PROVIDER=fake-provider`。
+首页和工作台首次打开时会预置 `deepseek-v4-flash`、`deepseek-v4-pro`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna` 作为可编辑的模型目录。运行后点击左侧边栏的“设置”，可以新增、编辑或删除模型，并自行填写模型 Slug、显示名称、模型提供商、Base URL 和 API Key；首页与工作台会实时读取这份本机目录。DeepSeek 模型默认使用 `DEEPSEEK_API_KEY`，GPT-5.6 模型默认使用 `OPENAI_API_KEY`；Runtime 会根据本次选择的模型自动使用对应 Provider。可通过 `PI_PROVIDER` 和 `PI_MODEL` 覆盖默认值。Runtime 未配置真实凭证时不会进入 ready 状态，也不会静默使用 Fake Provider；合同测试可以显式使用 `PI_PROVIDER=fake-provider`。
+
+设置页支持 DeepSeek、OpenAI 和自定义 OpenAI 兼容 Provider；配置保存在本机浏览器，并随工作区请求传给 Pi Runtime，不写入代码仓库。
 
 ### 启动后端
 

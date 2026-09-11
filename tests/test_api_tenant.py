@@ -1,7 +1,7 @@
 """
 租户隔离（Tenant Isolation）API 测试模块。
 
-验证 Evoloop 后端 API 的健康状态以及基于 X-Tenant-ID HTTP 请求头实现的多租户数据隔离机制。
+验证 EvoCanvas 后端 API 的健康状态以及基于 X-Tenant-ID HTTP 请求头实现的多租户数据隔离机制。
 包含以下测试场景：
 1. /api/health 健康检查接口测试。
 2. 跨租户创建和拉取任务时的隔离性校验（例如租户 A 只能看到租户 A 的任务，无法获取租户 B 的任务）。
@@ -75,4 +75,3 @@ class TestApiTenant(unittest.TestCase):
         tasks_b = [t["id"] for t in list_b.json()["tasks"]]
         self.assertIn(task_id_b, tasks_b)
         self.assertNotIn(task_id_a, tasks_b)
-

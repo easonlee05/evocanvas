@@ -5,6 +5,7 @@ import {
   Archive,
   ChevronRight,
   Clock3,
+  Layers,
   ListTodo,
   MessageCircle,
   MousePointer,
@@ -48,6 +49,7 @@ import {
   resolveCollisions,
 } from './canvasLayout.js';
 import {
+  CANVAS_VIEW_STATE_VERSION,
   getCanvasViewStateStorageKey,
   readStoredCanvasViewState,
 } from './workspaceSession';
@@ -181,7 +183,18 @@ function getUiKitStatusTone(sectionKey, statusLabel = '', statusColor = 'gray') 
 const NOTE_THEMES = ['sun', 'mint', 'sky', 'rose'];
 const COLLAPSED_WIDGET_HEIGHT = 36;
 const SCREEN_WIDGET_PADDING = 16;
+const AGENT_ENTRY_WIDTH = 112;
+const WIDGET_ENTRY_GAP = 12;
 const WIDGET_LAYOUT_TRANSITION = 'left 0.26s cubic-bezier(0.2, 0, 0, 1), top 0.26s cubic-bezier(0.2, 0, 0, 1), width 0.26s cubic-bezier(0.2, 0, 0, 1), height 0.26s cubic-bezier(0.2, 0, 0, 1)';
+
+const createEmptyCanvasSections = () => ({
+  evidence: [],
+  problems: [],
+  clarify: [],
+  rules: [],
+  options: [],
+  planning: [],
+});
 
 const getCollapsedWidgetWidthByTitle = (title = '') => {
   const textWidth = Array.from(title).reduce((width, char) => {
@@ -1565,16 +1578,19 @@ export default function Canvas({
   const [isPinned, setIsPinned] = useState(true);
   const [isTimelineCollapsed, setIsTimelineCollapsed] = useState(true);
   const [timelinePos, setTimelinePos] = useState({ x: 80, y: 800 });
-  const [timelinePinnedPos, setTimelinePinnedPos] = useState({ x: 24, y: 720 });
+  // 钉住挂件的默认位置由当前画布尺寸和入口位置实时计算；只有用户拖动后才保存坐标。
+  const [timelinePinnedPos, setTimelinePinnedPos] = useState(null);
   const [isBacklogPinned, setIsBacklogPinned] = useState(true);
-  const [isBacklogCollapsed, setIsBacklogCollapsed] = useState(false);
+  const [isBacklogCollapsed, setIsBacklogCollapsed] = useState(true);
   const [backlogPos, setBacklogPos] = useState({ x: 1200, y: 300 });
-  const [backlogPinnedPos, setBacklogPinnedPos] = useState({ x: 940, y: 24 });
+  const [backlogPinnedPos, setBacklogPinnedPos] = useState(null);
   const [personalWidgets, setPersonalWidgets] = useState([]);
   const [activeCardMenuId, setActiveCardMenuId] = useState(null);
   const [isWidgetPanelOpen, setIsWidgetPanelOpen] = useState(false);
 
-  const [canvasSections, setCanvasSections] = useState(() => createInitialCanvasSections(DEMO_CANVAS_SECTIONS));
+  const [canvasSections, setCanvasSections] = useState(() => (
+    workspaceId === 'demo' ? createInitialCanvasSections(DEMO_CANVAS_SECTIONS) : createEmptyCanvasSections()
+  ));
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [cardGeometry, setCardGeometry] = useState({});
   const [hoveredCardId, setHoveredCardId] = useState(null);
@@ -1594,6 +1610,7 @@ export default function Canvas({
   const cardGeometryRef = useRef({});
   const cardGeometryVersionRef = useRef({});
   const hasRestoredViewStateRef = useRef(false);
+  const autoFitCanvasRef = useRef(true);
   const pendingTextFocusIdRef = useRef(null);
 
   const canvasViewStorageKey = getCanvasViewStateStorageKey(workspaceId);
@@ -1826,20 +1843,9 @@ export default function Canvas({
         return syncSectionConnectionsFromRelations(nextSections, relations);
       });
     } else {
-      setCanvasSections(current => {
-        const allCurrentCards = Object.values(current).flat();
-        if (allCurrentCards.length === 0) {
-          return {
-            evidence: [],
-            problems: [],
-            clarify: [],
-            rules: [],
-            options: [],
-            planning: [],
-          };
-        }
-        return current;
-      });
+      // 非 demo 工作区的空响应必须保持为空，不能回退到演示场景。
+      // 这样新工作区会显示明确的空状态，直到真实卡片由后端返回。
+      if (workspaceId !== 'demo') setCanvasSections(createEmptyCanvasSections());
     }
   }, [cards, relations, workspaceId, canvasViewStorageKey]);
 
@@ -1852,12 +1858,14 @@ export default function Canvas({
     setIsPinned(true);
     setIsTimelineCollapsed(true);
     setTimelinePos({ x: 80, y: 800 });
-    setTimelinePinnedPos({ x: 24, y: 720 });
+    setTimelinePinnedPos(null);
     setIsBacklogPinned(true);
-    setIsBacklogCollapsed(false);
+    setIsBacklogCollapsed(true);
     setBacklogPos({ x: 1200, y: 300 });
-    setBacklogPinnedPos({ x: 940, y: 24 });
+    setBacklogPinnedPos(null);
     setTransform({ x: 0, y: 0, scale: 1 });
+    autoFitCanvasRef.current = true;
+    setCanvasSections(workspaceId === 'demo' ? createInitialCanvasSections(DEMO_CANVAS_SECTIONS) : createEmptyCanvasSections());
     setCanvasTexts([]);
     setPersonalWidgets([]);
     setConnectorTarget(null);
@@ -1868,7 +1876,7 @@ export default function Canvas({
     if (hasRestoredViewStateRef.current) return;
 
     const storedState = readStoredCanvasViewState(canvasViewStorageKey);
-    if (!storedState) {
+    if (!storedState || storedState.viewVersion !== CANVAS_VIEW_STATE_VERSION) {
       hasRestoredViewStateRef.current = true;
       setHasHydratedCanvasView(true);
       return;
@@ -1947,7 +1955,7 @@ export default function Canvas({
       setTransform(storedState.transform);
     }
 
-    if (
+    if (workspaceId === 'demo' &&
       storedState.canvasSections &&
       typeof storedState.canvasSections === 'object' &&
       !Array.isArray(storedState.canvasSections)
@@ -1989,12 +1997,49 @@ export default function Canvas({
       backlogPos,
       backlogPinnedPos,
       transform,
+      viewVersion: CANVAS_VIEW_STATE_VERSION,
       canvasSections,
       canvasTexts,
       personalWidgets,
     };
     localStorage.setItem(canvasViewStorageKey, JSON.stringify(nextState));
   }, [canvasViewStorageKey, hasHydratedCanvasView, isBacklogOpen, isTimelineOpen, cardOffsets, isPinned, isTimelineCollapsed, timelinePos, timelinePinnedPos, isBacklogPinned, isBacklogCollapsed, backlogPos, backlogPinnedPos, transform, canvasSections, canvasTexts, personalWidgets]);
+
+  // 桌面端首次打开时把固定画布缩放到“助手面板左侧的可用区域”；用户开始平移或缩放后不再抢夺视角。
+  useEffect(() => {
+    const container = containerRef.current;
+    const lanes = canvasLanesRef.current;
+    if (!container || !lanes || !hasHydratedCanvasView || !autoFitCanvasRef.current) return undefined;
+
+    const fitCanvas = () => {
+      const isCompact = window.matchMedia('(max-width: 900px)').matches;
+      if (isCompact) {
+        setTransform((current) => current.scale === 1 && current.x === 0 && current.y === 0
+          ? current
+          : { x: 0, y: 0, scale: 1 });
+        return;
+      }
+
+      const naturalWidth = lanes.offsetWidth;
+      if (!naturalWidth) return;
+      const bounds = container.getBoundingClientRect();
+      const reservedForChat = isChatOpen ? 452 : 32;
+      const availableWidth = Math.max(520, bounds.width - reservedForChat);
+      const scale = Math.min(1, availableWidth / naturalWidth);
+      const x = Math.max(24, (availableWidth - naturalWidth * scale) / 2);
+      setTransform((current) => (
+        Math.abs(current.scale - scale) < 0.01 && Math.abs(current.x - x) < 1
+          ? current
+          : { x, y: 24, scale }
+      ));
+    };
+
+    fitCanvas();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(fitCanvas) : null;
+    observer?.observe(container);
+    observer?.observe(lanes);
+    return () => observer?.disconnect();
+  }, [hasHydratedCanvasView, canvasSections, isChatOpen]);
 
   useEffect(() => {
     if (!pendingTextFocusIdRef.current) return;
@@ -2035,9 +2080,9 @@ export default function Canvas({
   const handleAutoLayout = () => {
     setCardOffsets({});
     setTimelinePos({ x: 80, y: 800 });
-    setTimelinePinnedPos({ x: 24, y: 720 });
+    setTimelinePinnedPos(null);
     setBacklogPos({ x: 1200, y: 300 });
-    setBacklogPinnedPos({ x: 940, y: 24 });
+    setBacklogPinnedPos(null);
     setTransform({ x: 0, y: 0, scale: 1 });
   };
 
@@ -2284,6 +2329,8 @@ export default function Canvas({
     }
 
     if (activeTool !== 'select') return;
+
+    autoFitCanvasRef.current = false;
     
     let target = event.target;
     while (target && target !== containerRef.current) {
@@ -2366,14 +2413,14 @@ export default function Canvas({
     } else if (type === 'timeline') {
       if (isPinned) {
         coordinateSpace = 'screen';
-        source = timelinePinnedPos;
+        source = timelinePinnedPos || getDefaultPinnedWidgetPosition('timeline', getSystemWidgetCollapsedWidth('timeline'));
       } else {
         source = timelinePos;
       }
     } else if (type === 'backlog') {
       if (isBacklogPinned) {
         coordinateSpace = 'screen';
-        source = backlogPinnedPos;
+        source = backlogPinnedPos || getDefaultPinnedWidgetPosition('backlog', getSystemWidgetCollapsedWidth('backlog'));
       } else {
         source = backlogPos;
       }
@@ -2702,6 +2749,7 @@ export default function Canvas({
   const handleConnectStart = (cardId, port, event) => {
     event.stopPropagation();
     event.preventDefault();
+    autoFitCanvasRef.current = false;
     const lanesEl = canvasLanesRef.current;
     if (!lanesEl) return;
 
@@ -2900,6 +2948,28 @@ export default function Canvas({
     return {
       width: containerRect?.width ?? window.innerWidth,
       height: containerRect?.height ?? window.innerHeight,
+    };
+  };
+
+  const getDefaultPinnedWidgetPosition = (type, collapsedWidth) => {
+    const bounds = getScreenBounds();
+
+    if (type === 'timeline') {
+      return {
+        x: SCREEN_WIDGET_PADDING,
+        y: bounds.height - SCREEN_WIDGET_PADDING - COLLAPSED_WIDGET_HEIGHT,
+      };
+    }
+
+    // Agent 入口收起时是右上角的 Canvas AI 胶囊；助手展开时则以助手面板左边作为邻接边。
+    const isCompact = window.matchMedia('(max-width: 900px)').matches;
+    const adjacentEntryLeft = isChatOpen
+      ? (isCompact ? SCREEN_WIDGET_PADDING - 4 : bounds.width - 16 - 420)
+      : bounds.width - 24 - AGENT_ENTRY_WIDTH;
+
+    return {
+      x: adjacentEntryLeft - WIDGET_ENTRY_GAP - collapsedWidth,
+      y: 24,
     };
   };
 
@@ -3146,21 +3216,24 @@ export default function Canvas({
     });
   };
 
+  const timelinePinnedAnchor = timelinePinnedPos || getDefaultPinnedWidgetPosition('timeline', getSystemWidgetCollapsedWidth('timeline'));
   const timelinePinnedLayout = resolveScreenWidgetLayout({
-    anchorX: timelinePinnedPos.x,
-    anchorY: timelinePinnedPos.y,
+    anchorX: timelinePinnedAnchor.x,
+    anchorY: timelinePinnedAnchor.y,
     collapsedWidth: getSystemWidgetCollapsedWidth('timeline'),
     expandedWidth: 720,
     expandedHeight: 160,
   });
 
+  const backlogPinnedAnchor = backlogPinnedPos || getDefaultPinnedWidgetPosition('backlog', getSystemWidgetCollapsedWidth('backlog'));
   const backlogPinnedLayout = resolveScreenWidgetLayout({
-    anchorX: backlogPinnedPos.x,
-    anchorY: backlogPinnedPos.y,
+    anchorX: backlogPinnedAnchor.x,
+    anchorY: backlogPinnedAnchor.y,
     collapsedWidth: getSystemWidgetCollapsedWidth('backlog'),
     expandedWidth: 320,
     expandedHeight: 520,
   });
+  const hasCanvasCards = Object.values(canvasSections).some((section) => section.length > 0);
 
   return (
     <div 
@@ -3296,15 +3369,26 @@ export default function Canvas({
 
 
 
+      {!hasCanvasCards && workspaceId !== 'demo' && (
+        <div className="canvas-empty-state" role="status">
+          <div className="canvas-empty-state-mark"><Layers size={18} /></div>
+          <div>
+            <strong>工作面还是空的</strong>
+            <span>在右侧助手输入材料后，真实收敛结果会出现在这里。</span>
+          </div>
+        </div>
+      )}
+
       {/* 无限缩放平面 */}
-      <div 
-        className="canvas-lanes"
-        ref={canvasLanesRef}
-        style={{
-          transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-          transformOrigin: '0 0'
-        }}
-      >
+      {(hasCanvasCards || workspaceId === 'demo') && (
+        <div
+          className="canvas-lanes"
+          ref={canvasLanesRef}
+          style={{
+            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+            transformOrigin: '0 0'
+          }}
+        >
           {LANE_DEFINITIONS.map(({ sectionKey }) => (
             <div className="canvas-lane" key={sectionKey} style={{ gridArea: sectionKey }}>
               <div className="lane-header">
@@ -3467,6 +3551,7 @@ export default function Canvas({
             </div>
           )}
         </div>
+      )}
 
       {pendingMove && (
         <div className="canvas-move-confirm">

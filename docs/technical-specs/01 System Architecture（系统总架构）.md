@@ -1,13 +1,13 @@
 # System Architecture（系统总架构）
 
 > 文档状态：`与 Harness L3 对齐的目标架构`
-> 当前实现状态：`部分接入，旧单次运行链待迁移`
+> 当前实现状态：`原生主链已接入，兼容入口待验证`
 > 产品真相源：[`EvoCanvas1.0-PRD.md`](../vision/EvoCanvas1.0-PRD.md)
 > Harness 规格：[`docs/harness/README.md`](../harness/README.md)
 
 ## 1. 文档定位
 
-本文定义 EvoCanvas 1.0 的目标系统边界、权威记录和依赖方向。它不把当前代码中的旧运行类型、跨进程 DTO 或兼容字段当作目标架构。
+本文定义 EvoCanvas 1.0 的目标系统边界、权威记录和依赖方向。跨进程 DTO 与历史字段只在输入转换或只读边界中出现，不构成产品事实源。
 
 ## 2. 架构目标
 
@@ -132,7 +132,7 @@ User Submission(submission_id + content_hash)
 - Session 故障从 Pi Session Store 恢复；投影从 Revision 重建。
 - 上游变化确定性标记下游复核，不调用第二模型自动改写。
 - 工具恢复只接受 `replay: safe | never`；执行结果未知不代表允许重放。
-- 迁移按 Workspace 短暂停写、导入、哈希校验和原子切换，不长期双写。
+- 历史数据按 Workspace 短暂停写、导入、哈希校验和原子切换，不长期双写。
 
 ## 9. 明确排除
 
@@ -146,19 +146,19 @@ User Submission(submission_id + content_hash)
 - 未确认候选正式显影；
 - Governance Agent 或独立语义验证模型。
 
-## 10. 当前代码迁移边界
+## 10. 当前原生实现边界
 
-当前代码仍以 Python 调用 TypeScript 单次运行服务，并保留上述旧合同。它们是迁移输入，不是目标接口。迁移顺序为：
+当前生产画布主链已由 Python Canvas 入口接入 TypeScript Workspace Runtime，并保留少量兼容端点供既有消费者读取。兼容端点不是目标产品主链；原生实现的补齐顺序为：
 
 1. 升级为 Pi `0.85.1` 同版本依赖族，建立首条消息触发的 Workspace–Primary Session Binding、官方 SQLite Backend、单 Session 文件和宿主锁；
 2. 接入 Pi Harness 的 Skills、Session、`transformContext` 和 Hooks；
 3. 注册只读工具与统一 `workspace.commit`；
-4. 迁移用户直接编辑；
-5. 移除旧判断、收敛运行和提案捕获链；
+4. 让用户直接编辑与 Pi 编辑持续共用同一提交能力；
+5. 继续收敛判断、收敛运行和提案捕获的辅助入口；
 6. 接入依赖传播、交接双指针和 Projection Outbox；
-7. 以端到端证据关闭兼容路径。
+7. 以端到端证据关闭非主链路径。
 
-迁移期间不得删除尚有消费者的数据或接口；先停止新写入，再证明读取、迁移和回退路径。
+兼容期间不得删除尚有消费者的数据或接口；先停止新写入，再证明读取、导入和回退路径。
 
 ## 11. 架构验收
 
@@ -169,7 +169,7 @@ User Submission(submission_id + content_hash)
 5. Canvas 可仅凭 current Revision 重建。
 6. 下游默认只能取得有效 confirmed handoff。
 7. Entry、Tool Call、Commit、Revision 和 Projection 可双向追溯。
-8. 旧运行端点关闭后完整回归仍通过。
+8. 非主链运行端点关闭后完整回归仍通过。
 9. 第一条消息重试不会创建重复 Session / Entry，Session 锁竞争不会出现第二写者。
 10. 归档恢复原 Session；协调删除对 `partial / retention_held` 如实报告。
 

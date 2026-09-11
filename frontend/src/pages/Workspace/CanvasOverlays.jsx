@@ -247,9 +247,10 @@ export function AnimatedWidgetShell({
         position: 'relative',
         width: isCollapsed ? `${collapsedWidth}px` : expandedWidth,
         height: isCollapsed ? `${COLLAPSED_WIDGET_HEIGHT}px` : expandedHeight,
-        overflow: 'visible',
         transition: WIDGET_ROOT_TRANSITION,
         ...style,
+        // 收起态不能让透明的展开层继续撑大画布，否则窄屏会出现不可见的横向溢出。
+        overflow: isCollapsed ? 'hidden' : 'visible',
       }}
       onPointerDown={onPointerDown}
     >

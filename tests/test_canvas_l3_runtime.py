@@ -41,8 +41,8 @@ class CanvasL3DomainTests(unittest.TestCase):
                 status="open",
             )
 
-    def test_legacy_option_and_reopens_relation_are_migrated(self) -> None:
-        """旧 option/reopens 数据读取时映射到 L3 的 decision/replaces。"""
+    def test_compatibility_option_and_reopens_relation_are_normalized(self) -> None:
+        """兼容 option/reopens 数据读取时映射到 L3 的 decision/replaces。"""
 
         card = CanvasCard.from_dict(
             {
@@ -575,13 +575,13 @@ class CanvasL3ConfirmationPathTests(unittest.TestCase):
         self.assertEqual(restored.confirmation_path, ConfirmationPath.DIRECT_USER_STATEMENT)
         self.assertEqual(restored.proposal_message_refs, [])
 
-    def test_legacy_record_without_confirmation_path_defaults_to_assistant_proposal(self) -> None:
-        """旧持久化数据缺失 confirmation_path 时按 assistant 提议路径恢复。"""
+    def test_compatibility_record_without_confirmation_path_defaults_to_assistant_proposal(self) -> None:
+        """兼容持久化数据缺失 confirmation_path 时按 assistant 提议路径恢复。"""
 
         from app.canvas.domain.confirmation import ConfirmationPath, ConfirmationRecord
 
-        legacy_data = {
-            "confirmation_id": "confirmation_legacy",
+        compatibility_data = {
+            "confirmation_id": "confirmation_compatibility",
             "workspace_id": "demo",
             "package_id": "pkg_demo",
             "proposal_message_refs": ["msg_assistant"],
@@ -592,7 +592,7 @@ class CanvasL3ConfirmationPathTests(unittest.TestCase):
             "remaining_unresolved_refs": [],
             "recorded_at": "2026-01-01T00:00:00Z",
         }
-        restored = ConfirmationRecord.from_dict(legacy_data)
+        restored = ConfirmationRecord.from_dict(compatibility_data)
         self.assertEqual(
             restored.confirmation_path,
             ConfirmationPath.ASSISTANT_PROPOSAL_THEN_USER_RESPONSE,

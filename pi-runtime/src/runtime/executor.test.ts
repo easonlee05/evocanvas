@@ -252,6 +252,29 @@ test("configured Pi Runtime defaults to DeepSeek V4 Flash without faking readine
   }
 });
 
+test("configured Pi Runtime resolves GPT-5.6 models to the OpenAI provider", async () => {
+  const previousProvider = process.env.PI_PROVIDER;
+  const previousModel = process.env.PI_MODEL;
+  const previousApiKey = process.env.OPENAI_API_KEY;
+  delete process.env.PI_PROVIDER;
+  process.env.PI_MODEL = "gpt-5.6-luna";
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const executor = createConfiguredRunExecutor();
+    const readiness = await executor.readiness();
+    assert.equal(readiness.provider_id, "openai");
+    assert.equal(readiness.model_id, "gpt-5.6-luna");
+    assert.equal(readiness.ready, false);
+  } finally {
+    if (previousProvider === undefined) delete process.env.PI_PROVIDER;
+    else process.env.PI_PROVIDER = previousProvider;
+    if (previousModel === undefined) delete process.env.PI_MODEL;
+    else process.env.PI_MODEL = previousModel;
+    if (previousApiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousApiKey;
+  }
+});
+
 test("configured Pi Runtime fails explicitly when the default provider has no credentials", async () => {
   const previousProvider = process.env.PI_PROVIDER;
   const previousModel = process.env.PI_MODEL;

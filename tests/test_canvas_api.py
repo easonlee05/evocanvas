@@ -365,9 +365,9 @@ class CanvasApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["workspace_id"], "demo")
         self.assertEqual(payload["status"], "draft")
-        # L3 规格已下线 StructuredHandoff.summary；content 与 metadata.legacy.summary 同源。
-        legacy_summary = payload["handoff"].get("metadata", {}).get("legacy", {}).get("summary", "")
-        self.assertEqual(payload["content"], legacy_summary)
+        # L3 规格已下线 StructuredHandoff.summary；content 与 metadata.compatibility.summary 同源。
+        compatibility_summary = payload["handoff"].get("metadata", {}).get("compatibility", {}).get("summary", "")
+        self.assertEqual(payload["content"], compatibility_summary)
         self.assertEqual(payload["handoff"]["handoff_id"], "handoff_demo")
         # L3 规格要求交接模块只引用对象，不复制正文；此处验证未决引用集合。
         self.assertIn(clarification_id, payload["handoff"]["unresolved_refs"])
@@ -384,8 +384,8 @@ class CanvasApiTests(unittest.TestCase):
         repeated_canvas = self.client.get("/api/canvas/workspaces/demo/canvas", headers=self.headers).json()
         self.assertEqual(len([card for card in repeated_canvas["cards"] if card["kind"] == "handoff"]), 0)
 
-    def test_move_card_is_a_non_persisting_legacy_noop(self) -> None:
-        # L3 规格已下线 stage_node 主题阶段机：move_card 降级为 deprecated_noop，
+    def test_move_card_is_a_non_persisting_compatibility_noop(self) -> None:
+        # L3 规格已下线 stage_node 主题阶段机：move_card 降级为 compatibility_noop，
         # 不再修改或记录卡片业务状态。
         self.client.post(
             "/api/canvas/workspaces/demo/messages",
@@ -411,12 +411,12 @@ class CanvasApiTests(unittest.TestCase):
         self.assertEqual(moved["kind"], evidence_card["kind"])
         # L3 规格已下线 stage 字段；兼容入口不能写入 card.stage 或 metadata 影子字段。
         self.assertNotIn("stage", moved)
-        self.assertNotIn("legacy_stage_request", moved["metadata"])
-        self.assertNotIn("legacy_stage_reason", moved["metadata"])
+        self.assertNotIn("compatibility_stage_request", moved["metadata"])
+        self.assertNotIn("compatibility_stage_reason", moved["metadata"])
 
     def test_move_card_rejects_illegal_stage_transition(self) -> None:
         # L3 规格已下线 stage_node 主题阶段机：move_card 不再校验 stage 跳转合法性，
-        # 任何请求都返回 200 + deprecated_noop，且不产生持久化副作用。
+        # 任何请求都返回 200 + compatibility_noop，且不产生持久化副作用。
         self.client.post(
             "/api/canvas/workspaces/demo/messages",
             json={
@@ -435,9 +435,9 @@ class CanvasApiTests(unittest.TestCase):
             headers=self.headers,
         )
 
-        # L3 规格下不再返回 400；deprecated_noop 一律返回 200。
+        # L3 规格下不再返回 400；compatibility_noop 一律返回 200。
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["action"], "deprecated_noop")
+        self.assertEqual(response.json()["action"], "compatibility_noop")
         self.assertFalse(response.json()["move"]["semantic_change"])
 
     def test_get_todos_matches_canvas_projection_for_live_and_snapshot_views(self) -> None:

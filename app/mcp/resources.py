@@ -1,6 +1,6 @@
-"""Evoloop 3.0 MCP 资源注册定义。
+"""EvoCanvas MCP 资源注册定义。
 
-本模块通过 MCP 协议向外部提供 Evoloop 底层的核心状态资源（如任务的产品上下文、生成的产物内容），
+本模块通过 MCP 协议向外部提供 EvoCanvas 的核心状态资源（如任务的产品上下文、生成的产物内容），
 以便下游 AI Worker 直接检索和获取受控资源。
 """
 import json

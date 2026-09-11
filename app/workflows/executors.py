@@ -270,7 +270,7 @@ class DelegatingStepExecutor:
     """委托模式步骤执行器。
 
     作为一个适配器，将步骤执行的具体行为委托给引擎自身的方法或自定义回调，
-    常用于衔接引擎内部复杂且未解耦的遗留行为（如旧版的 agent、gate 等）。
+    常用于衔接引擎内部仍需兼容的复杂行为（如既有 agent、gate 等）。
     """
 
     step_type: str
@@ -307,7 +307,7 @@ class DelegatingStepExecutor:
 class DefaultStepExecutorRegistryFactory:
     """为工作流引擎实例构建核心步骤执行器注册表的工厂类。
 
-    该工厂除了注入常用的基础设施服务外，还负责按需加载 spec_to_agent 和 acceptance_review 两大 3.0 工作流产品线所包含的具体业务步骤执行器。
+    该工厂除了注入常用的基础设施服务外，还负责按需加载 spec_to_agent 和 acceptance_review 两类工作流的具体业务步骤执行器。
     """
 
     tool_service: Any
@@ -343,7 +343,7 @@ class DefaultStepExecutorRegistryFactory:
         executors.extend(self._load_spec_to_agent_executors())
         executors.extend(self._load_acceptance_review_executors())
         
-        # 追加代理模式执行器以衔接遗留引擎的复杂事件分支
+        # 追加代理模式执行器以衔接兼容引擎的复杂事件分支
         executors.append(
             DelegatingStepExecutor(
                 "agent",

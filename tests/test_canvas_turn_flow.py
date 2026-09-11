@@ -15,10 +15,11 @@ from app.core.events import EventBus
 from app.services.fakes import FakeStorage
 
 
-class LegacyCanvasService(CanvasService):
-    """仅在兼容性测试中显式使用旧领域流程；生产主链由跨服务测试覆盖。"""
+class CompatibilityCanvasService(CanvasService):
+    """仅在兼容性测试中显式使用领域适配流程；生产主链由跨服务测试覆盖。"""
     async def run_pi_turn(self, *, submission_id=None, actor_id="user", **kwargs):
         kwargs.pop("model", None)
+        kwargs.pop("model_config", None)
         return self.start_turn(**kwargs)
 
 
@@ -31,7 +32,7 @@ class CanvasTurnFlowTests(unittest.TestCase):
         self.tenant_id = f"canvas-turn-{uuid4().hex[:8]}"
         self.headers = {"X-Tenant-ID": self.tenant_id}
         self.storage = FakeStorage(Path(gettempdir()) / "manual-agent-phase1" / self.tenant_id)
-        self.canvas_service = LegacyCanvasService(storage=self.storage)
+        self.canvas_service = CompatibilityCanvasService(storage=self.storage)
         app.dependency_overrides[get_canvas_service] = lambda: self.canvas_service
 
     def test_post_message_returns_turn_id_and_applies_low_risk_card(self) -> None:
@@ -246,9 +247,9 @@ class CanvasTurnFlowTests(unittest.TestCase):
         # 此处只验证交接模块引用集合存在且类型正确，不强约束内容数量。
         self.assertIsInstance(handoff["handoff"]["confirmed_constraint_refs"], list)
         self.assertEqual(len(snapshots["items"]), 1)
-        # L3 规格已下线 StructuredHandoff.summary；快照 summary 改读 metadata.legacy.summary。
-        legacy_summary = snapshots["items"][0]["handoff"].get("metadata", {}).get("legacy", {}).get("summary", "")
-        self.assertEqual(legacy_summary, handoff["content"])
+        # L3 规格已下线 StructuredHandoff.summary；快照 summary 改读 compatibility.summary。
+        compatibility_summary = snapshots["items"][0]["handoff"].get("metadata", {}).get("compatibility", {}).get("summary", "")
+        self.assertEqual(compatibility_summary, handoff["content"])
         self.assertEqual(handoff["handoff"]["metadata"]["confirmation_state"], "draft")
         self.assertEqual(handoff["handoff"]["metadata"]["source_snapshot_id"], snapshots["items"][0]["snapshot_id"])
         self.assertGreaterEqual(handoff["handoff"]["metadata"]["generated_from_card_count"], 1)

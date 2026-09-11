@@ -13,6 +13,7 @@
   overflow: hidden;
   display: block;
   position: relative;
+  box-sizing: border-box;
   --evc-paper: #fffefb;
   --evc-paper-warm: #fff8ed;
   --evc-ink: #1e1e1b;
@@ -39,6 +40,54 @@
 }
 .canvas-container:active {
   cursor: grabbing;
+}
+
+.canvas-empty-state {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(420px, calc(100% - 40px));
+  padding: 16px 18px;
+  border: 1px dashed rgba(148, 163, 184, 0.42);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--text-secondary);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.canvas-empty-state-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.canvas-empty-state > div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.canvas-empty-state strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.canvas-empty-state span {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* Active Todos 按钮 */
@@ -87,6 +136,17 @@
   width: 100%;
   flex-shrink: 0;
   height: 100%;
+}
+
+/* 中等桌面宽度给助手保留空间时改为两列，避免四列整体缩放后卡片失去可读性。 */
+@media (min-width: 901px) and (max-width: 1700px) {
+  .workspace.chat-open .canvas-lanes {
+    grid-template-columns: 320px 360px;
+    grid-template-areas:
+      "evidence problems"
+      "clarify rules"
+      "options planning";
+  }
 }
 
 .canvas-card-slot {
@@ -2933,4 +2993,81 @@
   border-color: #007aff;
   box-shadow: 0 0 0 2px rgba(0,122,255,0.15);
   cursor: text;
+}
+
+/* 窄屏不把整张固定宽度的无限画布缩成不可读的小地图，改为可滚动的单列工作面。 */
+@media (max-width: 900px) {
+  .canvas-container {
+    overflow: auto;
+    cursor: default;
+    padding: 16px 12px 32px;
+  }
+
+  .canvas-container:active {
+    cursor: default;
+  }
+
+  .canvas-lanes {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    width: 100%;
+    min-height: 100%;
+    padding: 24px 4px 180px;
+    box-sizing: border-box;
+    transform: none !important;
+  }
+
+  .canvas-lane {
+    width: 100%;
+    height: auto;
+  }
+
+  .lane-header {
+    margin-bottom: 10px;
+    padding: 0 4px;
+  }
+
+  .lane-content,
+  .module-cluster {
+    gap: 12px;
+  }
+
+  .cluster-cards {
+    min-height: 0;
+    gap: 12px;
+  }
+
+  .canvas-card-slot,
+  .ui-kit-card {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .ui-kit-card {
+    min-height: 0;
+    padding: 12px 13px 10px;
+  }
+
+  .figma-toolbar {
+    left: 12px;
+    right: 12px;
+    bottom: 16px;
+    width: auto;
+    transform: none;
+    justify-content: center;
+  }
+
+  .widget-toolbar-panel {
+    left: auto;
+    right: -4px;
+    transform: none;
+    width: min(392px, calc(100vw - 32px));
+  }
+
+  .canvas-empty-state {
+    top: 30%;
+  }
 }

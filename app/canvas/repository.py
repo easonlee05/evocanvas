@@ -7,7 +7,7 @@
 - 追加式状态账本（StateLedger）事件流
 - 不可改写的确认记录（ConfirmationRecord）
 
-L3 规格明确：旧 confirmation_queue 只保留为历史提案或消息证据，不迁移成新的审批任务。
+L3 规格明确：confirmation_queue 只保留为历史提案或消息证据，不转换为新的审批任务。
 因此本仓储不再提供 confirmation_queue 的写入入口，改为提供 ConfirmationRecord 仓储。
 """
 
@@ -550,7 +550,7 @@ class CanvasRepository:
         self._write_json_atomic(cards_file, {"items": [card.to_dict() for card in cards]})
 
     def load_cards(self, workspace_id: str) -> list[CanvasCard]:
-        """读取当前包版本的画布卡片；旧 cards.json 仅作为首读迁移来源。"""
+        """读取当前包版本的画布卡片；历史 cards.json 仅作为首读来源。"""
 
         active_version = self.load_active_package_version(workspace_id)
         if active_version is not None:
@@ -571,7 +571,7 @@ class CanvasRepository:
         self._write_json_atomic(relations_file, {"items": [relation.to_dict() for relation in relations]})
 
     def load_relations(self, workspace_id: str) -> list[CanvasRelation]:
-        """读取当前包版本的关系；旧 relations.json 仅作为首读迁移来源。"""
+        """读取当前包版本的关系；历史 relations.json 仅作为首读来源。"""
 
         active_version = self.load_active_package_version(workspace_id)
         if active_version is not None:
@@ -592,7 +592,7 @@ class CanvasRepository:
         self._write_json_atomic(handoff_file, handoff.to_dict())
 
     def load_handoff(self, workspace_id: str) -> Optional[StructuredHandoff]:
-        """读取当前包版本的交接模块；旧 handoff.json 只用于首读迁移。"""
+        """读取当前包版本的交接模块；历史 handoff.json 只用于首读。"""
 
         active_version = self.load_active_package_version(workspace_id)
         if active_version is not None:
@@ -716,7 +716,7 @@ class CanvasRepository:
         )
 
     # ------------------------------------------------------------------
-    # Pi 迁移运行记录与包级租约（阶段 4）
+    # Pi 运行记录与包级租约
     # ------------------------------------------------------------------
 
     _RUNTIME_RECORD_ID_FIELDS = {

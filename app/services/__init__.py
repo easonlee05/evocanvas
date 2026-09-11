@@ -1,4 +1,4 @@
-"""Evoloop 3.0 应用服务层（Services Layer）。
+"""EvoCanvas 应用服务层（Services Layer）。
 
 本模块包含系统生命周期中各种受控能力的具体实现，如大模型服务（LLM）、
 事件订阅与分发服务（Event）、文件读写与落盘服务（File）、沙箱隔离执行服务（Sandbox）、

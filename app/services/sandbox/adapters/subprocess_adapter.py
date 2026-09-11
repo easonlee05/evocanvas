@@ -49,7 +49,7 @@ class SubprocessSandboxAdapter(SandboxAdapter):
             )
 
         # 建立临时隔离的工作物理文件夹
-        with tempfile.TemporaryDirectory(prefix="evoloop_sandbox_") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="evocanvas_sandbox_") as temp_dir:
             script_path = os.path.join(temp_dir, "script.py")
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(code)
@@ -141,4 +141,3 @@ class SubprocessSandboxAdapter(SandboxAdapter):
                     stderr="",
                     error=f"Sandbox execution error: {type(e).__name__}"
                 )
-

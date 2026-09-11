@@ -1,8 +1,8 @@
-"""Evoloop 3.0 验收评审（Review）与覆盖率报告模型定义。
+"""EvoCanvas 验收评审（Review）与覆盖率报告模型定义。
 
 包含评审结果（PASS/FAIL）、缺陷严重级别、需求覆盖率（RequirementCoverage）、
 评审缺陷问题（ReviewIssue）、以及生成的缺陷修复任务（ReviewFixTask）定义。
-本模块是 3.0 控制闭环中用于执行验收审计（Acceptance Review）的核心契约。
+本模块是 EvoCanvas 控制闭环中用于执行验收审计（Acceptance Review）的核心契约。
 """
 from __future__ import annotations
 
@@ -176,7 +176,7 @@ class ReviewFixTask:
 
 @dataclass
 class ReviewResult(FilePersistenceMixin):
-    """表示一次完整的验收审计评审报告（Evoloop 3.0 冻结契约）。
+    """表示一次完整的验收审计评审报告（EvoCanvas 冻结契约）。
 
     锚定于机器规格书（machine_spec），表达了本次迭代的最终交付结论。
 
@@ -249,4 +249,3 @@ class ReviewResult(FilePersistenceMixin):
             created_at=data.get("created_at", utc_now_iso()),
             metadata=dict(data.get("metadata", {})),
         )
-

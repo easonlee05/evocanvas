@@ -1,8 +1,8 @@
-# Pi Runtime Phase 0 Matrices（Pi 运行时阶段 0 矩阵）
+# Pi Runtime Implementation Matrices（Pi 运行时原生实现矩阵）
 
-> 文档状态：`现行目标迁移矩阵`
-> 目标：`从单次 Pi 调用适配迁移到长期 Primary Pi Session`
-> 当前实现状态：`尚未通过阶段 0 出口`
+> 文档状态：`现行原生实现矩阵`
+> 目标：`以长期 Primary Pi Session 承载 EvoCanvas 工作区主链`
+> 当前实现状态：`原生主链已接入，完整边界验证待补齐`
 
 ## 1. 权威记录矩阵
 
@@ -17,13 +17,13 @@
 
 ## 2. Pi 实现基线矩阵
 
-| 项目 | 目标 | 当前实现 | 阶段 0 动作 |
+| 项目 | 原生目标 | 当前实现 | 验证动作 |
 | --- | --- | --- | --- |
-| Pi 依赖族 | 所有运行时 Pi 包统一 `0.85.1` | agent-core / ai `0.84.1`，telemetry override `0.84.2` | 统一升级并验证依赖树无混装 |
-| Session Backend | Pi 官方 SQLite Backend | 尚未作为 Workspace 长期 Session Store 接入 | 接入官方 Backend |
-| 存储单元 | 一个 Session 一个 SQLite 文件 | 旧运行存储与单次请求 | 定义目录、命名、备份与恢复 |
-| Writer | 同一 Session 一个宿主独占写者 | 尚无目标式 Session 锁 | 加宿主锁和请求路由 |
-| Lane | `main` | 单次请求执行 | 接入原生 Main Lane 与队列 |
+| Pi 依赖族 | 所有运行时 Pi 包统一 `0.85.1` | 已统一为 `0.85.1` | 持续由 lockfile 与构建验证 |
+| Session Backend | Pi Session 持久化与 Workspace 隔离 | Workspace Session Store 已接入 | 补齐真实重启与异常恢复证据 |
+| 存储单元 | 一个 Session 一个 SQLite 文件 | 已按 Workspace / Session 分目录保存 | 持续验证备份与恢复 |
+| Writer | 同一 Session 一个宿主独占写者 | Session 锁与绑定状态已接入 | 补齐多宿主边界验证 |
+| Lane | `main` | Workspace 主链使用 Primary Session main lane | 禁止新增产品侧平行运行 lane |
 
 ## 3. Workspace–Session 矩阵
 
@@ -38,7 +38,7 @@
 | 工作包不可用 | Session 可普通对话，稳定写入和交接关闭 | 不用缓存 Canvas 冒充 current Revision |
 | close | 释放 Agent 句柄和宿主锁 | 不改变 Binding / Entry / Revision |
 | archive | 保留原 Session 和来源解析 | 恢复时仍打开原 Session |
-| replace | 新 Session 保留前任和 Entry 映射 | 只用于不可恢复或格式迁移 |
+| replace | 新 Session 保留前任和 Entry 映射 | 只用于不可恢复或格式切换 |
 | delete | 协调 Session、工作包、来源和投影 | `partial / retention_held` 不得报成功 |
 
 ## 4. 身份矩阵
@@ -106,43 +106,43 @@
 | 删除部分失败 | 部分目标已删除 | 返回 `partial` 与残留清单，续作同一操作 |
 | 合规保留 | 否 | 返回 `retention_held`，不伪报成功 |
 
-## 9. 当前实现迁移矩阵
+## 9. 当前原生实现对照矩阵
 
 | 当前资产 | 当前语义 | 目标处理 |
 | --- | --- | --- |
-| `pi-runtime/src/runtime/executor.ts` | 每请求创建低层 Agent | 迁移到持久 Pi Session / Harness；保留 Provider 适配能力 |
-| `pi-runtime/src/server.ts` | chat / judgement / convergence 端点 | 迁移消费者后退役；新主链使用 Session 操作与事件 |
-| `app/canvas/pi_kernel.py` | Python 组装上下文并调度多种运行 | 停止新依赖；领域能力转为 Pi Tools / Hooks / Renderer |
-| `app/canvas/product_kernel.py` | 外部编排和提案提交 | 拆除 Agent 编排；保留可复用确定性提交能力 |
-| `app/canvas/agent_execution/contracts.py` | 旧跨进程 DTO | 数据与消费者迁移后退役 |
-| `app/canvas/tool_gateway.py` | 按旧运行类型授权 | 改为按 Tool Context、主体、能力和 side-effect class 授权 |
-| `app/canvas/domain/runtime_records.py` | 产品侧运行记录 | 停止新写入；迁移为 Trace / Revision 审计或只读归档 |
-| `app/canvas/domain/ledger.py` | 旧追加状态记录 | 迁移到 Revision 后停止新写入并退役 |
+| `pi-runtime/src/runtime/executor.ts` | Workspace Agent + Primary Session 执行 | 生产工作区使用持久 Session；Provider 适配保持独立 |
+| `pi-runtime/src/server.ts` | Workspace v1 端点与通用运行端点并存 | Workspace 端点是产品主链；通用端点只保留兼容读取/调用边界 |
+| `app/canvas/pi_kernel.py` | Python Canvas 入口调用 Workspace Runtime | 保持 `run_pi_turn` 为生产入口；判断/收敛兼容能力不得回流主链 |
+| `app/canvas/product_kernel.py` | 确定性提交与兼容合同 | 保留可复用提交能力，禁止新增产品侧 Agent 编排 |
+| `app/canvas/agent_execution/contracts.py` | Workspace 合同与兼容 DTO | 新入口只使用 Workspace 合同；兼容 DTO 不产生新事实 |
+| `app/canvas/tool_gateway.py` | 工具身份、能力和副作用授权 | 继续收敛到 Tool Context、主体、能力和 side-effect class |
+| `app/canvas/domain/runtime_records.py` | 兼容运行记录 | 停止作为产品事实源；需要时只读映射到 Trace / Revision 审计 |
+| `app/canvas/domain/ledger.py` | 兼容追加状态记录 | 原生主链只以 Revision 为稳定事实源 |
 | Canvas 现有投影代码 | 页面状态与领域状态混合风险 | 只消费 Revision，保留可复用 Renderer |
 
-## 10. 数据迁移与删除 Preflight
+## 10. 历史数据导入与删除 Preflight
 
-迁移一个 Workspace：短暂停写、导出旧消息、导入预留 Session、校验数量/顺序/角色/附件/哈希、原子切换 Binding、恢复写入。禁止长期双写。
+导入一个历史 Workspace：短暂停写、导出历史消息、导入预留 Session、校验数量/顺序/角色/附件/哈希、原子切换 Binding、恢复写入。禁止长期双写。
 
-删除旧字段、存储或接口前必须证明：
+删除已退出主链的字段、存储或接口前必须证明：
 
 1. 已盘点全部读写消费者；
 2. Session Entry 与来源引用均可解析；
-3. 旧消息及运行记录已迁移或明确无需保留，且有内容哈希；
-4. 旧状态数据已映射到 Revision，且有校验和；
+3. 历史消息及运行记录已导入或明确无需保留，且有内容哈希；
+4. 历史状态数据已映射到 Revision，且有校验和；
 5. 新主链至少一次端到端成功；
 6. 切换前、切换后无新写入、切换后已有新写入三条回退边界均已演练；
 7. 删除不会影响现有用户 Workspace；
-8. 旧路径不存在新写入者。
+8. 原路径不存在新写入者。
 
-## 11. 阶段 0 出口
+## 11. 原生闭环出口
 
-只有以下全部有证据时才能进入实现迁移：
+只有以下全部有证据时，才能关闭对应兼容边界并进入完整生产验证：
 
 - Harness 十二项 L3 已冻结；
 - 主 PRD 与技术架构已同步；
 - 当前写入、读取、数据和消费者清单完成；
 - Pi `0.85.1` 依赖族、Session Backend、宿主锁与恢复合同明确；
 - Session、身份、Tool Context、Commit、Revision、Projection 与删除合同明确；
-- 迁移、回退和删除硬门明确，且不使用长期双写；
+- 历史数据导入、回退和删除硬门明确，且不使用长期双写；
 - 不再需要新的产品架构选择。

@@ -1,7 +1,6 @@
-"""面向 Native 3.0 WorkItem 的剧本执行与管理服务（PlaybookService）。
+"""面向 EvoCanvas WorkItem 的剧本执行与管理服务（PlaybookService）。
 
-本服务模块替代了 2.0 时代的线性 WorkflowEngine 编排引擎，
-引入了有向无环图（TaskDAG）的多节点并发调度以及数据黑板（Blackboard）的状态共享机制。
+本服务模块提供有向无环图（TaskDAG）的多节点调度以及数据黑板（Blackboard）的状态共享机制。
 """
 from __future__ import annotations
 
@@ -97,4 +96,3 @@ class PlaybookService:
         if dag.is_completed():
             # 剧本中所有 DAG 节点均已执行完毕
             pass
-

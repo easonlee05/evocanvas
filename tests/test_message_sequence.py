@@ -22,14 +22,14 @@ class MessageSequenceTests(unittest.TestCase):
             self.assertEqual(second["message_seq"], 2)
             self.assertEqual(repository.last_message_seq("workspace-1"), 2)
 
-    def test_legacy_messages_are_read_with_sequence_and_next_append_continues(self) -> None:
+    def test_compatibility_messages_are_read_with_sequence_and_next_append_continues(self) -> None:
         with TemporaryDirectory() as temp_dir:
             storage = FakeStorage(Path(temp_dir))
             messages_dir = storage.canvas_root() / "workspaces" / "workspace-1"
             messages_dir.mkdir(parents=True)
             (messages_dir / "chat_messages.jsonl").write_text(
-                json.dumps({"message_id": "legacy-1", "role": "user", "content": "old"}) + "\n"
-                + json.dumps({"message_id": "legacy-2", "role": "assistant", "content": "old reply"}) + "\n",
+                json.dumps({"message_id": "compatibility-1", "role": "user", "content": "old"}) + "\n"
+                + json.dumps({"message_id": "compatibility-2", "role": "assistant", "content": "old reply"}) + "\n",
                 encoding="utf-8",
             )
             repository = CanvasRepository(storage)

@@ -1,4 +1,4 @@
-"""Core contracts for internal Evoloop subagent orchestration.
+"""Core contracts for internal EvoCanvas subagent orchestration.
 
 Subagents are bounded internal execution units used either as session-local
 reasoning helpers or as formal child tasks coordinated by the control plane.

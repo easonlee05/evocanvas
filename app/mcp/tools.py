@@ -1,7 +1,7 @@
-"""Evoloop 3.0 MCP 协议工具能力集定义。
+"""EvoCanvas MCP 协议工具能力集定义。
 
 该模块通过 MCP 协议暴露各种业务管理与控制功能（如意图编译、规则提取、任务决策、AI 技术同事协作包打包、上下文局部检索等），
-支持 AI 技术同事通过工具调用形式触发 Evoloop 3.0 底层核心工作流。
+支持 AI 技术同事通过工具调用形式触发 EvoCanvas 核心工作流。
 """
 import os
 import json
@@ -11,13 +11,13 @@ from typing import List, Optional
 def get_service():
     """按需实例化并获取后台 CLI 单例环境下的 TaskService 实例。
 
-    工作目录可以通过环境变量 `EVOLOOP_WORKSPACE` 指定，默认为当前进程目录。
+    工作目录可以通过环境变量 `EVOCANVAS_WORKSPACE` 指定，默认为当前进程目录。
 
     Returns:
         TaskService: 实例化的任务管理服务。
     """
     from app.cli.commands import build_cli_task_service
-    output_dir = os.environ.get("EVOLOOP_WORKSPACE", os.getcwd())
+    output_dir = os.environ.get("EVOCANVAS_WORKSPACE", os.getcwd())
     return build_cli_task_service(output_dir)
 
 

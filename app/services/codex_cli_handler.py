@@ -45,7 +45,7 @@ class CodexCLIHandler:
         self.model = model
         self.sandbox_mode = sandbox_mode
         self.approval_policy = approval_policy
-        self.codex_home = Path(codex_home) if codex_home else Path(tempfile.gettempdir()) / "evoloop-codex-home"
+        self.codex_home = Path(codex_home) if codex_home else Path(tempfile.gettempdir()) / "evocanvas-codex-home"
         self.runner = runner or self._default_runner
         self._active_output_file: Path | None = None
         self._active_schema_file: Path | None = None
@@ -54,7 +54,7 @@ class CodexCLIHandler:
         """执行 agent package，并根据真实文件变更生成 result bundle。"""
         before = self._snapshot_workspace()
         prompt = self._build_prompt(task, package_text)
-        with tempfile.TemporaryDirectory(prefix="evoloop-codex-handler-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="evocanvas-codex-handler-") as temp_dir:
             temp_root = Path(temp_dir)
             schema_file = temp_root / "codex-result-schema.json"
             output_file = temp_root / "codex-last-message.json"
@@ -112,7 +112,7 @@ class CodexCLIHandler:
     def _build_prompt(self, task: Any, package_text: str) -> str:
         """为 Codex 构建一次性执行提示词。"""
         return (
-            "You are Codex, an AI technical peer collaborating with Evoloop.\n"
+            "You are Codex, an AI technical peer collaborating with EvoCanvas.\n"
             "Execute the requested implementation work directly in the workspace.\n"
             "Follow the provided agent package strictly and avoid unrelated edits.\n"
             "After finishing, return JSON only matching the provided schema.\n\n"
@@ -202,7 +202,7 @@ class CodexCLIHandler:
         """过滤不应参与真实 diff 计算的目录。"""
         ignore_prefixes = (
             ".git/",
-            ".evoloop_storage/",
+            ".evocanvas_storage/",
             ".tmp.driveupload/",
             "workspace/outputs/",
             "workspace/inputs/temp/",

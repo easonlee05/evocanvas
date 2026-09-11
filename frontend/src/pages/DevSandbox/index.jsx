@@ -22,7 +22,7 @@ import './dev-sandbox.css';
 const sandboxes = [
   { id: 'SB-001', name: '产品 PRD 验证沙盒', status: 'running', uptime: '2h 14m', cpu: 34, mem: 512 },
   { id: 'SB-002', name: '架构方案压测环境', status: 'stopped', uptime: '—', cpu: 0, mem: 0 },
-  { id: 'SB-003', name: '知识库迁移测试', status: 'error', uptime: '0m', cpu: 0, mem: 0 },
+  { id: 'SB-003', name: '知识库导入测试', status: 'error', uptime: '0m', cpu: 0, mem: 0 },
 ];
 
 /**
@@ -171,4 +171,3 @@ export default function DevSandbox() {
     </div>
   );
 }
-

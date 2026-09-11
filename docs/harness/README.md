@@ -2,7 +2,7 @@
 
 > 当前成熟度：`十二项方法的 47 份现行规范均已达到 L3 可指导实现的治理规格层`
 > 当前同步状态：`Harness、主 PRD、模块文档、现行技术规格与机器 Schema 已对齐；现行规格目录不再保留历史快照`
-> 当前实现状态：`Pi 长期 Session、统一提交器和投影链仍有迁移缺口`
+> 当前实现状态：`Pi 长期 Session、统一提交器和投影链已纳入原生主链；完整闭环证据待补齐`
 > 产品真相源：[`docs/vision/EvoCanvas1.0-PRD.md`](../vision/EvoCanvas1.0-PRD.md)
 
 ## 1. 目的
@@ -46,15 +46,15 @@ L3 表示实现者可以依据这些文档设计接口、状态、门禁和测�
 | --- | --- | --- | --- |
 | Instructions | 永久原则、按需方法、机器门禁和用户原话保真 | EvoCanvas 指令/Skills 装入 Pi | 部分接入 |
 | Context | Session、稳定工作锚点、按需复水和降级 | Pi Session + `transformContext` | 部分接入 |
-| Memory | 过程与稳定状态分离、Revision 和来源保留 | Pi Session + 结构化工作包 | 代码待迁移 |
+| Memory | 过程与稳定状态分离、Revision 和来源保留 | Pi Session + 结构化工作包 | 原生实现待验证 |
 | Runtime | 唯一 Agent Loop、恢复、取消、压缩和技术 Trace | Pi Agent Core | 部分接入 |
-| Tools | 读取、稳定写入和外部副作用合同 | Pi Tool Loop + EvoCanvas 工具 | 代码待迁移 |
-| Orchestration | 同一 Pi 如何选择并推进下一步 | Pi 原生 Tool Loop；不是独立组件 | 代码待迁移 |
-| Lifecycle | Session、Revision、对象、交接和投影的终态 | Pi 技术状态 + 工作包稳定状态 | 代码待迁移 |
-| Safety | 防误导、越权、泄露和未知副作用 | Pi 保护 + 工具护栏 | 代码待迁移 |
-| Governance | 信息与动作何时生效、谁裁决 | 用户 + 确定性提交器 | 代码待迁移 |
-| Observability | 从 Entry 到 Revision 和投影的追溯 | Pi Trace + Revision 审计 + 投影检查点 | 代码待迁移 |
-| Verification | 单次结构、来源和 Policy 是否过关 | 确定性验证器 | 代码待迁移 |
+| Tools | 读取、稳定写入和外部副作用合同 | Pi Tool Loop + EvoCanvas 工具 | 原生实现待验证 |
+| Orchestration | 同一 Pi 如何选择并推进下一步 | Pi 原生 Tool Loop；不是独立组件 | 原生主链已接入，待验证 |
+| Lifecycle | Session、Revision、对象、交接和投影的终态 | Pi 技术状态 + 工作包稳定状态 | 原生实现待验证 |
+| Safety | 防误导、越权、泄露和未知副作用 | Pi 保护 + 工具护栏 | 原生实现待验证 |
+| Governance | 信息与动作何时生效、谁裁决 | 用户 + 确定性提交器 | 原生实现待验证 |
+| Observability | 从 Entry 到 Revision 和投影的追溯 | Pi Trace + Revision 审计 + 投影检查点 | 原生实现待验证 |
+| Verification | 单次结构、来源和 Policy 是否过关 | 确定性验证器 | 原生实现待验证 |
 | Evaluation | 长期是否降低需求失真 | EvoCanvas 离线评估控制面 | 评估集待建设 |
 
 Pi 不是第十三项 Harness 方法，而是多项方法的统一实现底座。Orchestration 作为方法保留，是为了冻结推进顺序与不可绕过的不变量，不对应新服务。
@@ -83,7 +83,7 @@ Pi 可提出和分析；用户确认产品含义、范围、交接和风险；�
 6. 失败与恢复；
 7. 验收场景。
 
-成熟度与实现状态分开。代码仍使用旧兼容路径时，应标记迁移缺口，不能让旧实现反向定义目标 Harness。
+成熟度与实现状态分开。辅助边界仍存在时，应标记实现差距，不能让辅助实现反向定义目标 Harness。
 
 ## 6. 阅读顺序
 
@@ -159,17 +159,17 @@ Pi 可提出和分析；用户确认产品含义、范围、交接和风险；�
 
 ## 7. 当前实现差距
 
-主 PRD、模块文档、现行技术规格和机器 Schema 已同步到本 Harness 合同；旧技术快照已从现行规格目录移除。现有代码仍包含单次请求、旧运行类型、旧状态和跨进程兼容字段。完成代码迁移至少需要：
+主 PRD、模块文档、现行技术规格和机器 Schema 已同步到本 Harness 合同；原生主链已经接入，剩余工作集中在运行证据、边界验证和历史数据导入。完成原生闭环至少需要：
 
-1. 统一升级 Pi `0.85.1` 依赖族，接入官方 SQLite Backend、一个 Session 一个文件和宿主独占写锁；
-2. 建立首条真实消息触发的 Workspace–Primary Pi Session Binding 与恢复；
-3. 接入 Pi Skills、`transformContext` 和长期 Session；
-4. 统一 Pi 与用户直接编辑的 `workspace.commit`；
-5. 落地身份分层、工具 replay 策略和 close/archive/replace/delete 生命周期；
-6. 移除目标路径中的独立判断、收敛调度和自由整包写入；
-7. 接入确认、依赖传播、交接双指针和投影 Outbox；
-8. 建立 Entry–Invocation–Operation–Commit–Revision–Projection 追溯；
-9. 按 Workspace 停写、导入、哈希校验和原子切换迁移旧数据，不长期双写；
+1. 以 lockfile、构建、Session 重启和异常恢复证据确认 Pi `0.85.1` 依赖族、官方 SQLite Backend、一个 Session 一个文件和宿主独占写锁；
+2. 用真实入口证明首条消息触发的 Workspace–Primary Pi Session Binding 与恢复；
+3. 用 Trace 证明 Pi Skills、`transformContext` 和长期 Session 按原生路径生效；
+4. 用端到端场景证明 Pi 与用户直接编辑共用 `workspace.commit`；
+5. 用测试和运行观测证明身份分层、工具 replay 策略和 close/archive/replace/delete 生命周期；
+6. 用生产路径扫描和回归证明独立判断、收敛调度和自由整包写入不会进入原生主链；
+7. 用真实链路证明确认、依赖传播、交接双指针和投影 Outbox 的一致性；
+8. 建立 Entry–Invocation–Operation–Commit–Revision–Projection 的完整追溯证据；
+9. 按 Workspace 停写、导入、哈希校验和原子切换历史数据，不长期双写；
 10. 用端到端测试证明未确认不显影、并发不丢失、失败可恢复和下游只读有效交接。
 
 这些是实现状态，不影响本 Harness 目标合同当前已达到 L3 的判断。

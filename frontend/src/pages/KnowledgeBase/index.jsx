@@ -51,7 +51,7 @@ export default function KnowledgeBase() {
         let title = item.title;
         let desc = item.desc;
         
-        // 映射旧文案为 EvoCanvas 新产品语义
+        // 映射历史文案为 EvoCanvas 产品语义
         if (title === "PM-Agent 后端架构契约") {
           title = "EvoCanvas 协作与编译协议";
           desc = "定义 TaskDefinition 规格、Workspace 引擎及多源输入事件。";

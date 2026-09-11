@@ -171,7 +171,7 @@ class FakeStorage:
         """获取并创建 EvoCanvas 工作区数据的根目录。
 
         当前首版将画布数据统一放在 `canvas/` 命名空间下，
-        供工作区根对象等 EvoCanvas 原生结构逐步迁移复用。
+        供工作区根对象等 EvoCanvas 原生结构直接复用。
         """
         path = self.root / "canvas"
         path.mkdir(parents=True, exist_ok=True)

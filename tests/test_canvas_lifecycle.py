@@ -175,8 +175,8 @@ class CanvasLifecycleTests(unittest.TestCase):
         self.assertEqual(event.confirmation_id, "conf-1")
         self.assertEqual(event.entity_id, "card-dec-1")
 
-    def test_is_unresolved_status_handles_legacy_values(self) -> None:
-        """验证 is_unresolved_status 对迁移过渡期旧状态值的兼容判断。"""
+    def test_is_unresolved_status_handles_compatibility_values(self) -> None:
+        """验证 is_unresolved_status 对兼容状态值的判断。"""
 
         # 新类型化状态
         self.assertTrue(is_unresolved_status("clarification", "open"))
@@ -184,8 +184,8 @@ class CanvasLifecycleTests(unittest.TestCase):
         self.assertFalse(is_unresolved_status("clarification", "closed"))
         self.assertTrue(is_unresolved_status("decision", "pending_decision"))
         self.assertFalse(is_unresolved_status("decision", "decided"))
-        # 旧状态值在映射表里缺失，回退到 WORKING，不计入未决。
-        self.assertFalse(is_unresolved_status("clarification", "legacy_unknown"))
+        # 历史状态值在映射表里缺失，回退到 WORKING，不计入未决。
+        self.assertFalse(is_unresolved_status("clarification", "compatibility_unknown"))
 
 
 if __name__ == "__main__":

@@ -5,6 +5,9 @@ import json
 import os
 import tempfile
 import threading
+import asyncio
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -66,7 +69,7 @@ from app.canvas.repository import PackageVersionStaleError
 from app.services.fakes import FakeLLM, FakeStorage
 from app.services.codex_cli_handler import CodexCLIHandler
 from app.services.gbrain_service import GBrainKnowledge
-from app.services.legacy_runtime import LazyLegacyWorkflowEngine
+from app.services.compatibility_runtime import LazyCompatibilityWorkflowEngine
 from app.services.peer_adapter_service import PeerAdapterService
 from app.services.task_service import TaskService
 from app.services.tool_service import ToolService
@@ -78,6 +81,57 @@ global_event_bus = EventBus()
 global_materials_cache = {}
 global_knowledge_candidates_cache = {}
 global_source_refs_cache = {}
+
+
+def _model_config_base_url(value: str) -> str:
+    """将设置页可能粘贴的完整兼容接口地址归一化为服务根地址。"""
+
+    base_url = str(value or "").strip().rstrip("/")
+    for suffix in ("/chat/completions", "/responses", "/models"):
+        if base_url.endswith(suffix):
+            base_url = base_url[: -len(suffix)].rstrip("/")
+            break
+    return base_url
+
+
+def _test_model_config(base_url: str, api_key: str, model_id: str = "") -> Dict[str, Any]:
+    """通过只读 models 请求检查 Provider 和模型标识，不发送生成请求。"""
+
+    normalized = _model_config_base_url(base_url)
+    if not normalized.startswith(("http://", "https://")):
+        return {"ok": False, "message": "Base URL 必须以 http:// 或 https:// 开头。"}
+    if not api_key.strip():
+        return {"ok": False, "message": "API Key 不能为空。"}
+    request = urllib.request.Request(
+        f"{normalized}/models",
+        headers={"Authorization": f"Bearer {api_key.strip()}", "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status < 200 or response.status >= 300:
+                return {"ok": False, "message": f"连接失败（HTTP {response.status}）。"}
+            raw_body = response.read()
+        available_models: list[str] = []
+        try:
+            payload = json.loads(raw_body.decode("utf-8") or "{}")
+            data = payload.get("data", []) if isinstance(payload, dict) else []
+            available_models = [str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")]
+        except (UnicodeDecodeError, json.JSONDecodeError, AttributeError, TypeError):
+            # 兼容只返回 2xx 但不提供标准模型列表的 OpenAI 兼容网关。
+            available_models = []
+        if model_id.strip() and available_models and model_id.strip() not in available_models:
+            preview = ", ".join(available_models[:8])
+            return {
+                "ok": False,
+                "base_url": normalized,
+                "message": f"Provider 可连接，但模型“{model_id.strip()}”不在可用模型列表中。可用模型：{preview}",
+            }
+        return {"ok": True, "base_url": normalized}
+    except urllib.error.HTTPError as error:
+        return {"ok": False, "message": f"连接失败（HTTP {error.code}），请检查 Base URL 或 API Key。"}
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return {"ok": False, "message": "连接失败，请检查网络和 Base URL。"}
 
 
 # 智能 Agent 角色的前端展示元数据，包括名称、状态标签、头像缩写与配色设计
@@ -220,8 +274,8 @@ def build_default_task_service(
     tool_service = ToolService.default(root=storage, knowledge=knowledge)
     canvas_tool_gateway = _build_canvas_tool_gateway(knowledge, tenant_id)
     
-    def build_legacy_engine():
-        """仅在旧任务 API 被调用时创建旧 Provider 与 WorkflowEngine。"""
+    def build_compatibility_engine():
+        """仅在兼容任务 API 被调用时创建兼容 Provider 与 WorkflowEngine。"""
         try:
             from dotenv import load_dotenv
             load_dotenv()
@@ -237,7 +291,7 @@ def build_default_task_service(
         llm = OpenAILLM(api_key=api_key, base_url=base_url)
         return WorkflowEngine(tool_service=tool_service, llm=llm, storage=storage)
 
-    engine = LazyLegacyWorkflowEngine(build_legacy_engine)
+    engine = LazyCompatibilityWorkflowEngine(build_compatibility_engine)
     peer_adapter = PeerAdapterService()
     # 安全加固：Codex 工作区限定在租户专用的沙箱目录，禁止直接暴露项目源码根目录
     peer_workspace = storage_root / "peer_workspaces" / "codex"
@@ -364,6 +418,22 @@ def create_app(task_service: TaskService | None = None):
             Dict[str, Any]: 包含服务状态与版本的字典。
         """
         return {"status": "ok", "service": "pm-agent-backend", "version": "0.1.0"}
+
+    @app.post("/api/model-config/test")
+    async def test_model_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """测试设置页提交的 Provider；不持久化或回显 API Key。"""
+
+        result = await asyncio.to_thread(
+            _test_model_config,
+            str(payload.get("base_url", "")),
+            str(payload.get("api_key", "")),
+            str(payload.get("model_id", "")),
+        )
+        return {
+            **result,
+            "provider_id": str(payload.get("provider_id", "custom")),
+            "model_id": str(payload.get("model_id", "")),
+        }
 
     @app.post("/internal/v1/tool-calls")
     async def internal_tool_call(
@@ -498,6 +568,7 @@ def create_app(task_service: TaskService | None = None):
                 material_ids=list(request.material_ids),
                 source_ref_ids=list(request.source_ref_ids),
                 model=request.model,
+                model_config=request.llm_config,
                 submission_id=request.submission_id,
                 actor_id=str(user.user_id),
             )

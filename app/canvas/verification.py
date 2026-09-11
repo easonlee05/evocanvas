@@ -82,7 +82,7 @@ def verify_mutation_proposal(
             if card_payload is not None:
                 status = card_payload.get("status")
                 kind = card_payload.get("kind")
-                # L3 规格已将 evidence_refs 统一为 source_refs；兼容旧持久化回看。
+                # L3 规格已将 evidence_refs 统一为 source_refs；兼容历史持久化回看。
                 source_refs = card_payload.get("source_refs") or card_payload.get("evidence_refs", [])
                 if kind and kind != CanvasCardKind.EVIDENCE.value and status in {"effective", "decided", "clarified"}:
                     if not source_refs:

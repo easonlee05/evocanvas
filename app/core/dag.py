@@ -1,4 +1,4 @@
-"""Evoloop 3.0 Playbook 的 DAG 任务图执行模型定义。
+"""EvoCanvas Playbook 的 DAG 任务图执行模型定义。
 
 提供静态有向无环图（DAG）的节点定义（DAGNode）与执行流管理器（TaskDAG），
 支持基于拓扑排序的节点排程、执行依赖验证、有向环路检测以及持久化读写。

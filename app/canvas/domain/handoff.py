@@ -149,17 +149,22 @@ class StructuredHandoff:
     def from_dict(cls, data: Dict[str, Any]) -> "StructuredHandoff":
         """从字典恢复引用型交接模块实例。
 
-        兼容旧持久化数据：旧 summary/constraints/open_questions/decisions 字符串列表
-        不再迁入正文，仅保留在 metadata.legacy 中供历史回看，不参与事实层。
+        兼容历史持久化数据：summary/constraints/open_questions/decisions 字符串列表
+        不再写入正文，仅保留在 metadata.compatibility 中供回看，不参与事实层。
         """
 
-        legacy = {}
-        for legacy_key in ("summary", "constraints", "open_questions", "decisions"):
-            if legacy_key in data:
-                legacy[legacy_key] = data[legacy_key]
+        compatibility = {}
+        for compatibility_key in ("summary", "constraints", "open_questions", "decisions"):
+            if compatibility_key in data:
+                compatibility[compatibility_key] = data[compatibility_key]
         metadata = dict(data.get("metadata", {}))
-        if legacy:
-            metadata.setdefault("legacy", {}).update(legacy)
+        stored_compatibility = metadata.get("compatibility")
+        if not isinstance(stored_compatibility, dict):
+            stored_compatibility = metadata.get("legacy")
+        if isinstance(stored_compatibility, dict):
+            compatibility = {**stored_compatibility, **compatibility}
+        if compatibility:
+            metadata["compatibility"] = compatibility
 
         return cls(
             handoff_id=data["handoff_id"],

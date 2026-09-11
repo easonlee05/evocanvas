@@ -57,19 +57,19 @@ class CanvasRelation:
     def from_dict(cls, data: Dict[str, Any]) -> "CanvasRelation":
         """从字典恢复关系实例。
 
-        兼容旧持久化数据：缺失的 source_refs / created_at 补默认值。
+        兼容历史持久化数据：缺失的 source_refs / created_at 补默认值。
         """
 
         kind_raw = str(data["kind"])
-        legacy_kind_mapping = {
+        compatibility_kind_mapping = {
             "reopens": CanvasRelationKind.REPLACES.value,
             "depends_on": CanvasRelationKind.BLOCKS.value,
             "relates_to": CanvasRelationKind.SUPPORTS.value,
         }
-        kind_value = legacy_kind_mapping.get(kind_raw, kind_raw)
+        kind_value = compatibility_kind_mapping.get(kind_raw, kind_raw)
         metadata = dict(data.get("metadata", {}))
         if kind_value != kind_raw:
-            metadata.setdefault("legacy_kind", kind_raw)
+            metadata.setdefault("compatibility_kind", kind_raw)
         return cls(
             relation_id=data["relation_id"],
             kind=CanvasRelationKind(kind_value),

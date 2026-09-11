@@ -402,6 +402,16 @@
   position: relative;
 }
 
+/* 助手是悬浮层，但画布需要为它预留可用空间，避免最后一列被遮住。 */
+.workspace.chat-open .canvas-container {
+  padding-right: clamp(360px, 30vw, 452px);
+  box-sizing: border-box;
+}
+
+.workspace.chat-closed .canvas-container {
+  padding-right: 0;
+}
+
 .workspace.doc-open {
   grid-template-columns: 1fr 1fr;
   background: #fbfbfb; /* 展开后略带背景色，以区分模块 */
@@ -1409,6 +1419,40 @@
     width: min(300px, 78vw);
     max-width: min(300px, 78vw);
     bottom: calc(100% + 8px);
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace.chat-open .canvas-container {
+    padding-right: 0;
+    padding-bottom: min(64vh, 520px);
+  }
+
+  .ws-chat {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 12px;
+    width: auto;
+    height: min(64vh, 520px);
+    max-height: calc(100% - 24px);
+    border-radius: 20px;
+  }
+
+  .ws-chat-header {
+    padding: 10px 12px;
+  }
+
+  .chat-suggestions {
+    overflow-x: auto;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .suggestion-chip {
+    flex-shrink: 0;
   }
 }
 

@@ -1,6 +1,6 @@
-"""Evoloop 3.0 核心契约层工作项（WorkItem）定义模块。
+"""EvoCanvas 核心契约层工作项（WorkItem）定义模块。
 
-该模块定义了 3.0 原生的统一任务边界契约（WorkItem），
+该模块定义了 EvoCanvas 原生的统一任务边界契约（WorkItem），
 作为多 Lane 并行开发以及数字 PM 控制面的核心契约。
 """
 from __future__ import annotations
@@ -15,17 +15,17 @@ from app.core.persistence import FilePersistenceMixin
 
 
 class WorkType(str, Enum):
-    """Evoloop 3.0 定义的工作项类型枚举。"""
+    """EvoCanvas 定义的工作项类型枚举。"""
     SPEC_TO_AGENT = "spec_to_agent"
     ACCEPTANCE_REVIEW = "acceptance_review"
     CHANGE_IMPACT = "change_impact"
     FEEDBACK_INTAKE = "feedback_intake"
-    LEGACY_PRD = "legacy_prd"
-    LEGACY_MANUAL = "legacy_manual"
+    PRD = "legacy_prd"
+    MANUAL = "legacy_manual"
 
 
 class WorkStatus(str, Enum):
-    """Evoloop 3.0 工作项的生命周期状态枚举。"""
+    """EvoCanvas 工作项的生命周期状态枚举。"""
     CREATED = "created"
     RUNNING = "running"
     WAITING_FOR_DECISION = "waiting_for_decision"
@@ -39,7 +39,7 @@ class WorkStatus(str, Enum):
 
 @dataclass
 class WorkItem(FilePersistenceMixin):
-    """最小的 Evoloop 3.0 共享工作单元契约实体。
+    """最小的 EvoCanvas 共享工作单元契约实体。
 
     承载了工作项的唯一身份标识，并使用外部引用（product_context_ref 与 artifact_graph_ref）的形式，
     解耦了底层的执行引擎细节和庞大的状态记忆。
@@ -122,4 +122,3 @@ class WorkItem(FilePersistenceMixin):
             updated_at=data.get("updated_at", utc_now_iso()),
             metadata=dict(data.get("metadata", {})),
         )
-

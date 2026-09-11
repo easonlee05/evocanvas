@@ -1,6 +1,6 @@
-"""Evoloop 3.0 核心契约层任务上下文与决策模型模块。
+"""EvoCanvas 核心契约层任务上下文与决策模型模块。
 
-定义了在所有任务类型（包括 legacy 与 native 3.0 playbook）中共享的运行期上下文（TaskContext）
+定义了在所有工作流类型中共享的运行期上下文（TaskContext）
 与用户决策裁决记录（UserDecision），用于在执行引擎和 AI Agent 之间传递统一状态。
 """
 from __future__ import annotations
@@ -65,7 +65,7 @@ class TaskContext:
 
     Attributes:
         task_id: 唯一任务 ID。
-        task_type: 任务类型（如 legacy_prd, spec_to_agent 等）。
+        task_type: 任务类型（如 prd, manual, spec_to_agent 等）。
         username: 触发此任务的用户名。
         goal: 任务的最终目标描述。
         title: 任务标题。

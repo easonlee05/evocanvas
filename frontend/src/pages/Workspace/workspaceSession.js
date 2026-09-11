@@ -38,6 +38,10 @@ export function getCanvasViewStateStorageKey(workspaceId) {
   return `evocanvas_canvas_view_${workspaceId}`;
 }
 
+// 视图布局发生过一次结构性调整时，旧缓存不能继续覆盖新的默认布局。
+// 事实数据仍来自后端，缓存只负责恢复用户的视角和局部操作状态。
+export const CANVAS_VIEW_STATE_VERSION = 3;
+
 /**
  * 安全读取 JSON 本地缓存，遇到损坏数据时返回 null。
  * @param {string | null} storageKey

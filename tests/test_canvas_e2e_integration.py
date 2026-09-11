@@ -114,7 +114,7 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
         self.assertEqual(patched_card["tags"], ["e2e-test", "edited"])
 
         # ====== 5. 验证废弃 stage 接口不改变 L3 领域状态 ======
-        # L3 规格已下线 stage_node 主题阶段机：move_card 降级为 deprecated_noop，
+        # L3 规格已下线 stage_node 主题阶段机：move_card 降级为 compatibility_noop，
         # 不再修改或记录卡片业务状态。
         move_payload = {
             "stage": "define",
@@ -126,13 +126,13 @@ class CanvasE2EIntegrationTests(unittest.TestCase):
             headers=self.headers
         )
         self.assertEqual(move_resp.status_code, 200)
-        self.assertEqual(move_resp.json()["action"], "deprecated_noop")
+        self.assertEqual(move_resp.json()["action"], "compatibility_noop")
         self.assertEqual(move_resp.json()["card"]["status"], "open")
 
         # 重新获取 Canvas，确认没有残留 stage 兼容元数据。
         canvas_check = self.client.get(f"/api/canvas/workspaces/{self.workspace_id}/canvas", headers=self.headers).json()
         persisted_card = next(c for c in canvas_check["cards"] if c["card_id"] == card_id)
-        self.assertNotIn("legacy_stage_request", persisted_card["metadata"])
+        self.assertNotIn("compatibility_stage_request", persisted_card["metadata"])
 
         # ====== 6. 测试手动创建卡片关联关系 ======
         # 再提交一条消息，生成另一张卡片（例如 problem 卡片）

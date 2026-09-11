@@ -128,8 +128,8 @@ class OpenAILLM:
         """
         return cls.WRITER_MAX_TOKENS if role.lower() == "writer" else cls.DEFAULT_MAX_TOKENS
 
-    # ── 兼容层的全局系统提示（Legacy System Prompt）────────────────
-    # 本兼容层保留旧实现；现行边界以 docs/harness/01-instructions-context/ 为准。
+    # ── 通用 LLM 的全局系统提示（System Prompt）────────────────────────
+    # 该支持路径保留通用提示实现；现行边界以 docs/harness/01-instructions-context/ 为准。
     _SYSTEM_BASE = """你是 EvoCanvas 的协作引擎，一个面向产品经理的结构化工作助手。
 
 # 核心原则
@@ -174,7 +174,7 @@ class OpenAILLM:
 - 不要在输出中使用 emoji，除非用户明确要求。
 """
 
-    # ── 兼容层的角色提示（Legacy Role Prompts）────────────────────
+    # ── 通用 LLM 的角色提示（Role Prompts）──────────────────────────────
     # 现行架构不采用 Stage Prompt；阶段与治理由 Runtime、Skills 和工具约束负责。
     _ROLE_PROMPTS = {
         "compiler": """
@@ -288,7 +288,7 @@ class OpenAILLM:
         """构建兼容 LLM 服务请求所需的提示结构。
 
         流程包括：
-        1. 拼接兼容层的全局系统提示（全局原则 + 行为约束 + 工具策略）；
+        1. 拼接通用 LLM 的全局系统提示（全局原则 + 行为约束 + 工具策略）；
         2. 拼接 Role-Specific Prompt（角色行为边界 + 输出要求）；
         3. 注入 Sticky Latch 全局锁定上下文；
         4. 对历史对话列表应用 Sliding Window（滑动窗口）压缩；

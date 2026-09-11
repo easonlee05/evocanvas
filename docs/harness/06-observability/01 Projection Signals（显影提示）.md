@@ -2,7 +2,7 @@
 
 > 方法成熟度：`L3 可指导实现的治理规格层`
 > 目标实现归属：`Canvas Renderer + 工作区界面`
-> 当前实现状态：`合同已定，代码待迁移`
+> 当前实现状态：`原生显影提示已接入，投影一致性待验证`
 > 实现说明：显影和提示只反映已提交 Revision 及其投影状态，不从对话候选生成正式卡片。
 
 ## 1. 控制目标
@@ -49,7 +49,7 @@ Toast 只是一种界面提示，不是确认、提交或错误记录。
 
 - Outbox 重复：按 `projection_id` 幂等。
 - Renderer 失败：记录失败并重建，不重提工作包。
-- 新 Revision 追上旧任务：可以跳过中间渲染，但必须保证最终 `projected_revision_id=current_revision_id`，且历史 Revision 可诊断。
+- 新 Revision 追上历史任务：可以跳过中间渲染，但必须保证最终 `projected_revision_id=current_revision_id`，且历史 Revision 可诊断。
 - 客户端离线：重新连接时比较指针并获取最新投影。
 
 ## 6. 验收场景

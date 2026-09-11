@@ -1,7 +1,7 @@
-"""Evoloop 3.0 核心契约层受控工具规范与权限治理模块。
+"""EvoCanvas 核心契约层受控工具规范与权限治理模块。
 
 定义了受控工具调用规范（ToolSpec、ToolCall、ToolResult）以及基于角色和步骤维度的工具调用白名单授权机制（ToolPolicy）。
-在 Evoloop 3.0 架构下，Agent 所有对外部系统或文件的读写操作均受此治理层严格控制与审计。
+在 EvoCanvas 架构下，Agent 所有对外部系统或文件的读写操作均受此治理层严格控制与审计。
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Evoloop 3.0 CLI 命令行工具入口模块。
+"""EvoCanvas CLI 命令行工具入口模块。
 
 本模块利用 Python argparse 标准库解析命令行参数，
 并将各个子命令（compile, package, acceptance, review）的操作请求分发传递给 commands 模块进行底层执行。
@@ -19,7 +19,7 @@ def main(args: Optional[List[str]] = None) -> None:
         args (Optional[List[str]]): 命令行参数列表，默认由 sys.argv 传入。
     """
     parser = argparse.ArgumentParser(
-        description="Evoloop 3.0 CLI 适配器 - 终端级数字 PM 能力控制台"
+        description="EvoCanvas CLI - 终端级产品收敛工作台"
     )
     subparsers = parser.add_subparsers(dest="command", help="支持的二级子命令集")
 
@@ -36,7 +36,7 @@ def main(args: Optional[List[str]] = None) -> None:
         type=str, 
         nargs="*", 
         default=[], 
-        help="待参考的补充文档、遗留代码或业务规章等背景上下文文件路径"
+        help="待参考的补充文档、背景材料或业务规章等上下文文件路径"
     )
     compile_parser.add_argument(
         "--output-dir", 

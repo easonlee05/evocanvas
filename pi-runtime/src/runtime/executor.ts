@@ -1,6 +1,15 @@
-import { executeWorkspaceAgent, type WorkspaceTurnRequest, type WorkspaceExecutionContext } from "./workspace-turn.js";
+import { executeWorkspaceAgent, isLegacyCanvasEditMessage, type WorkspaceTurnRequest, type WorkspaceExecutionContext } from "./workspace-turn.js";
 import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
-import { createModels, Type, type Model, type MutableModels } from "@earendil-works/pi-ai";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import {
+  createModels,
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+  Type,
+  type Model,
+  type MutableModels,
+} from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
@@ -65,8 +74,15 @@ export class UnconfiguredRunExecutor implements RunExecutor {
 const REAL_ADAPTER_VERSION = "pi-runtime.pi-agent-core.v1";
 const REAL_PROTOCOL_VERSION = "pi-runtime.protocol.v1";
 export const DEFAULT_PROVIDER_ID = "deepseek";
-export const DEFAULT_MODEL_ID = "deepseek-v4-flash";
+export const DEFAULT_MODEL_ID = "deepseek-flash";
 const MODEL_PROVIDER_FALLBACKS = ["deepseek", "openai", "openai-codex"] as const;
+
+// Pi 内置目录仍用旧的 `deepseek-v4-flash` 元数据，而 DeepSeek 当前真实 API
+// slug 是 `deepseek-flash`。解析时复用内置能力描述，但把请求模型 ID 保留为
+// API 的真实 slug；用户自定义 Provider 始终原样发送其填写的模型标识。
+const MODEL_ID_ALIASES: Record<string, string> = {
+  "deepseek-flash": "deepseek-v4-flash",
+};
 
 function normalizeConfiguredBaseUrl(value: string): string {
   let baseUrl = String(value || "").trim().replace(/\/+$/, "");
@@ -328,16 +344,21 @@ export class PiProviderRunExecutor implements ReadinessAwareRunExecutor {
   }
 
   private resolveModel(modelId = this.modelId): Model<any> {
-    const providerIds = modelId
+    const resolvedModelId = modelId ? MODEL_ID_ALIASES[modelId] ?? modelId : modelId;
+    const providerIds = resolvedModelId
       ? Array.from(new Set([this.providerId, ...MODEL_PROVIDER_FALLBACKS]))
       : [this.providerId];
     const available = providerIds.flatMap((providerId) => this.models.getModels(providerId));
     if (available.length === 0) {
       throw new Error(`Pi Runtime provider ${this.providerId} has no available models`);
     }
-    const selected = modelId ? available.find((model) => model.id === modelId) : available[0];
+    const selected = resolvedModelId ? available.find((model) => model.id === resolvedModelId) : available[0];
     if (!selected) {
       throw new Error(`Pi Runtime model ${modelId} was not found in configured providers`);
+    }
+    // 旧目录只提供能力元数据；真实请求必须使用用户请求的 API slug。
+    if (modelId && modelId !== resolvedModelId) {
+      return { ...selected, id: modelId, name: modelId === "deepseek-flash" ? "DeepSeek Flash" : selected.name } as Model<any>;
     }
     return selected;
   }
@@ -666,6 +687,84 @@ function convergenceResult(
  * Deterministic provider used by phase-1 runtime tests. It exercises the same
  * request/result/event boundary without inventing a second real model engine.
  */
+function isWorkspaceConfirmation(text: string): boolean {
+  return /^(确认|确认应用|同意|可以|按这个来|就这样|确认交接|confirm)[。！!\s]*$/i.test(text.trim());
+}
+
+function shouldProposeWorkspaceObject(text: string): boolean {
+  // 受控 Provider 也要遵守“先理解、后收敛”的产品边界。
+  // 普通想法里出现“工具”“费用”“问题”等词，不代表用户要求创建候选。
+  return /(问题卡|候选卡|待澄清项|约束卡|待决策|结构化交接物|交接物|写入画布|提(?:出|交)[^\n]{0,20}候选|收敛(?:成|一下)|固化|固定为|整理(?:一下|并)?(?:问题|卡片|候选|交接)|生成(?:一个|一张|问题|候选|交接)|确认(?:候选|问题|交接))/i.test(text.trim());
+}
+
+function fakeObjectOperation(request: WorkspaceTurnRequest, inputText: string): { operations: Array<Record<string, unknown>>; summary: string } {
+  const message = String(request.submission_id || "").trim();
+  const text = inputText.trim();
+  const normalized = text.toLowerCase();
+  const safeId = (message || `turn-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(-48);
+
+  if (/交接|handoff|结构化/.test(normalized)) {
+    return {
+      operations: [{
+        operation_id: `fake_handoff_${safeId}`,
+        operation_type: "confirm_handoff",
+        payload: {},
+      }],
+      summary: "整理当前已确认内容为结构化交接物",
+    };
+  }
+
+  let objectType = "problem";
+  let typeStatus = "initial";
+  let title = "需要进一步明确的问题";
+  let summary = text || "这条输入还需要补充具体背景。";
+
+  if (/学生.*(记账|费用)|宿舍.*费用/.test(text)) {
+    title = "学生记账容易遗漏";
+    summary = "学生需要更容易坚持的记账方式";
+  } else if (/约束|必须|只能|不能|限制/.test(text)) {
+    objectType = "constraint";
+    typeStatus = "draft";
+    title = "需要遵守的使用约束";
+  } else if (/方案|决定|选择|拍板/.test(text)) {
+    objectType = "decision";
+    typeStatus = "pending_decision";
+    title = "待确认的方案选择";
+  } else if (/澄清|不确定|疑问|问题是/.test(text)) {
+    objectType = "clarification";
+    typeStatus = "open";
+    title = "待澄清的问题";
+  } else if (text) {
+    const compact = text.replace(/[\n\r]+/g, " ").trim();
+    title = compact.length > 24 ? `${compact.slice(0, 24)}…` : compact;
+  }
+
+  return {
+    operations: [{
+      operation_id: `fake_${objectType}_${safeId}`,
+      operation_type: "create_object",
+      payload: {
+        id: `${objectType}_${safeId}`,
+        object_type: objectType,
+        title,
+        summary,
+        type_status: typeStatus,
+        data: {},
+      },
+    }],
+    summary: `整理${title}`,
+  };
+}
+
+/**
+ * 受控 Provider 的工作区适配。
+ *
+ * FakeRunExecutor 原先只覆盖 chat/judgement/convergence 合同，导致本地
+ * 明确配置 `PI_PROVIDER=fake-provider` 时 `/v1/workspaces/:id/turns`
+ * 仍被当成不支持 Primary Session。这里继续复用真实的
+ * `executeWorkspaceAgent`、Session 和 Revision，只把模型输出替换成可重复
+ * 的候选/确认脚本，保证受控 E2E 与生产主链使用同一写入和治理边界。
+ */
 export class FakeRunExecutor implements RunExecutor {
   async readiness(): Promise<RunReadiness> {
     return { ready: true, provider_id: "fake-provider", model_id: "fake-model" };
@@ -718,5 +817,64 @@ export class FakeRunExecutor implements RunExecutor {
       tool_call_id: capture.tool_call_id,
     });
     return convergenceResult(request, captured, [capture.tool_call_id]);
+  }
+
+  async executeWorkspace(
+    request: WorkspaceTurnRequest,
+    context: WorkspaceExecutionContext,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const receipt = await context.sessions.getSubmissionReceipt(request.workspace_id, request.submission_id);
+    if (!receipt) throw new RuntimeProviderNotReadyError("fake-provider", "fake-model", "缺少工作区用户提交");
+    const binding = await context.sessions.getBinding(request.workspace_id);
+    if (!binding) throw new RuntimeProviderNotReadyError("fake-provider", "fake-model", "缺少工作区 Primary Session");
+    const session = await context.sessions.getOrOpenSession(binding);
+    const branch = await session.branch("main", BACKGROUND_CONTEXT);
+    const entries = branch
+      ? (await branch.findEntries(undefined, BACKGROUND_CONTEXT)).filter(entry => !isLegacyCanvasEditMessage(entry))
+      : [];
+    const user = entries.find((entry) => entry.type === "message" && entry.id === receipt.entry_id);
+    const text = user?.type === "message" && user.message.role === "user"
+      ? (typeof (user.message as any).content === "string" ? (user.message as any).content : "")
+      : "";
+    const candidateExists = entries.some((entry) => entry.type === "message"
+      && entry.message.role === "toolResult"
+      && entry.message.toolName === "workspace_propose"
+      && !entry.message.isError);
+
+    // executeWorkspaceAgent 以真实 Session Entry 判断确认关系；这里只决定
+    // 受控模型下一步输出，候选内容和提交结果仍由真实工具与 Revision 产生。
+    const scriptedProvider = fauxProvider({
+      provider: "fake-workspace",
+      models: [{ id: "fake-model", name: "EvoCanvas Controlled Provider" }],
+    });
+    const models = createModels();
+    models.setProvider(scriptedProvider.provider);
+    const model = scriptedProvider.getModel("fake-model");
+    if (!model) throw new RuntimeProviderNotReadyError("fake-provider", "fake-model", "受控模型初始化失败");
+
+    if (isWorkspaceConfirmation(text) && candidateExists) {
+      scriptedProvider.setResponses([
+        fauxAssistantMessage(fauxToolCall("workspace_commit", {})),
+        fauxAssistantMessage("已应用确认的候选，画布已更新。"),
+      ]);
+    } else if (isWorkspaceConfirmation(text)) {
+      scriptedProvider.setResponses([
+        fauxAssistantMessage("当前没有待确认的候选，请先描述希望收敛的问题。"),
+      ]);
+    } else if (text && shouldProposeWorkspaceObject(text)) {
+      const candidate = fakeObjectOperation(request, text);
+      scriptedProvider.setResponses([
+        fauxAssistantMessage(fauxToolCall("workspace_propose", {
+          operations: candidate.operations,
+          change_summary: candidate.summary,
+        })),
+        fauxAssistantMessage("我已展示候选内容，请确认后再写入稳定结构。"),
+      ]);
+    } else {
+      scriptedProvider.setResponses([fauxAssistantMessage("我先接住这条输入，请继续补充你想收敛的内容。")]);
+    }
+
+    return executeWorkspaceAgent(request, context, signal, models, model);
   }
 }

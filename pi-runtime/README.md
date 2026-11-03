@@ -12,12 +12,15 @@ npm --prefix pi-runtime run build
 npm --prefix pi-runtime start
 ```
 
-通过 `PI_PROVIDER`、`PI_MODEL` 和相应 Provider 凭证配置模型；使用 `PI_RUNTIME_INTERNAL_SECRET` 配置私有接口鉴权。没有凭证或 Runtime 断连会明确失败，不伪造消息、提交或删除成功。`PI_STORAGE_DIR` 指定存储目录；默认是运行目录下的 `.pi-storage`。Python 的 `PI_RUNTIME_URL` 必须指向该服务。
+通过 `PI_PROVIDER`、`PI_MODEL` 和相应 Provider 凭证配置模型；DeepSeek 默认使用真实 API slug `deepseek-flash`。使用 `PI_RUNTIME_INTERNAL_SECRET` 配置私有接口鉴权。没有凭证或 Runtime 断连会明确失败，不伪造消息、提交或删除成功。`PI_STORAGE_DIR` 指定存储目录；默认是运行目录下的 `.pi-storage`。Python 的 `PI_RUNTIME_URL` 必须指向该服务。
+
+`npm start` 会在启动子进程前自动接入常见系统 CA 文件（同时尊重显式设置的 `NODE_EXTRA_CA_CERTS`），以兼容本机 HTTPS 代理或系统证书链；仍保持 TLS 证书校验，不会关闭校验。
 
 ## 当前主链
 
 - `POST /v1/workspaces/:id/submissions` 保存原始 User Entry，按入口 ID 和实际内容哈希去重。
 - `POST /v1/workspaces/:id/turns` 读取同一 Session 的真实消息，调用 Pi Agent，持久化 Assistant 和 Tool Result Entry。附件保存在 Session，按来源 ID 读取；上下文快照仅在模型调用时装配。
+- `skills/` 下的两种产品方法由 Pi 原生 Skill Loader 每轮装载，并以 Pi 原生 Skill 列表与受限 read 工具供同一 Agent 按需读取。决策挑战仅在用户明确要求或继续已启动的逐轮挑战时可用；实际读取的版本与内容哈希写入 Session Trace，确认提交后随 Revision 追溯。
 - `workspace.propose` 只产生 Session 候选；最终 Assistant Entry 附带确定性预览。`workspace.commit` 只提交用户已确认的上一组候选，确认绑定 User Entry、Actor、完整操作内容及基础 Revision。
 - `POST /v1/workspaces/:id/edits` 承接用户画布直接编辑，与 Pi 工具共用提交器；稳定卡片修订仍需通过对话确认。
 - Revision、当前版本指针、按工作区隔离的幂等回执在同一 SQLite 事务内写入。重启后的相同请求返回原回执，过期版本及同键不同内容明确拒绝。

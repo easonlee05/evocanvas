@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { renderCanvasProjection } from "./canvas-projection.js";
+import { renderCanvasProjection, renderHandoffSummary } from "./canvas-projection.js";
 import type { ImmutableRevision } from "./workspace-revision-store.js";
 
 test("renderCanvasProjection deterministically projects cards, relations and handoff from Revision", () => {
@@ -17,7 +17,7 @@ test("renderCanvasProjection deterministically projects cards, relations and han
         id: "prob-1",
         object_type: "problem",
         title: "高并发下的数据一致性",
-        type_status: "open",
+        type_status: "initial",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
@@ -25,7 +25,7 @@ test("renderCanvasProjection deterministically projects cards, relations and han
         id: "clar-1",
         object_type: "clarification",
         title: "是否需要支持跨机房容灾",
-        type_status: "pending",
+        type_status: "open",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
@@ -69,4 +69,22 @@ test("renderCanvasProjection deterministically projects cards, relations and han
   const draftCheckpoint = renderCanvasProjection(draftRevision);
   assert.equal(draftCheckpoint.cards.length, 2);
   assert.equal(draftCheckpoint.handoff_status, "draft");
+});
+
+test("交接按正式状态区分已完成决策与未决，并保留对象来源及确认引用", () => {
+  const make = (id: string, object_type: any, type_status: string, summary: string) => ({ id, object_type, type_status, title: id, summary, created_at: "", updated_at: "", data: { source_refs: ["source-1"] }, confirmation_refs: ["confirm-1"] });
+  const revision = { revision_id: "rev-test", objects: {
+    rule: make("rule", "constraint", "effective", "不改审批权限"),
+    decision: make("decision", "decision", "decided", "长期不填期限"),
+    metrics: make("metrics", "clarification", "open", "退回率与填报成功率尚无数据"),
+    closed: make("closed", "clarification", "clarified", "期限口径一致"),
+  } } as unknown as ImmutableRevision;
+  const summary = renderHandoffSummary(revision);
+  assert.match(summary, /## 已完成决策\n- decision（已决策）/);
+  assert.match(summary, /## 未决与待确认\n- metrics（待澄清）\n  退回率与填报成功率尚无数据/);
+  assert.match(summary, /## 其他已记录内容\n- closed（已澄清）/);
+  assert.match(summary, /结构版本：rev-test/);
+  assert.match(summary, /来源 \["source-1"\]；确认 \["confirm-1"\]/);
+  const projection = renderCanvasProjection({ ...revision, handoff: { status: "draft", updated_at: "" }, relations: [] });
+  assert.deepEqual(projection.active_todos, ["澄清问题: metrics"]);
 });

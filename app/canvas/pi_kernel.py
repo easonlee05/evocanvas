@@ -56,6 +56,8 @@ class PiCanvasKernel:
     def __init__(self, service: Any, execution: AgentExecutionPort) -> None:
         self.service = service
         self.execution = execution
+        # 只用于同一次请求内复用从 Pi Revision 重建出的状态，不是新的事实源。
+        self._projection_cache: dict[str, dict[str, Any]] = {}
         self.product_kernel = ProductKernel(
             execution=execution,
             assistant_messages=self,
@@ -118,18 +120,7 @@ class PiCanvasKernel:
         revision = await self.execution.get_revision(workspace_id, revision_id)
         if revision_id == "rev_0" and self.service.repository.load_cards(workspace_id):
             raise PiRuntimeError("workspace.migration_required", "该工作区仍有未进入稳定 Revision 的卡片；原数据已保留")
-        cards = []
-        for obj in revision["objects"].values():
-            if obj["object_type"] == "handoff" or obj["type_status"] in {"archived", "superseded"}:
-                continue
-            data = dict(obj.get("data") or {})
-            cards.append(CanvasCard.from_dict({
-                **data, "card_id": obj["id"], "kind": obj["object_type"],
-                "title": obj["title"], "summary": obj.get("summary", ""),
-                "status": obj["type_status"], "confirmation_refs": obj.get("confirmation_refs", []),
-                "created_at": obj["created_at"], "updated_at": obj["updated_at"],
-                "metadata": {**data.get("metadata", {}), "projected_revision_id": revision_id},
-            }))
+        cards = self._cards_from_revision(revision, revision_id)
         card_ids = {card.card_id for card in cards}
         relations = [CanvasRelation.from_dict({
             "relation_id": rel["relation_id"], "kind": rel["relation_type"],
@@ -137,7 +128,166 @@ class PiCanvasKernel:
         }) for rel in revision["relations"] if rel["source_id"] in card_ids and rel["target_id"] in card_ids]
         self.service.repository.save_cards(workspace_id, cards)
         self.service.repository.save_relations(workspace_id, relations)
+        try:
+            handoff_data = await self.execution.get_handoff(workspace_id)
+            self.service.repository.save_handoff_projection(workspace_id, handoff_data)
+        except Exception:
+            pass
+        self._projection_cache[workspace_id] = {
+            "projection": projection,
+            "revision": revision,
+            "cards": cards,
+            "relations": relations,
+        }
         return projection
+
+    @staticmethod
+    def _cards_from_revision(revision: Mapping[str, Any], revision_id: str) -> list[CanvasCard]:
+        """把 Pi Revision 中的五类稳定对象转换为前端卡片。"""
+
+        cards: list[CanvasCard] = []
+        for obj in (revision.get("objects") or {}).values():
+            if obj.get("object_type") == "handoff" or obj.get("type_status") in {"archived", "superseded"}:
+                continue
+            data = dict(obj.get("data") or {})
+            cards.append(CanvasCard.from_dict({
+                **data,
+                "card_id": obj["id"],
+                "kind": obj["object_type"],
+                "title": obj["title"],
+                "summary": obj.get("summary", ""),
+                "status": obj["type_status"],
+                "confirmation_refs": obj.get("confirmation_refs", []),
+                "unresolved_refs": obj.get("unresolved_refs", []),
+                "created_at": obj["created_at"],
+                "updated_at": obj["updated_at"],
+                "metadata": {**data.get("metadata", {}), "projected_revision_id": revision_id},
+            }))
+        return cards
+
+    def _build_native_canvas_view(self, workspace_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
+        """从 Pi Revision 和确定性 projection 生成 Canvas API 视图。"""
+
+        projection = dict(state.get("projection") or {})
+        revision = dict(state.get("revision") or {})
+        cards = list(state.get("cards") or [])
+        relations = list(state.get("relations") or [])
+        revision_id = str(projection.get("projected_revision_id") or revision.get("revision_id") or "rev_0")
+
+        # Pi Renderer 已经确定性生成交接承接卡；这里将它转成前端可读的
+        # planning 卡片形状，并明确标记为只读投影，避免误当成对象写回。
+        handoff_projection = next(
+            (item for item in (projection.get("cards") or []) if item.get("card_type") == "handoff"),
+            None,
+        )
+        card_payloads = [card.to_dict() for card in cards]
+        if handoff_projection:
+            card_payloads.append({
+                "card_id": handoff_projection.get("card_id") or f"card_handoff_{revision_id}",
+                "kind": "handoff",
+                "title": handoff_projection.get("title") or f"结构化交接包 [{revision_id}]",
+                "summary": handoff_projection.get("summary", ""),
+                "status": handoff_projection.get("type_status") or projection.get("handoff_status", "draft"),
+                "tags": [],
+                "source_refs": [],
+                "confirmation_refs": list(handoff_projection.get("confirmation_refs") or []),
+                "unresolved_refs": [],
+                "validation_state": "unverified",
+                "created_at": handoff_projection.get("created_at", ""),
+                "updated_at": handoff_projection.get("updated_at", ""),
+                "metadata": {
+                    "projected_revision_id": revision_id,
+                    "projection_role": "handoff",
+                    "read_only": True,
+                    "section_hint": "planning",
+                },
+                "governance_class": "working",
+            })
+
+        todo_projection = self.service._build_todo_projection(workspace_id, cards)
+        workspace = self.service.get_workspace(workspace_id)
+        handoff_status = str(
+            projection.get("handoff_status")
+            or (revision.get("handoff") or {}).get("status")
+            or "not_ready"
+        )
+        return {
+            "workspace_id": workspace_id,
+            "snapshot_id": None,
+            "active_turn": self.service._serialize_active_turn(workspace),
+            "cards": card_payloads,
+            "relations": [relation.to_dict() for relation in relations],
+            "todo_projection": todo_projection.to_dict(),
+            "pending_confirmations_count": 0,
+            "view_meta": {
+                "handoff_status": handoff_status,
+                "is_snapshot": False,
+                "pending_confirmation_ids": [],
+                "handoff_state": {
+                    "status": handoff_status,
+                    "confirmation_state": handoff_status,
+                    "source_snapshot_id": "",
+                    "generated_from_card_count": len(cards),
+                    "unresolved_count": len(todo_projection.items),
+                    "high_confidence_unconfirmed_count": 0,
+                },
+            },
+        }
+
+    async def get_canvas_view(self, workspace_id: str, snapshot_id: str | None = None) -> dict[str, Any]:
+        """读取 Pi 原生 Canvas 投影；快照读取仍走兼容仓储。"""
+
+        if snapshot_id is not None:
+            return self.service.get_canvas_view(workspace_id, snapshot_id=snapshot_id)
+        from app.canvas.agent_execution.pi_client import PiRuntimeError
+        try:
+            await self.refresh_projection(workspace_id)
+            state = self._projection_cache.get(workspace_id)
+            if state is None:
+                raise RuntimeError("Pi projection cache was not populated")
+            return self._build_native_canvas_view(workspace_id, state)
+        except PiRuntimeError as error:
+            # Runtime 断开时，稳定 Revision 可能仍然已经成功写入，而 Python
+            # 侧保存的 cards/relations 只是它的可重建投影。读取可以回放这份
+            # 最后已知稳定状态，避免短暂传输故障被前端误显示成“空画布”；
+            # 写入路径仍继续失败关闭，绝不使用这份投影提交新 Revision。
+            fallback = self.service.get_canvas_view(workspace_id)
+            cached_handoff = self.service.repository.load_handoff_projection(workspace_id)
+            if cached_handoff and cached_handoff.get("status") == "confirmed" and cached_handoff.get("handoff"):
+                handoff_obj = cached_handoff["handoff"]
+                rev_id = str(handoff_obj.get("revision_id") or "confirmed")
+                card_id = f"card_handoff_{rev_id}"
+                if not any(c.get("kind") == "handoff" for c in fallback.get("cards", [])):
+                    fallback["cards"].append({
+                        "card_id": card_id,
+                        "kind": "handoff",
+                        "title": f"结构化交接包 [{rev_id}]",
+                        "summary": handoff_obj.get("summary", ""),
+                        "status": "confirmed",
+                        "tags": [],
+                        "source_refs": [],
+                        "confirmation_refs": list(handoff_obj.get("confirmation_refs") or []),
+                        "unresolved_refs": [],
+                        "validation_state": "unverified",
+                        "created_at": "",
+                        "updated_at": "",
+                        "metadata": {
+                            "projected_revision_id": rev_id,
+                            "projection_role": "handoff",
+                            "read_only": True,
+                            "section_hint": "planning",
+                        },
+                        "governance_class": "working",
+                    })
+            view_meta = dict(fallback.get("view_meta") or {})
+            if cached_handoff and cached_handoff.get("status"):
+                view_meta["handoff_status"] = cached_handoff["status"]
+            view_meta.update({
+                "read_consistency": "last_known_stable",
+                "runtime_error_code": self._failure_code(error),
+            })
+            fallback["view_meta"] = view_meta
+            return fallback
 
     async def refresh_messages(self, workspace_id: str) -> None:
         """从真实 Session Entry 重建可读消息缓存，不创建伪造 Entry。"""
@@ -197,6 +347,27 @@ class PiCanvasKernel:
                 submission_id=submission_id, content_hash="sha256:" + hashlib.sha256(normalized.encode()).hexdigest(),
                 workspace_id=workspace_id, actor_id=actor_id, pi_user_message=pi_message,
             ))
+            # 用户 Entry 一旦被 Primary Session 接收，就已经是发生过的对话。
+            # 先写入 Python 侧可重建投影，避免 Runtime 随后断开时刷新页面
+            # 把刚刚输入的内容误显示成“暂无对话”；这不是稳定结构写入，也
+            # 不会把失败的 Assistant 回复伪装成正式消息。
+            try:
+                service.repository.append_chat_message(workspace_id, {
+                    "message_id": receipt.entry_id,
+                    "role": "user",
+                    "content": message,
+                    "turn_id": submission_id,
+                    "created_at": utc_now_iso(),
+                    "metadata": {
+                        "session_id": receipt.session_id,
+                        "entry_id": receipt.entry_id,
+                        "source": "pi_submission_projection",
+                        "actor_id": actor_id,
+                    },
+                })
+            except FileExistsError:
+                # 重试或重复提交已经有同一 Entry 的投影，保持幂等。
+                pass
             result = await self.execution.run_workspace(
                 workspace_id,
                 receipt.submission_id,
@@ -598,7 +769,7 @@ class PiCanvasKernel:
             content_hashes={"structured_context": f"sha256:{content_hash}"},
             transport_ref={
                 "provider_id": os.getenv("PI_PROVIDER") or "deepseek",
-                "model_id": os.getenv("PI_MODEL") or "deepseek-v4-flash",
+                "model_id": os.getenv("PI_MODEL") or "deepseek-flash",
                 "adapter_version": os.getenv("PI_ADAPTER_VERSION") or "pi-runtime.pi-agent-core.v1",
                 "protocol_version": os.getenv("PI_PROTOCOL_VERSION") or "pi-runtime.protocol.v1",
                 "capability_profile_version": os.getenv("PI_CAPABILITY_PROFILE_VERSION", "unknown"),

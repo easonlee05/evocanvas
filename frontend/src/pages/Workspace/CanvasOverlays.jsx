@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { isCanvasCardResolved, isActiveTypedGap } from './canvasProjection.js';
 import {
   AlertTriangle,
   Archive,
@@ -66,12 +67,12 @@ function collectCardText(card) {
 }
 
 function isCardResolved(card) {
-  const label = `${card.status || ''} ${card.statusPill?.label || ''}`.trim();
-  return /(已确认|已审批|已完成|完成|关闭|closed|done|resolved)/i.test(label);
+  return isCanvasCardResolved(card);
 }
 
 function inferGapType(card) {
   if (card.sectionKey === 'clarify') return '待澄清';
+  if (card.kind === 'decision') return '待决策';
 
   const text = collectCardText(card);
   if (/(拍板|待决策|待审批|审批中|决策)/.test(text)) return '待决策';
@@ -88,6 +89,8 @@ function inferGapPriority(card) {
 export function buildActiveGapItems(canvasSections = {}) {
   const projected = flattenCanvasCards(canvasSections)
     .filter((card) => {
+      const typedGap = isActiveTypedGap(card);
+      if (typedGap !== undefined) return typedGap;
       if (isCardResolved(card)) return false;
       if (card.sectionKey === 'clarify') return true;
       if (card.sectionKey === 'rules' || card.sectionKey === 'options') {
@@ -127,13 +130,14 @@ export function buildActiveGapItems(canvasSections = {}) {
 export function buildTimelineProjection(canvasSections = {}) {
   const activeGaps = buildActiveGapItems(canvasSections);
   const flatCards = flattenCanvasCards(canvasSections);
+  const hasStableStructure = flatCards.length > 0;
   const evidenceCount = flatCards.filter((card) => card.sectionKey === 'evidence').length;
   const clarifyCount = activeGaps.filter((item) => item.gapType === '待澄清').length;
   const decisionCount = activeGaps.filter((item) => item.gapType === '待决策').length;
   const defineCount = activeGaps.filter((item) => item.gapType === '待定义').length;
   const planningCount = flatCards.filter((card) => card.sectionKey === 'planning').length;
   const confirmedRules = flatCards.filter(
-    (card) => card.sectionKey === 'rules' && /(已确认|已审批|已完成)/.test(card.statusPill?.label || ''),
+    (card) => card.sectionKey === 'rules' && (card.status === 'effective' || /(已确认|已审批|已完成)/.test(card.statusPill?.label || '')),
   ).length;
 
   let currentStageIndex = 0;
@@ -150,7 +154,7 @@ export function buildTimelineProjection(canvasSections = {}) {
     {
       key: 'clarify',
       label: '待澄清',
-      caption: clarifyCount ? `还有 ${clarifyCount} 个问题待问清` : '关键问题已基本问清',
+      caption: clarifyCount ? `还有 ${clarifyCount} 个问题待问清` : (hasStableStructure ? '当前没有已记录的待澄清项' : '先在对话中明确当前问题与关键未知'),
     },
     {
       key: 'define',
@@ -175,6 +179,7 @@ export function buildTimelineProjection(canvasSections = {}) {
     currentStage: stages[currentStageIndex],
     nextStage: stages[Math.min(currentStageIndex + 1, stages.length - 1)],
     blockerTitles: activeGaps.slice(0, 2),
+    emptyGapCaption: hasStableStructure ? '当前没有已记录的活跃缺口' : '尚无稳定结构，缺口仍需在对话中澄清',
     confirmedRules,
   };
 }

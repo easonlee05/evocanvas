@@ -17,7 +17,7 @@ echo "======================================================"
 
 # 启动 Pi Runtime 后台服务
 echo "1. 正在启动 Pi Runtime 运行时 (端口 ${PI_RUNTIME_PORT})..."
-node /app/pi-runtime/dist/server.js &
+node /app/pi-runtime/scripts/start.mjs &
 PI_PID=$!
 
 # 退出信号捕捉

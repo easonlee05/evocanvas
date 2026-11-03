@@ -61,6 +61,42 @@
   z-index: 4;
 }
 
+.canvas-loading-state {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(420px, calc(100% - 40px));
+  padding: 16px 18px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-secondary);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.05);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.canvas-loading-state > div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.canvas-loading-state strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.canvas-loading-state span {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .canvas-empty-state-mark {
   width: 34px;
   height: 34px;
@@ -3060,6 +3096,11 @@
     justify-content: center;
   }
 
+  /* 对话在窄窗口停靠底部时，工具栏停在面板上方，避免遮住发送与停止按钮。 */
+  .workspace.chat-open .figma-toolbar {
+    bottom: calc(min(64vh, 520px) + 24px);
+  }
+
   .widget-toolbar-panel {
     left: auto;
     right: -4px;
@@ -3068,6 +3109,10 @@
   }
 
   .canvas-empty-state {
+    top: 30%;
+  }
+
+  .canvas-loading-state {
     top: 30%;
   }
 }

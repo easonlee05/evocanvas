@@ -1,6 +1,6 @@
 const SELECTED_MODEL_STORAGE_KEY = 'evocanvas_selected_model';
 
-export const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
+export const DEFAULT_MODEL_ID = 'deepseek-flash';
 export const MODEL_CONFIG_STORAGE_KEY = 'evocanvas_model_config';
 export const MODEL_LIST_STORAGE_KEY = 'evocanvas_model_list';
 
@@ -16,16 +16,8 @@ export const PROVIDER_OPTIONS = [
  */
 export const DEFAULT_MODELS = [
   {
-    id: 'deepseek-v4-flash',
-    name: 'DeepSeek V4 Flash',
-    providerId: 'deepseek',
-    providerName: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com',
-    apiKey: '',
-  },
-  {
-    id: 'deepseek-v4-pro',
-    name: 'DeepSeek V4 Pro',
+    id: 'deepseek-flash',
+    name: 'DeepSeek Flash',
     providerId: 'deepseek',
     providerName: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
@@ -67,6 +59,11 @@ export const DEFAULT_MODEL_CONFIG = {
   apiKey: '',
 };
 
+const MODEL_ID_MIGRATIONS = {
+  // DeepSeek 已将 Flash 的真实 API slug 统一为 deepseek-flash。
+  'deepseek-v4-flash': 'deepseek-flash',
+};
+
 function normalizeModel(model) {
   if (!model || typeof model !== 'object') return null;
   const id = String(model.id || '').trim();
@@ -92,6 +89,14 @@ function normalizeModelList(models) {
   const seen = new Set();
   return (Array.isArray(models) ? models : [])
     .map(normalizeModel)
+    .map(model => {
+      if (!model || model.providerId !== 'deepseek') return model;
+      const migratedId = MODEL_ID_MIGRATIONS[model.id];
+      if (migratedId) {
+        return { ...model, id: migratedId, name: migratedId === 'deepseek-flash' ? 'DeepSeek Flash' : model.name };
+      }
+      return model.id === 'deepseek-flash' ? { ...model, name: 'DeepSeek Flash' } : model;
+    })
     .filter(model => {
       if (!model || seen.has(model.id)) return false;
       seen.add(model.id);
@@ -141,6 +146,13 @@ export function saveModelList(models) {
 export function getSelectedModel() {
   const models = readModelList();
   const stored = localStorage.getItem(SELECTED_MODEL_STORAGE_KEY);
+  if (stored === 'deepseek-v4-pro') {
+    const flash = models.find(item => item.id === DEFAULT_MODEL_ID);
+    if (flash) {
+      localStorage.setItem(SELECTED_MODEL_STORAGE_KEY, flash.id);
+      return flash.id;
+    }
+  }
   if (stored && models.some(item => item.id === stored)) return stored;
   return models.find(item => item.id === DEFAULT_MODEL_ID)?.id || models[0]?.id || DEFAULT_MODEL_ID;
 }

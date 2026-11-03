@@ -13,15 +13,21 @@ const DEFAULT_TIMEOUT_MS = 12000;
  * @param {number} [timeoutMs=DEFAULT_TIMEOUT_MS] - 超时时间（毫秒），默认 12000ms
  * @returns {Promise<Response>} 响应的 Promise 对象
  */
-async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  // 创建 AbortController 以便在超时后中断请求
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS, externalSignal) {
+  // 创建 AbortController 以便在超时或用户主动停止后中断请求
   const controller = new AbortController();
+  const onExternalAbort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort(externalSignal.reason);
+    else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     // 无论成功还是失败，均清除定时器以释放资源
     clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -97,13 +103,13 @@ export async function apiPost(path, body, fallback) {
 }
 
 /** 发起 POST 并保留 HTTP 状态，供 Canvas 主链处理运行时错误。 */
-export async function apiPostWithStatus(path, body) {
+export async function apiPostWithStatus(path, body, timeoutMs = DEFAULT_TIMEOUT_MS, signal) {
   try {
     const res = await fetchWithTimeout(apiUrl(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {}),
-    });
+    }, timeoutMs, signal);
     let data = null;
     try { data = await res.json(); } catch { data = null; }
     return { ok: res.ok, status: res.status, data };

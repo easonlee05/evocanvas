@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --import tsx --test src/**/*.test.ts",
-    "start": "node dist/server.js",
+    "start": "node scripts/start.mjs",
     "dev": "tsx src/server.ts"
   },
   "dependencies": {

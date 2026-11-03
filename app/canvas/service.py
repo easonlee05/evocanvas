@@ -521,12 +521,17 @@ class CanvasService:
         }
 
     def get_chat_messages(self, workspace_id: str) -> Dict[str, Any]:
-        """返回 Canvas 对话的原始用户/助手消息，供前端只读回放。"""
+        """返回 Canvas 对话消息，隐藏历史误写入的画布编辑记录。"""
 
         self.get_workspace(workspace_id)
+        messages = [
+            message
+            for message in self.repository.load_chat_messages(workspace_id)
+            if not str(message.get("content", "")).lstrip().startswith("画布直接编辑：")
+        ]
         return {
             "workspace_id": workspace_id,
-            "messages": self.repository.load_chat_messages(workspace_id),
+            "messages": messages,
         }
 
     def _handoff_status(

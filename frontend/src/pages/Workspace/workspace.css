@@ -635,6 +635,17 @@
   background: #f8fafc;
   color: var(--text-primary);
 }
+.suggestion-chip.suggestion-chip-confirm {
+  background: #2563eb;
+  color: #fff;
+  border-color: #1d4ed8;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+}
+.suggestion-chip.suggestion-chip-confirm:hover {
+  background: #1d4ed8;
+  color: #fff;
+}
 
 /* 输入区 - 底部固定卡片设计 */
 .ws-input-wrap {
@@ -1423,6 +1434,15 @@
 }
 
 @media (max-width: 900px) {
+  /* 窄屏交接占用独立工作面；关闭后回到原有聊天状态。 */
+  .output-drawer.open {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-width: 0;
+    z-index: 60;
+  }
+
   .workspace.chat-open .canvas-container {
     padding-right: 0;
     padding-bottom: min(64vh, 520px);

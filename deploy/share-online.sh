@@ -51,7 +51,7 @@ mkdir -p "$EVO_STORAGE_DIR" "$PI_STORAGE_DIR"
 
 # 5. 后台启动 Pi Runtime
 echo "1. 启动 Pi Runtime 服务..."
-node pi-runtime/dist/server.js &
+npm --prefix pi-runtime start &
 PI_PID=$!
 
 # 6. 后台启动 FastAPI 服务

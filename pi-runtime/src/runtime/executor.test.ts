@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type { Context } from "@earendil-works/pi-ai";
 import type {
   ChatRunRequest,
@@ -228,7 +229,7 @@ test("PiProviderRunExecutor reports a denied tool as tool_failed", async () => {
   assert.equal(chatResult.assistant_message, null);
 });
 
-test("configured Pi Runtime defaults to DeepSeek V4 Flash without faking readiness", async () => {
+test("configured Pi Runtime defaults to the real DeepSeek Flash slug without faking readiness", async () => {
   const previousProvider = process.env.PI_PROVIDER;
   const previousModel = process.env.PI_MODEL;
   const previousApiKey = process.env.DEEPSEEK_API_KEY;
@@ -240,7 +241,7 @@ test("configured Pi Runtime defaults to DeepSeek V4 Flash without faking readine
     assert.ok(executor instanceof PiProviderRunExecutor);
     const readiness = await executor.readiness();
     assert.equal(readiness.provider_id, "deepseek");
-    assert.equal(readiness.model_id, "deepseek-v4-flash");
+    assert.equal(readiness.model_id, "deepseek-flash");
     assert.equal(readiness.ready, false);
   } finally {
     if (previousProvider === undefined) delete process.env.PI_PROVIDER;
@@ -250,6 +251,16 @@ test("configured Pi Runtime defaults to DeepSeek V4 Flash without faking readine
     if (previousApiKey === undefined) delete process.env.DEEPSEEK_API_KEY;
     else process.env.DEEPSEEK_API_KEY = previousApiKey;
   }
+});
+
+test("Pi Runtime uses the DeepSeek Flash API slug with built-in Flash metadata", () => {
+  const executor = new PiProviderRunExecutor({
+    providerId: "deepseek",
+    modelId: "deepseek-v4-flash",
+    models: builtinModels(),
+  });
+  const model = (executor as unknown as { resolveModel: (modelId: string) => { id: string } }).resolveModel("deepseek-flash");
+  assert.equal(model.id, "deepseek-flash");
 });
 
 test("configured Pi Runtime resolves GPT-5.6 models to the OpenAI provider", async () => {

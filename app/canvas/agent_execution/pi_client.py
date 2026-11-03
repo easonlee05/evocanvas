@@ -326,6 +326,11 @@ class PiRuntimeClient(AgentExecutionPort):
     async def run_workspace(self, workspace_id: str, submission_id: str, *, selected_card_ids=None, materials=None, model=None, model_config=None) -> dict[str, Any]:
         return dict(await self._workspace_request("POST", workspace_id, "turns", {"workspace_id": workspace_id, "submission_id": submission_id, "selected_card_ids": selected_card_ids or [], "materials": materials or [], "model": model, "model_config": model_config}))
 
+    async def cancel_workspace_turn(self, workspace_id: str, submission_id: str) -> dict[str, Any]:
+        """请求取消当前工作区回合；取消只影响运行，不回滚已提交 Revision。"""
+        suffix = f"turns/{urllib.parse.quote(str(submission_id), safe='')}/cancel"
+        return dict(await self._workspace_request("POST", workspace_id, suffix, {}))
+
     async def commit_workspace(self, request: WorkspaceCommitRequest) -> WorkspaceCommitResult:
         return WorkspaceCommitResult.from_payload(await self._workspace_request("POST", str(request.tool_context["workspace_id"]), "commit", request.to_payload()))
 

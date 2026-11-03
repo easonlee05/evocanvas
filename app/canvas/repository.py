@@ -607,6 +607,20 @@ class CanvasRepository:
             return None
         return StructuredHandoff.from_dict(json.loads(handoff_file.read_text(encoding="utf-8")))
 
+    def save_handoff_projection(self, workspace_id: str, payload: dict) -> None:
+        """保存从 Pi Revision 渲染出的只读交接物投影缓存。"""
+        workspace_dir = self._workspace_dir(workspace_id)
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        projection_file = workspace_dir / "handoff_projection.json"
+        self._write_json_atomic(projection_file, payload)
+
+    def load_handoff_projection(self, workspace_id: str) -> Optional[dict]:
+        """读取只读交接物投影缓存，用于 Runtime 断开时的只读降级。"""
+        projection_file = self._workspace_dir(workspace_id) / "handoff_projection.json"
+        if not projection_file.exists():
+            return None
+        return json.loads(projection_file.read_text(encoding="utf-8"))
+
     def save_snapshot(self, workspace_id: str, snapshot: CanvasSnapshot) -> None:
         """保存一份工作区快照。"""
 

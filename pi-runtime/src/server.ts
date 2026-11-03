@@ -28,7 +28,7 @@ import {
 import { WorkspaceSessionStore } from "./runtime/session-store.js";
 import { CommitError, WorkspaceRevisionStore } from "./runtime/workspace-revision-store.js";
 import { renderCanvasProjection, renderHandoffSummary } from "./runtime/canvas-projection.js";
-import { verifySessionConfirmation, type WorkspaceExecutor, type WorkspaceTurnRequest } from "./runtime/workspace-turn.js";
+import { isLegacyCanvasEditMessage, verifySessionConfirmation, type WorkspaceExecutor, type WorkspaceTurnRequest } from "./runtime/workspace-turn.js";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
 const RUNTIME_VERSION = "0.1.0";
@@ -154,6 +154,8 @@ export class PiRuntimeServer {
   readonly port: number;
   readonly sessionStore: WorkspaceSessionStore;
   readonly revisionStore: WorkspaceRevisionStore;
+  /** 当前工作区回合的取消控制器，供前端停止按钮释放卡住的 Agent 回合。 */
+  private readonly workspaceTurnControllers = new Map<string, AbortController>();
 
   constructor(options: RuntimeOptions = {}) {
     this.registry = options.registry ?? new RunRegistry();
@@ -257,12 +259,33 @@ export class PiRuntimeServer {
         const executor = this.executor as unknown as WorkspaceExecutor;
         if (typeof executor.executeWorkspace !== "function") throw new RuntimeContractError("runtime_not_ready", "执行器不支持 Primary Session");
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 120_000);
+        const configuredTimeout = Number(process.env.PI_WORKSPACE_TURN_TIMEOUT_MS ?? "120000");
+        const timeoutMs = Number.isFinite(configuredTimeout) ? Math.max(1_000, configuredTimeout) : 120_000;
+        const timer = setTimeout(() => controller.abort(new Error("workspace turn timeout")), timeoutMs);
+        this.workspaceTurnControllers.set(workspaceId, controller);
         const disconnected = () => { if (!response.writableEnded) controller.abort(); };
         response.on("close", disconnected);
         try {
           sendJson(response, 200, await executor.executeWorkspace(payload, { sessions: this.sessionStore, revisions: this.revisionStore }, controller.signal));
-        } finally { clearTimeout(timer); response.off("close", disconnected); }
+        } finally {
+          clearTimeout(timer);
+          response.off("close", disconnected);
+          if (this.workspaceTurnControllers.get(workspaceId) === controller) this.workspaceTurnControllers.delete(workspaceId);
+        }
+        return;
+      }
+      const cancelTurnMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/turns\/([^/]+)\/cancel$/);
+      if (cancelTurnMatch && method === "POST") {
+        this.requireAuthorization(request);
+        const workspaceId = decodeURIComponent(cancelTurnMatch[1]);
+        const submissionId = decodeURIComponent(cancelTurnMatch[2]);
+        const controller = this.workspaceTurnControllers.get(workspaceId);
+        if (!controller) {
+          sendJson(response, 200, { workspace_id: workspaceId, submission_id: submissionId, status: "not_running" });
+          return;
+        }
+        controller.abort(new Error("workspace turn cancelled by user"));
+        sendJson(response, 200, { workspace_id: workspaceId, submission_id: submissionId, status: "cancel_requested" });
         return;
       }
       const messagesMatch = pathname.match(/^\/v1\/workspaces\/([^/]+)\/messages$/);
@@ -273,7 +296,12 @@ export class PiRuntimeServer {
         const session = await this.sessionStore.getOrOpenSession(binding);
         const branch = await session.branch("main", BACKGROUND_CONTEXT);
         const entries = await branch!.findEntries(undefined, BACKGROUND_CONTEXT);
-        sendJson(response, 200, { session_id: binding.primary_session_id, messages: entries.filter(e => e.type === "message").sort((a,b) => a.seq-b.seq) });
+        sendJson(response, 200, {
+          session_id: binding.primary_session_id,
+          // 兼容过滤修复前已经误写入 Session 的画布编辑 User Message；
+          // 新编辑只产生 custom Entry，不会进入这个消息投影。
+          messages: entries.filter(e => e.type === "message" && !isLegacyCanvasEditMessage(e)).sort((a,b) => a.seq-b.seq),
+        });
         return;
       }
 
@@ -617,9 +645,22 @@ export function createPiRuntimeServer(options: RuntimeOptions = {}): PiRuntimeSe
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(`[PiRuntime uncaughtException] ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+  });
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(`[PiRuntime unhandledRejection] ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}\n`);
+  });
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP", "beforeExit", "exit"] as const) {
+    process.on(sig, (arg) => {
+      process.stderr.write(`[PiRuntime lifecycle] ${sig} triggered (arg: ${arg})\n`);
+    });
+  }
   const runtime = createPiRuntimeServer();
   runtime.listen().then(() => {
     process.stdout.write(`Pi Runtime listening on http://${runtime.host}:${runtime.port}\n`);
+    // 维持 Libuv 事件循环活动句柄，防止无请求连接时异常空闲退出
+    setInterval(() => {}, 15000);
   }).catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
     process.exitCode = 1;

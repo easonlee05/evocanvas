@@ -48,7 +48,7 @@ class TargetPiExecution:
 
     async def get_messages(self, workspace_id):
         return {"session_id": "session", "messages": [
-            {"id": "user-entry", "timestamp": 1000, "message": {"role": "user", "content": self.submissions[-1].pi_user_message["content"]}},
+            {"id": f"entry_{self.submissions[-1].submission_id}", "timestamp": 1000, "message": {"role": "user", "content": self.submissions[-1].pi_user_message["content"]}},
             {"id": "assistant-entry", "timestamp": 2000, "message": {"role": "assistant", "content": "请补充使用场景", "stopReason": "stop"}},
         ]}
 
@@ -56,6 +56,14 @@ class TargetPiExecution:
 class FailingExecution(TargetPiExecution):
     async def submit_user_message(self, request):
         raise RuntimeError("runtime unavailable")
+
+
+class DisconnectedAfterSubmissionExecution(TargetPiExecution):
+    async def run_workspace(self, workspace_id, submission_id, **kwargs):
+        raise RuntimeError("runtime disconnected after accepting submission")
+
+    async def get_messages(self, workspace_id):
+        raise RuntimeError("runtime disconnected while reading session")
 
 
 class PiCanvasKernelTests(unittest.IsolatedAsyncioTestCase):
@@ -157,6 +165,27 @@ class PiCanvasKernelTests(unittest.IsolatedAsyncioTestCase):
                 except queue.Empty:
                     break
             self.assertEqual(event_types, ["canvas.turn.started", "canvas.turn.failed"])
+
+    async def test_pi_submission_is_visible_after_runtime_disconnect(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            service = CanvasService(
+                storage=FakeStorage(Path(temp_dir)),
+                execution=DisconnectedAfterSubmissionExecution(),
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "runtime disconnected"):
+                await service.run_pi_turn(
+                    workspace_id="workspace-1",
+                    message="保留这条输入，即使模型连接中断也不能显示为空",
+                    selected_card_ids=[],
+                    material_ids=[],
+                    source_ref_ids=[],
+                )
+
+            messages = service.repository.load_chat_messages("workspace-1")
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(messages[0]["role"], "user")
+            self.assertIn("不能显示为空", messages[0]["content"])
 
 
 if __name__ == "__main__":

@@ -60,6 +60,10 @@ class SubprocessSandboxAdapter(SandboxAdapter):
                 "PYTHONUNBUFFERED": "1",
                 "LANG": os.environ.get("LANG", "en_US.UTF-8"),
                 "LC_ALL": os.environ.get("LC_ALL", "en_US.UTF-8"),
+                # macOS 的 Python 在缺少 DARWIN_USER_TEMP_DIR/TMPDIR 时会把
+                # 临时目录探测警告写入 stderr；指向本轮一次性目录，既保持
+                # 隔离，也避免成功执行被宿主机告警污染。
+                "TMPDIR": temp_dir,
             }
             if config.network_disabled:
                 # 清除全部网络代理环境变量，并将 dummy 隔离变量注入

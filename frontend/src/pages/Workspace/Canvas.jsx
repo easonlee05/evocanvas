@@ -20,6 +20,7 @@ import {
   Type,
 } from 'lucide-react';
 import { DEMO_CANVAS_SECTIONS, DEMO_PERSONA_AVATARS } from './demoScenario.js';
+import { getCanvasStatusLabel, reconcileCanvasProjection } from './canvasProjection.js';
 import { apiPost, apiPatchWithStatus, apiDelete, apiUrl } from '../../api';
 import {
   applyConnectionToSections,
@@ -131,6 +132,7 @@ function CardTypeIconImage({ src, label, className = '' }) {
 }
 
 function getStatusColor(status = '') {
+  if (['clarified', 'effective', 'decided', 'converged', 'closed'].includes(status)) return 'green';
   if (/已确认|已审批|已完成|done|confirmed|approved/.test(status)) return 'green';
   if (/待|需要|审批中|open|pending/.test(status)) return 'yellow';
   if (/风险|阻塞|异常|blocked|risk/.test(status)) return 'red';
@@ -138,11 +140,7 @@ function getStatusColor(status = '') {
 }
 
 function getStatusLabel(status = '') {
-  if (status === 'open') return '待推进';
-  if (status === 'pending') return '待确认';
-  if (status === 'done' || status === 'confirmed' || status === 'approved') return '已确认';
-  if (status === 'blocked') return '已阻塞';
-  return status;
+  return getCanvasStatusLabel(status);
 }
 
 function getUiKitStatusTone(sectionKey, statusLabel = '', statusColor = 'gray') {
@@ -272,14 +270,19 @@ function CardPersonaRow({ meta }) {
 function StructuredContent({ kind = 'list', items = [] }) {
   if (!items?.length) return null;
 
+  const textForItem = (item) => {
+    if (item && typeof item === 'object') return String(item.text || '');
+    return String(item ?? '');
+  };
+
   if (kind === 'quote') {
     return (
       <div className="structured-block structured-quote">
         <div className="structured-quote-item">
           {items.map((item) => (
-            <div key={item} className="structured-list-item">
+            <div key={textForItem(item)} className="structured-list-item">
               <span className="fact-dot" />
-              <span className="structured-quote-text">{item}</span>
+              <span className="structured-quote-text">{textForItem(item)}</span>
             </div>
           ))}
         </div>
@@ -305,10 +308,10 @@ function StructuredContent({ kind = 'list', items = [] }) {
 
   return (
     <div className="structured-block structured-list">
-      {items.map((item) => (
-        <div key={item} className="structured-list-item">
-          <span className="fact-dot" />
-          <span className="structured-list-text">{item}</span>
+        {items.map((item) => (
+          <div key={textForItem(item)} className="structured-list-item">
+            <span className="fact-dot" />
+            <span className="structured-list-text">{textForItem(item)}</span>
         </div>
       ))}
     </div>
@@ -602,7 +605,7 @@ function CanvasCard({
     const isPrimaryProblemCard = isUiKitFocusCard;
     const problemItems = Array.isArray(data.structuredItems) && data.structuredItems.length
       ? data.structuredItems
-      : ['目标用户是谁？（新手？PM？团队管理员？）', '是否需要手动动作？', '成功的衡量标准？'];
+      : data.isProjection ? [] : ['目标用户是谁？（新手？PM？团队管理员？）', '是否需要手动动作？', '成功的衡量标准？'];
     const previewCard = {
       title: '问题',
       cardTitle: data.title || '618 积分发放链路治理（v1.0）',
@@ -879,7 +882,7 @@ function CanvasCard({
     const isCheckpointCard = sectionConfig.defaultStructureKind === 'checkpoints';
     const rawItems = Array.isArray(data.structuredItems) && data.structuredItems.length
       ? data.structuredItems
-      : sectionConfig.defaultItems;
+      : data.isProjection ? [] : sectionConfig.defaultItems;
     const completedCount = rawItems.filter((item) => typeof item === 'object' && ['done', 'current'].includes(item?.state)).length;
     const footerText = sectionConfig.footerMode === 'progress'
       ? `${completedCount} / ${rawItems.length}`
@@ -1559,6 +1562,7 @@ function CanvasCard({
 export default function Canvas({ 
   isChatOpen = true,
   workspaceId,
+  isHydrating = false,
   cards = [],
   relations = [],
   todos = [],
@@ -1746,10 +1750,15 @@ export default function Canvas({
     });
 
     (backendCards || []).forEach(card => {
+      // Python Canvas API uses `card_id`; legacy/demo payloads use `id`.
+      // Normalize both at the projection boundary so selection, relations,
+      // local view state and refreshes keep the same card identity.
+      const cardId = card.id || card.card_id;
       let sectionKey = 'evidence';
       if (card.kind === 'problem') sectionKey = 'problems';
       else if (card.kind === 'clarification') sectionKey = 'clarify';
       else if (card.kind === 'constraint') sectionKey = 'rules';
+      else if (card.kind === 'handoff') sectionKey = 'planning';
       else if (card.kind === 'decision' || card.kind === 'option') {
         // L3 规格：handoff 不是对象类型，planning section 的卡片在后端统一存为 decision。
         // 通过 metadata.section_hint 区分其归属 section，未标记时默认归 options。
@@ -1767,16 +1776,18 @@ export default function Canvas({
       });
 
       sections[sectionKey].push({
-        id: card.id,
+        id: cardId,
+        isProjection: true,
         kind: card.kind,
         title: card.title,
         desc: card.summary || card.desc,
         tags: mappedTags,
         status: card.status,
         confidence: card.confidence,
-        structureKind: card.metadata?.structured_kind || 'list',
+        structureKind: card.metadata?.structured_kind
+          || (sectionKey === 'rules' || sectionKey === 'planning' ? 'checkpoints' : 'list'),
         structuredItems: card.metadata?.structured_items || [],
-        next: nextMap[card.id] || [],
+        next: nextMap[cardId] || [],
         source: card.metadata?.source_persona ? {
           label: '来源',
           name: card.metadata.source_persona.name,
@@ -1815,32 +1826,13 @@ export default function Canvas({
         const storedState = readStoredCanvasViewState(canvasViewStorageKey) || {};
         const deletedCardIds = new Set(storedState.deletedCardIds || []);
         
-        const filteredBackendCards = cards.filter(c => !deletedCardIds.has(c.id));
+        const filteredBackendCards = cards.filter(c => !deletedCardIds.has(c.id || c.card_id));
         const backendSections = syncSectionConnectionsFromRelations(
           mapBackendCardsToSections(filteredBackendCards, relations),
           relations,
         );
 
-        const allCurrentCards = Object.values(current).flat();
-        if (allCurrentCards.length === 0) {
-          return backendSections;
-        }
-
-        const localCardIds = new Set(allCurrentCards.map(c => c.id));
-        const newBackendCards = filteredBackendCards.filter(c => !localCardIds.has(c.id));
-
-        if (newBackendCards.length === 0) {
-          return syncSectionConnectionsFromRelations(current, relations);
-        }
-
-        const nextSections = { ...current };
-        const newSections = mapBackendCardsToSections(newBackendCards, relations);
-
-        Object.entries(newSections).forEach(([key, newCards]) => {
-          nextSections[key] = [...(nextSections[key] || []), ...newCards];
-        });
-
-        return syncSectionConnectionsFromRelations(nextSections, relations);
+        return syncSectionConnectionsFromRelations(reconcileCanvasProjection(current, backendSections), relations);
       });
     } else {
       // 非 demo 工作区的空响应必须保持为空，不能回退到演示场景。
@@ -2911,8 +2903,10 @@ export default function Canvas({
   };
 
   const focusedCardId = selectedCardId || (!selectedCardId ? hoveredCardId : null);
-  const shouldRevealArrows = activeTool === 'connector' || Boolean(focusedCardId);
   const allArrows = collectCanvasArrows(canvasSections, connectionPortMapRef.current);
+  // 稳定关系是画布结构的一部分，默认就应可见；选中/悬停只负责高亮，
+  // 连接线工具负责进入编辑态，不再把已有关系整体隐藏。
+  const shouldRevealArrows = allArrows.length > 0;
   const selectedRelatedCardIds = getRelatedCardIds(selectedCardId, allArrows);
   const previewRelatedCardIds = selectedCardId ? new Set() : getRelatedCardIds(hoveredCardId, allArrows);
   const relationColors = getFocusedRelationColors(allArrows, focusedCardId);
@@ -3167,7 +3161,7 @@ export default function Canvas({
         <CanvasCard
           data={card}
           sectionKey={sectionKey}
-          isUiKitFocusCard={sectionKey === 'problems' && canvasSections[sectionKey]?.[0]?.id === card.id}
+          isUiKitFocusCard={workspaceId === 'demo' && sectionKey === 'problems' && canvasSections[sectionKey]?.[0]?.id === card.id}
           onSelect={(cardId) => setSelectedCardId(cardId)}
           onPreviewStart={(cardId) => setHoveredCardId(cardId)}
           onPreviewEnd={() => setHoveredCardId(null)}
@@ -3369,7 +3363,17 @@ export default function Canvas({
 
 
 
-      {!hasCanvasCards && workspaceId !== 'demo' && (
+      {isHydrating && workspaceId !== 'demo' && (
+        <div className="canvas-loading-state" role="status">
+          <div className="canvas-empty-state-mark"><Layers size={18} /></div>
+          <div>
+            <strong>正在恢复工作区</strong>
+            <span>正在读取已保存的问题、对话和交接状态…</span>
+          </div>
+        </div>
+      )}
+
+      {!isHydrating && !hasCanvasCards && workspaceId !== 'demo' && (
         <div className="canvas-empty-state" role="status">
           <div className="canvas-empty-state-mark"><Layers size={18} /></div>
           <div>

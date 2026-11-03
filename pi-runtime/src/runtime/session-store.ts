@@ -41,6 +41,20 @@ export interface UserSubmissionReceipt {
   binding_status: "ready";
 }
 
+/**
+ * 画布直接编辑的审计 Entry。
+ *
+ * 直接编辑是画布上的用户动作，不是发给 Agent 的一条 User Message。
+ * 它仍需要落在 Primary Session 里，供 Revision 的 confirmation_refs 追溯，
+ * 但必须使用 custom Entry，避免被消息投影渲染到右侧对话。
+ */
+export interface WorkspaceCustomEntryResult {
+  session: SqliteOpenSession;
+  sessionId: string;
+  entryId: string;
+  releaseLock: () => void;
+}
+
 export class SessionLockedError extends Error {
   readonly code = "runtime.session_locked";
   constructor(readonly workspaceId: string) {
@@ -293,6 +307,84 @@ export class WorkspaceSessionStore {
       await this.saveSubmissionReceipt(workspaceId, receipt);
 
       return { receipt, session, releaseLock };
+    } catch (error) {
+      releaseLock();
+      throw error;
+    }
+  }
+
+  /**
+   * 在 Primary Session 中写入不可见的审计 Entry，不触发 Agent 回合。
+   *
+   * 画布编辑、运行回执等内部记录只能走这里，不能伪装成 User Message。
+   * 空工作区首次发生画布编辑时会建立 Session Binding，但消息列表仍为空。
+   */
+  async appendCustomEntry(params: {
+    workspaceId: string;
+    customType: string;
+    data?: unknown;
+  }): Promise<WorkspaceCustomEntryResult> {
+    const releaseLock = this.lockManager.acquire(params.workspaceId);
+    try {
+      let binding = await this.getBinding(params.workspaceId);
+      if (binding && binding.status === "archived") {
+        throw new SessionUnavailableError(params.workspaceId, "Workspace is archived");
+      }
+      if (binding && binding.status === "unavailable") {
+        throw new SessionUnavailableError(params.workspaceId, binding.unavailable_reason);
+      }
+
+      let session: SqliteOpenSession;
+      const nowIso = new Date().toISOString();
+      if (!binding) {
+        const reservedSessionId = randomUUID();
+        binding = {
+          contract_type: "workspace_session_binding",
+          schema_version: "evocanvas.pi-runtime.v1",
+          workspace_id: params.workspaceId,
+          primary_session_id: reservedSessionId,
+          main_lane: "main",
+          status: "binding",
+          pi_session_format_version: "pi-session.v1",
+          session_file_ref: `${reservedSessionId}.sqlite`,
+          created_at: nowIso,
+          last_opened_at: nowIso,
+        };
+        await this.saveBinding(binding);
+        try {
+          session = await this.repo.create({ id: reservedSessionId }, BACKGROUND_CONTEXT);
+          this.openSessions.set(reservedSessionId, session);
+          await session.createBranch("main", null, BACKGROUND_CONTEXT);
+          binding.status = "ready";
+          binding.last_opened_at = new Date().toISOString();
+          await this.saveBinding(binding);
+        } catch (createError) {
+          binding.status = "unavailable";
+          binding.unavailable_reason = createError instanceof Error ? createError.message : "create_failed";
+          await this.saveBinding(binding);
+          throw createError;
+        }
+      } else {
+        session = await this.getOrOpenSession(binding);
+        const branch = await session.branch("main", BACKGROUND_CONTEXT);
+        if (!branch) await session.createBranch("main", null, BACKGROUND_CONTEXT);
+        binding.last_opened_at = nowIso;
+        await this.saveBinding(binding);
+      }
+
+      const branch = await session.branch("main", BACKGROUND_CONTEXT);
+      if (!branch) throw new SessionUnavailableError(params.workspaceId, "Main session branch is unavailable");
+      const entryId = await branch.appendCustomEntry(
+        params.customType,
+        params.data as any,
+        BACKGROUND_CONTEXT,
+      );
+      return {
+        session,
+        sessionId: binding.primary_session_id,
+        entryId,
+        releaseLock,
+      };
     } catch (error) {
       releaseLock();
       throw error;

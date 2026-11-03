@@ -87,6 +87,9 @@ export interface ImmutableRevision {
   created_at: string;
   change_summary: string;
   actor_id: string;
+  /** 本次稳定提交实际使用的指令与产品方法；旧 Revision 可以没有这两个字段。 */
+  instruction_bundle_version?: string;
+  active_skill_versions?: string[];
   objects: Record<string, WorkspaceObject>;
   relations: Relation[];
   confirmations: ConfirmationRecord[];
@@ -279,7 +282,22 @@ export class WorkspaceRevisionStore {
     let handoffImpact: "none" | "draft" | "candidate" | "confirmed" | "suspended" | "invalidated" = "none";
     const nowIso = new Date().toISOString();
 
-    for (const op of operations) {
+    const opOrder: Record<string, number> = {
+      create_object: 1,
+      update_object: 2,
+      change_status: 3,
+      supersede_object: 4,
+      create_relation: 5,
+      remove_relation: 6,
+      confirm_handoff: 7,
+      suspend_handoff: 8,
+      invalidate_handoff: 9,
+    };
+    const executionOperations = [...operations].sort(
+      (a, b) => (opOrder[a.operation_type] ?? 99) - (opOrder[b.operation_type] ?? 99)
+    );
+
+    for (const op of executionOperations) {
       switch (op.operation_type) {
         case "create_object": {
           const id = op.payload.id || `obj_${randomUUID().slice(0, 8)}`;
@@ -334,8 +352,13 @@ export class WorkspaceRevisionStore {
           break;
         }
         case "create_relation": {
+          const src = op.payload.source_id || op.payload.from || op.payload.from_card_id || op.payload.source;
+          const tgt = op.payload.target_id || op.payload.to || op.payload.to_card_id || op.payload.target;
+          if (src) op.payload.source_id = String(src);
+          if (tgt) op.payload.target_id = String(tgt);
           if (!nextObjects[op.payload.source_id] || !nextObjects[op.payload.target_id]) throw new CommitError("workspace.object_not_found", "关系端点不存在");
-          const relId = op.payload.relation_id || `rel_${randomUUID().slice(0, 8)}`;
+          const relId = op.payload.relation_id || op.operation_id || `rel_${randomUUID().slice(0, 8)}`;
+          op.payload.relation_id = relId;
           if (nextRelations.some(rel => rel.relation_id === relId)) throw new CommitError("workspace.relation_exists", "关系 ID 已存在");
           nextRelations.push({
             relation_id: relId,
@@ -404,6 +427,8 @@ export class WorkspaceRevisionStore {
       created_at: nowIso,
       change_summary,
       actor_id: tool_context.actor_id,
+      instruction_bundle_version: tool_context.instruction_bundle_version,
+      active_skill_versions: [...tool_context.active_skill_versions],
       objects: nextObjects,
       relations: nextRelations,
       confirmations: nextConfirmations,
@@ -473,8 +498,29 @@ export function validateOperations(operations: SemanticOperation[]): void {
     } else if (["update_object", "change_status", "supersede_object"].includes(op.operation_type)) {
       if (typeof p.id !== "string" || !p.id) throw new CommitError("schema.invalid_object", "缺少目标对象");
     } else if (op.operation_type === "create_relation") {
+      const src = p.source_id || p.from || p.from_card_id || p.source;
+      const tgt = p.target_id || p.to || p.to_card_id || p.target;
+      if (src) p.source_id = String(src);
+      if (tgt) p.target_id = String(tgt);
+      if (!p.relation_id) p.relation_id = op.operation_id || `rel_${Math.random().toString(36).slice(2, 8)}`;
+      const synonymMap: Record<string, string> = {
+        constrains: "supports",
+        constrained_by: "derived_from",
+        depends_on: "derived_from",
+        related_to: "supports",
+        clarified_by: "clarifies",
+        derived: "derived_from",
+        clarify: "clarifies",
+        support: "supports",
+        block: "blocks",
+        conflict: "conflicts_with",
+        produce: "produces",
+        replace: "replaces",
+      };
+      if (p.relation_type && synonymMap[p.relation_type]) p.relation_type = synonymMap[p.relation_type];
       if (!["derived_from","clarifies","supports","blocks","conflicts_with","produces","replaces"].includes(p.relation_type) || ![p.source_id,p.target_id,p.relation_type].every(value => typeof value === "string" && value)) throw new CommitError("schema.invalid_relation", "关系引用不完整");
     } else if (op.operation_type === "remove_relation") {
+      if (!p.relation_id && op.operation_id) p.relation_id = op.operation_id;
       if (typeof p.relation_id !== "string" || !p.relation_id) throw new CommitError("schema.invalid_relation", "缺少关系 ID");
     } else if (![ "confirm_handoff", "suspend_handoff", "invalidate_handoff"].includes(op.operation_type)) {
       throw new CommitError("schema.invalid_operation", "不支持的语义操作");

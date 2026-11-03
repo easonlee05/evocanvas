@@ -7,6 +7,9 @@ import { createHash } from "node:crypto";
 import { createPiRuntimeServer } from "../server.js";
 import { computeContentHash, WorkspaceSessionStore } from "./session-store.js";
 import { WorkspaceRevisionStore } from "./workspace-revision-store.js";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import { PiProviderRunExecutor } from "./executor.js";
+import { loadProductMethods, productMethodPath } from "./product-methods.js";
 
 function sha256(text: string): string {
   return `sha256:${createHash("sha256").update(text).digest("hex")}`;
@@ -182,4 +185,53 @@ test("PiRuntimeServer exposes v1 workspace endpoints (binding, submission, commi
     await runtime.close();
     await rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test("HTTP 工作区回合仅在明确请求时读取决策挑战，结果留在 Primary Session", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "pi-method-http-"));
+  const sessionStore = new WorkspaceSessionStore({ storageDir: join(tempDir, "sessions") });
+  const revisionStore = new WorkspaceRevisionStore({ storageDir: join(tempDir, "revisions") });
+  const faux = fauxProvider({ provider: "test-method-http", models: [{ id: "test-model" }] });
+  faux.setResponses([
+    fauxAssistantMessage("我理解你想解决公共支出漏记。谁负责最终核对？"),
+    fauxAssistantMessage(fauxToolCall("read", { path: productMethodPath("decision-challenge") })),
+    fauxAssistantMessage("当前方案的关键假设是室友愿意持续补记；先观察一周真实记录流程。"),
+  ]);
+  const models = createModels(); models.setProvider(faux.provider);
+  const runtime = createPiRuntimeServer({
+    host: "127.0.0.1", port: 0, sessionStore, revisionStore,
+    executor: new PiProviderRunExecutor({ providerId: "test-method-http", modelId: "test-model", models }),
+  });
+  await runtime.listen();
+  const address = runtime.server.address();
+  const baseUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 8790}`;
+  const workspaceId = "method-http-ws";
+  const turn = async (submissionId: string, content: string) => {
+    const pi_user_message = { role: "user", content };
+    const submission = await fetch(`${baseUrl}/v1/workspaces/${workspaceId}/submissions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contract_type: "user_submission_request", schema_version: "evocanvas.pi-runtime.v1", workspace_id: workspaceId,
+        submission_id: submissionId, content_hash: computeContentHash(pi_user_message), actor_id: "user", pi_user_message }),
+    });
+    assert.equal(submission.status, 200);
+    const response = await fetch(`${baseUrl}/v1/workspaces/${workspaceId}/turns`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ workspace_id: workspaceId, submission_id: submissionId }),
+    });
+    assert.equal(response.status, 200);
+    return response.json() as Promise<any>;
+  };
+  try {
+    const ordinary = await turn("method-http-1", "我想做一个宿舍公共支出记录工具，室友经常漏记");
+    assert.equal(ordinary.action, "chat_only");
+    assert.deepEqual(ordinary.active_skill_versions, []);
+    const challenged = await turn("method-http-2", "请红队一下这个宿舍公共支出记录方案");
+    assert.equal(challenged.action, "chat_only");
+    assert.deepEqual(challenged.active_skill_versions, [(await loadProductMethods()).get("decision-challenge")!.ref]);
+    const messages = await (await fetch(`${baseUrl}/v1/workspaces/${workspaceId}/messages`)).json() as any;
+    assert.ok(messages.messages.some((entry: any) => entry.message?.role === "assistant"
+      && JSON.stringify(entry.message).includes("关键假设")));
+    const projection = await (await fetch(`${baseUrl}/v1/workspaces/${workspaceId}/projection`)).json() as any;
+    assert.equal(projection.projected_revision_id, "rev_0");
+    assert.deepEqual(projection.cards, []);
+  } finally { await runtime.close(); await rm(tempDir, { recursive: true, force: true }); }
 });

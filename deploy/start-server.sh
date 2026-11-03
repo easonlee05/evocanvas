@@ -47,7 +47,7 @@ mkdir -p "$EVO_STORAGE_DIR" "$PI_STORAGE_DIR"
 
 # 6. 后台拉起 Pi Runtime
 echo "正在启动 Pi Runtime 进程 (${PI_RUNTIME_URL})..."
-node pi-runtime/dist/server.js &
+npm --prefix pi-runtime start &
 PI_PID=$!
 
 # 7. 优雅停止处理

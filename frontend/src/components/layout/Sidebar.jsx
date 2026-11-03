@@ -163,12 +163,12 @@ function ModelSettingsModal({ onClose }) {
           <div className="settings-editor-grid">
             <label className="settings-field">
               <span>模型标识（Slug）</span>
-              <input value={form.id || ''} onChange={event => { update('id', event.target.value); setFeedback(null); }} placeholder="例如 deepseek-v4-flash" spellCheck="false" />
+              <input value={form.id || ''} onChange={event => { update('id', event.target.value); setFeedback(null); }} placeholder="例如 deepseek-flash" spellCheck="false" />
             </label>
 
             <label className="settings-field">
               <span>显示名称</span>
-              <input value={form.name || ''} onChange={event => { update('name', event.target.value); setFeedback(null); }} placeholder="例如 DeepSeek V4 Flash" />
+              <input value={form.name || ''} onChange={event => { update('name', event.target.value); setFeedback(null); }} placeholder="例如 DeepSeek Flash" />
             </label>
           </div>
 

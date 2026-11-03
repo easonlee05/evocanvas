@@ -168,7 +168,7 @@ cp .env.example .env
 npm install -g pm2
 
 # 启动 Pi Runtime
-pm2 start pi-runtime/dist/server.js --name evocanvas-runtime
+pm2 start npm --name evocanvas-runtime --cwd pi-runtime -- start
 
 # 启动后端
 pm2 start ".venv/bin/uvicorn app.api.server:app --host 127.0.0.1 --port 8000" --name evocanvas-web

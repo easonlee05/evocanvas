@@ -3,6 +3,10 @@ import { useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiGet, apiPost, apiPostWithStatus, apiPut, apiUrl, apiUpload } from '../../api';
+
+// Primary Pi Session 的真实模型回合允许服务端最多运行 120 秒；前端要留出
+// Python→Pi Runtime 的传输和响应收尾时间，避免请求已在服务端完成却被浏览器提前中断。
+const CANVAS_MESSAGE_TIMEOUT_MS = 130_000;
 import { getSelectedModel, readConfiguredModel, readModelList } from '../../modelConfig';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -17,8 +21,8 @@ import {
   Zap, Settings2, Send, Mic, Paperclip,
   Square, CheckCircle2, ChevronRight, ChevronDown, ChevronUp, X,
   BookOpen, AlertCircle, Clock, Loader2, Terminal, Bot,
-  Bold, Italic, Underline, List, Code, RotateCcw, PanelRight,
-  CheckSquare, FileText, ArrowUp, Database, Link2, Plus, Layers,
+  Bold, Italic, Underline, List, Code, RotateCcw, PanelRight, PanelRightClose,
+  Check, CheckSquare, FileText, ArrowUp, Database, Link2, Plus, Layers,
 } from 'lucide-react';
 import './workspace.css';
 import Canvas from './Canvas';
@@ -33,9 +37,14 @@ import {
 function TiptapEditor({ content, onChange, onBlur }) {
   const editor = useEditor({
     extensions: [StarterKit, Markdown],
+    // 交接物正文由已确认 Revision 派生，工作区只读展示；语义修改必须
+    // 回到 Chat 重新提案和确认，避免在编辑器里形成第二条事实写入路径。
+    editable: false,
     content,
     editorProps: { attributes: { class: 'doc-editor markdown-body', style: 'outline:none;min-height:100%' } },
-    onUpdate: ({ editor }) => onChange(editor.storage.markdown.getMarkdown()),
+    onUpdate: ({ editor }) => {
+      if (onChange) onChange(editor.storage.markdown.getMarkdown());
+    },
     onBlur: ({ editor }) => { if (onBlur) onBlur(editor.storage.markdown.getMarkdown()); },
   });
   useEffect(() => {
@@ -153,12 +162,18 @@ export default function Workspace() {
   const [showKnowledgeMenu, setShowKnowledgeMenu] = useState(false);
   const [showSourceMenu, setShowSourceMenu] = useState(false);
   const [hasHydratedWorkspaceView, setHasHydratedWorkspaceView] = useState(false);
+  // 工作区首次进入时，画布和消息会先清空再从 Pi Revision / Session 恢复。
+  // 在两组接口完成前禁止渲染“空画布/暂无对话”，避免刷新期间出现假空状态。
+  const [isHydratingWorkspace, setIsHydratingWorkspace] = useState(
+    () => Boolean(taskId && taskId !== 'demo' && taskId !== 'new'),
+  );
 
   const streamRef = useRef(null);
   const savedRef = useRef(true);
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
   const writerMsgIdRef = useRef(null);
+  const activeRequestRef = useRef(null);
 
   useEffect(() => { savedRef.current = saved; }, [saved]);
 
@@ -184,24 +199,25 @@ export default function Workspace() {
 
   // 加载画布主视图数据
   function loadCanvasData(id) {
-    if (!id || id === 'demo' || id === 'new') return;
-    apiGet(`/api/canvas/workspaces/${id}/canvas`, null).then(res => {
+    if (!id || id === 'demo' || id === 'new') return Promise.resolve();
+    const canvasRequest = apiGet(`/api/canvas/workspaces/${id}/canvas`, null).then(res => {
       if (res) {
         setCards(res.cards || []);
         setRelations(res.relations || []);
         setTodos(res.todo_projection?.items || []);
       }
     });
-    apiGet(`/api/canvas/workspaces/${id}/handoff`, null).then(res => {
+    const handoffRequest = apiGet(`/api/canvas/workspaces/${id}/handoff`, null).then(res => {
       if (res) {
         setDoc(res.handoff?.summary || '');
       }
     });
+    return Promise.all([canvasRequest, handoffRequest]);
   }
 
   function loadChatMessages(id) {
-    if (!id || id === 'demo' || id === 'new') return;
-    apiGet(`/api/canvas/workspaces/${id}/messages`, { messages: [] }).then(res => {
+    if (!id || id === 'demo' || id === 'new') return Promise.resolve();
+    return apiGet(`/api/canvas/workspaces/${id}/messages`, { messages: [] }).then(res => {
       const messages = (res?.messages || []).map(item => ({
         id: item.message_id || `message_${item.message_seq}`,
         role: item.role === 'assistant' ? 'ai' : item.role,
@@ -220,6 +236,7 @@ export default function Workspace() {
     setCards([]);
     setRelations([]);
     setTodos([]);
+    setIsHydratingWorkspace(Boolean(taskId && taskId !== 'demo' && taskId !== 'new'));
     const savedMaterials = taskId ? localStorage.getItem(`evocanvas_materials_${taskId}`) : null;
     if (savedMaterials) {
       try {
@@ -240,6 +257,7 @@ export default function Workspace() {
       setDoc(DEMO_DOC);
       setDocSecondary(DEMO_DOC_SECONDARY);
       setIsLive(false);
+      setIsHydratingWorkspace(false);
       return;
     }
 
@@ -250,9 +268,12 @@ export default function Workspace() {
         setTaskTitle(data.title || 'EvoCanvas 工作区');
         setTaskType('evocanvas');
         setIsLive(false);
-        loadChatMessages(taskId);
-        loadCanvasData(taskId);
+        Promise.all([loadChatMessages(taskId), loadCanvasData(taskId)]).finally(() => {
+          if (!closed) setIsHydratingWorkspace(false);
+        });
         connectStream(taskId);
+      } else {
+        setIsHydratingWorkspace(false);
       }
     });
     return () => { closed = true; if (streamRef.current) streamRef.current.close(); };
@@ -352,14 +373,18 @@ export default function Workspace() {
     }
     else if (evType === 'canvas.turn.failed') {
       loadCanvasData(taskId);
-      setTaskStatus('failed');
+      const cancelled = p.error === 'runtime.cancelled' || p.error_code === 'runtime.cancelled';
+      setTaskStatus(cancelled ? 'cancelled' : 'failed');
       setIsLive(false);
       setStreamingMessage('');
-      setChatMessages(prev => [...prev, {
-        id: 'ev_' + Date.now(),
-        role: 'ai',
-        text: `运行未完成：${p.error || p.error_code || '未知错误'}`
-      }]);
+      setChatMessages(prev => {
+        if (cancelled && prev.some(message => message.text === '本轮已停止，稳定画布未改变。')) return prev;
+        return [...prev, {
+          id: 'ev_' + Date.now(),
+          role: 'ai',
+          text: cancelled ? '本轮已停止，稳定画布未改变。' : `运行未完成：${p.error || p.error_code || '未知错误'}`
+        }];
+      });
     }
     else if (evType === 'canvas.card.updated' || evType === 'canvas.relation.created' || evType === 'canvas.relation.deleted' || evType === 'canvas.card.moved' || evType === 'canvas.handoff.refreshed') {
       loadCanvasData(taskId);
@@ -372,8 +397,19 @@ export default function Workspace() {
   }
 
   function handleInterrupt() {
-    // Canvas 回合为异步单向流程，此处可作为 no-op 处理
+    const activeRequest = activeRequestRef.current;
+    if (activeRequest) {
+      // 先通知 Runtime 取消，再立即中断浏览器等待；即使 Runtime 正在
+      // 收尾，用户也不会被锁在“AI 正在思考”状态。
+      if (taskId && taskId !== 'demo' && taskId !== 'new') {
+        void apiPost(`/api/canvas/workspaces/${taskId}/turns/${encodeURIComponent(activeRequest.submissionId)}/cancel`, {}, null);
+      }
+      activeRequest.controller.abort();
+      activeRequestRef.current = null;
+    }
+    setTaskStatus('cancelled');
     setIsLive(false);
+    setStreamingMessage('');
   }
 
   async function handleAttachSource(connector) {
@@ -408,6 +444,7 @@ export default function Workspace() {
   // 供 approve/reject 等需要直接发送指定文本的场景调用，绕过 input 状态。
   async function handleSendText(text) {
     if (!text || !text.trim()) return;
+    if (activeRequestRef.current) return;
     setChatMessages(prev => [...prev, { id: 'usr_' + Date.now(), role: 'user', text }]);
     setTaskStatus('running');
     setIsLive(true);
@@ -423,37 +460,51 @@ export default function Workspace() {
       const materialIds = uploadedMaterials
         .filter(m => m.status === 'success' && m.material_id)
         .map(m => m.material_id);
+      const submissionId = crypto.randomUUID();
+      const controller = new AbortController();
+      activeRequestRef.current = { controller, submissionId };
+      try {
+        const result = await apiPostWithStatus(`/api/canvas/workspaces/${taskId}/messages`, {
+          message: text,
+          submission_id: submissionId,
+          selected_card_ids: selectedIds,
+          material_ids: materialIds,
+          source_ref_ids: attachedSourceRefs.map(item => item.source_ref_id),
+          mode: 'default',
+          model: model,
+          llm_config: readConfiguredModel(model),
+        }, CANVAS_MESSAGE_TIMEOUT_MS, controller.signal);
 
-      const result = await apiPostWithStatus(`/api/canvas/workspaces/${taskId}/messages`, {
-        message: text,
-        submission_id: crypto.randomUUID(),
-        selected_card_ids: selectedIds,
-        material_ids: materialIds,
-        source_ref_ids: attachedSourceRefs.map(item => item.source_ref_id),
-        mode: 'default',
-        model: model,
-        llm_config: readConfiguredModel(model),
-      });
-
-      if (result.ok) {
-        // HTTP 终态同样触发刷新，避免 SSE 重连期间漏掉完成事件。
-        setTaskStatus('completed');
-        setIsLive(false);
-        loadChatMessages(taskId);
-        loadCanvasData(taskId);
-      } else {
-        const errorMessage = result.data?.message || result.data?.detail || result.data?.error_code || `请求失败（${result.status || '网络错误'}）`;
-        setTaskStatus('failed');
-        setIsLive(false);
-        setChatMessages(prev => [...prev, {
-          id: 'err_' + Date.now(),
-          role: 'ai',
-          text: `运行未完成：${errorMessage}`,
-        }]);
+        if (controller.signal.aborted) {
+          setTaskStatus('cancelled');
+          setIsLive(false);
+          setStreamingMessage('');
+          setChatMessages(prev => [...prev, {
+            id: 'cancel_' + Date.now(),
+            role: 'ai',
+            text: '本轮已停止，稳定画布未改变。',
+          }]);
+        } else if (result.ok) {
+          // HTTP 终态同样触发刷新，避免 SSE 重连期间漏掉完成事件。
+          setTaskStatus('completed');
+          setIsLive(false);
+          loadChatMessages(taskId);
+          loadCanvasData(taskId);
+        } else {
+          const errorMessage = result.data?.message || result.data?.detail || result.data?.error_code || `请求失败（${result.status || '网络错误'}）`;
+          setTaskStatus('failed');
+          setIsLive(false);
+          setChatMessages(prev => [...prev, {
+            id: 'err_' + Date.now(),
+            role: 'ai',
+            text: `运行未完成：${errorMessage}`,
+          }]);
+        }
+      } finally {
+        if (activeRequestRef.current?.controller === controller) activeRequestRef.current = null;
+        setUploadedMaterials([]);
+        setAttachedSourceRefs([]);
       }
-      
-      setUploadedMaterials([]);
-      setAttachedSourceRefs([]);
     }
   }
 
@@ -468,11 +519,24 @@ export default function Workspace() {
   const hasOutput = outputItems.some(i => i.content);
   const currentDocContent = openedDoc === 'secondary' ? docSecondary : doc;
 
+  const lastAiMessage = [...chatMessages].reverse().find(m => m.role === 'ai');
+  const hasPendingConfirmation = Boolean(lastAiMessage && (
+    lastAiMessage.text.includes('待确认内容：') ||
+    lastAiMessage.text.includes('回复“确认”后生效') ||
+    lastAiMessage.text.includes('回复"确认"以写入') ||
+    lastAiMessage.text.includes('回复“确认”以写入')
+  ));
+  const hasPendingHandoffConfirmation = Boolean(hasPendingConfirmation && (
+    lastAiMessage.text.includes('确认交接') ||
+    lastAiMessage.text.includes('交接物确认')
+  ));
+
   return (
-    <div className={`workspace ${isChatOpen ? 'chat-open' : 'chat-closed'}`} style={{ position: 'relative' }}>
+    <div className={`workspace ${isChatOpen && !openedDoc ? 'chat-open' : 'chat-closed'}${openedDoc ? ' doc-open' : ''}`} style={{ position: 'relative' }}>
       <Canvas 
-        isChatOpen={isChatOpen} 
+        isChatOpen={isChatOpen && !openedDoc}
         workspaceId={taskId}
+        isHydrating={isHydratingWorkspace}
         cards={cards}
         relations={relations}
         todos={todos}
@@ -483,7 +547,7 @@ export default function Workspace() {
       />
 
       {/* 展开按钮 */}
-      {!isChatOpen && (
+      {!isChatOpen && !openedDoc && (
         <button 
           className="chat-toggle-btn"
           onClick={() => setIsChatOpen(true)}
@@ -499,7 +563,7 @@ export default function Workspace() {
       )}
 
       {/* ── 执行看板 ── */}
-      <div className={`ws-chat ${isChatOpen ? 'open' : 'closed'}`}>
+      <div className={`ws-chat ${isChatOpen && !openedDoc ? 'open' : 'closed'}`}>
         <div className="ws-chat-header">
           <div className="ws-chat-title">
             <span>{taskTitle}</span>
@@ -508,19 +572,16 @@ export default function Workspace() {
             {isFailed && <span className="failed-badge"><AlertCircle size={12} />执行失败</span>}
             {taskStatus === 'cancelled' && <span className="paused-badge">已暂停</span>}
           </div>
-          <div className="ws-chat-header-actions">
-            <button
-              className="icon-btn"
-              title="收起助手"
-              onClick={() => setIsChatOpen(false)}
-            >
-              <PanelRight size={15} />
+          <div className="ws-chat-actions">
+            <button className="ws-icon-btn" onClick={() => setIsChatOpen(false)} title="收起面板">
+              <PanelRightClose size={15} />
             </button>
           </div>
         </div>
 
         <div className="ws-messages" ref={scrollRef}>
-          {chatMessages.length === 0 && !isLive && <div className="step-empty">暂无对话记录</div>}
+          {isHydratingWorkspace && <div className="step-empty">正在恢复对话…</div>}
+          {!isHydratingWorkspace && chatMessages.length === 0 && !isLive && <div className="step-empty">暂无对话记录</div>}
 
           {chatMessages.map(m => (
             <div key={m.id} className={`chat-bubble-row ${m.role}`}>
@@ -558,11 +619,26 @@ export default function Workspace() {
           )}
         </div>
 
-        {/* 快捷追问指令 */}
+        {/* 快捷追问与确认指令 */}
         <div className="chat-suggestions">
+          {hasPendingHandoffConfirmation && !isLive && (
+            <button className="suggestion-chip suggestion-chip-confirm" onClick={() => handleSendText('确认交接')}>
+              <Check size={12}/> 确认交接并写入
+            </button>
+          )}
+          {hasPendingConfirmation && !hasPendingHandoffConfirmation && !isLive && (
+            <button className="suggestion-chip suggestion-chip-confirm" onClick={() => handleSendText('确认')}>
+              <Check size={12}/> 确认候选并写入画布
+            </button>
+          )}
           <button className="suggestion-chip" onClick={() => setInput('总结一下当前画布上的证据')}><List size={12}/> 总结证据</button>
           <button className="suggestion-chip" onClick={() => setInput('检查当前约束与待澄清的冲突点')}><CheckSquare size={12}/> 检查冲突</button>
-          <button className="suggestion-chip" onClick={() => setInput('整理并刷新交接物草稿')}><FileText size={12}/> 刷新交接物</button>
+          <button className="suggestion-chip" onClick={() => setInput('整理并生成结构化交接物候选，说明已知与缺口')}><FileText size={12}/> 刷新交接物</button>
+          {hasOutput && (
+            <button className="suggestion-chip" onClick={() => setOpenedDoc('primary')}>
+              <FileText size={12}/> 查看结构化交接物
+            </button>
+          )}
         </div>
 
         {/* 输入区 */}
@@ -763,7 +839,6 @@ export default function Workspace() {
             <TiptapEditor
               key={`${taskId}-${openedDoc}`}
               content={currentDocContent}
-              onChange={d => { openedDoc === 'secondary' ? setDocSecondary(d) : setDoc(d); setSaved(false); }}
               onBlur={saveDocument}
             />
           )}

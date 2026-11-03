@@ -342,13 +342,18 @@ def get_canvas_service(service: TaskService = Depends(get_task_service)) -> Canv
     """基于当前租户的存储与私有 Pi Runtime 构建 CanvasService。"""
 
     execution = getattr(service, "canvas_execution", None)
-    if execution is None:
+    # 只有显式配置 PI_RUNTIME_URL 时才接管 Canvas 主链。这样兼容 API
+    # 的单元测试和未启动 Pi Runtime 的开发环境仍能使用原有的本地
+    # CanvasService；部署脚本会明确导出该变量，因此生产路径不会静默
+    # 回退到旧 Supervisor。
+    runtime_url = os.getenv("PI_RUNTIME_URL", "").strip()
+    if execution is None and runtime_url:
         try:
             timeout_seconds = max(0.001, int(os.getenv("PI_RUNTIME_TIMEOUT_MS", "30000")) / 1000)
         except ValueError:
             timeout_seconds = 30.0
         execution = PiRuntimeClient(
-            base_url=os.getenv("PI_RUNTIME_URL", "http://127.0.0.1:8790"),
+            base_url=runtime_url,
             internal_secret=os.getenv("PI_RUNTIME_INTERNAL_SECRET"),
             timeout_seconds=timeout_seconds,
             workspace_namespace=getattr(service, "tenant_id", "default"),
@@ -547,7 +552,9 @@ def create_app(task_service: TaskService | None = None):
         RolePolicy.enforce(user.role, "canvas.read")
         try:
             if canvas_service.pi_kernel is not None and snapshot_id is None:
-                await canvas_service.pi_kernel.refresh_projection(workspace_id)
+                # Pi Revision 是生产 Canvas 的唯一稳定来源；直接由 Pi
+                # 投影构建响应，避免再用旧的 Python 包状态覆盖交接状态。
+                return await canvas_service.pi_kernel.get_canvas_view(workspace_id)
             return canvas_service.get_canvas_view(workspace_id, snapshot_id=snapshot_id)
         except CanvasSnapshotNotFoundError:
             raise HTTPException(status_code=404, detail="canvas snapshot not found")
@@ -561,6 +568,25 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.write")
         try:
+            if canvas_service.pi_kernel is None:
+                # 未配置 Pi Runtime 的兼容开发/测试环境仍保留旧 Canvas
+                # Supervisor 的显式入口；一旦请求携带了浏览器模型配置，
+                # 则必须报告 Runtime 未就绪，不能静默改走 Fake/旧模型。
+                if request.llm_config:
+                    raise PiRuntimeError(
+                        "runtime_not_ready",
+                        "Pi Runtime 未配置，无法使用当前模型设置",
+                        category="not_ready",
+                    )
+                return canvas_service.start_turn(
+                    workspace_id=workspace_id,
+                    message=request.message,
+                    selected_card_ids=list(request.selected_card_ids),
+                    material_ids=list(request.material_ids),
+                    source_ref_ids=list(request.source_ref_ids),
+                    mode=request.mode,
+                    model=request.model,
+                )
             return await canvas_service.run_pi_turn(
                 workspace_id=workspace_id,
                 message=request.message,
@@ -615,6 +641,33 @@ def create_app(task_service: TaskService | None = None):
                     "reason": "runtime_not_ready" if runtime_not_ready else "runtime_error",
                     "error_code": exc.error_code,
                     "run_id": exc.run_id,
+                    "message": str(exc),
+                },
+            )
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/turns/{submission_id}/cancel")
+    async def cancel_canvas_turn(
+        workspace_id: str,
+        submission_id: str,
+        user: User = Depends(get_current_user),
+        canvas_service: CanvasService = Depends(get_canvas_service),
+    ) -> Dict[str, Any]:
+        """停止当前工作区回合，释放用户侧的等待状态。"""
+        RolePolicy.enforce(user.role, "canvas.write")
+        execution = canvas_service.pi_kernel.execution if canvas_service.pi_kernel is not None else None
+        cancel = getattr(execution, "cancel_workspace_turn", None)
+        if cancel is None:
+            return {"workspace_id": workspace_id, "submission_id": submission_id, "status": "not_supported"}
+        try:
+            return await cancel(workspace_id, submission_id)
+        except PiRuntimeError as exc:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "workspace_id": workspace_id,
+                    "submission_id": submission_id,
+                    "status": "cancel_unknown",
+                    "error_code": exc.error_code,
                     "message": str(exc),
                 },
             )
@@ -678,7 +731,30 @@ def create_app(task_service: TaskService | None = None):
     ) -> Dict[str, Any]:
         RolePolicy.enforce(user.role, "canvas.read")
         if canvas_service.pi_kernel is not None:
-            return await canvas_service.pi_kernel.execution.get_handoff(workspace_id)
+            try:
+                handoff_data = await canvas_service.pi_kernel.execution.get_handoff(workspace_id)
+                canvas_service.repository.save_handoff_projection(workspace_id, handoff_data)
+                return handoff_data
+            except PiRuntimeError as error:
+                # Runtime 断开时只读回放已持久化的最后已知交接物投影
+                cached = canvas_service.repository.load_handoff_projection(workspace_id)
+                if cached is not None:
+                    cached_dict = dict(cached)
+                    cached_dict["read_consistency"] = "last_known_stable"
+                    cached_dict["runtime_error_code"] = str(
+                        getattr(error, "error_code", None)
+                        or getattr(error, "code", None)
+                        or error.__class__.__name__
+                    )
+                    return cached_dict
+                fallback = canvas_service.get_handoff(workspace_id)
+                fallback["read_consistency"] = "last_known_stable"
+                fallback["runtime_error_code"] = str(
+                    getattr(error, "error_code", None)
+                    or getattr(error, "code", None)
+                    or error.__class__.__name__
+                )
+                return fallback
         return canvas_service.get_handoff(workspace_id)
 
     @app.get("/api/canvas/workspaces/{workspace_id}/messages")
@@ -690,7 +766,20 @@ def create_app(task_service: TaskService | None = None):
         """读取由 Primary Session Entry 重建的消息投影。"""
         RolePolicy.enforce(user.role, "canvas.read")
         if canvas_service.pi_kernel is not None:
-            await canvas_service.pi_kernel.refresh_messages(workspace_id)
+            try:
+                await canvas_service.pi_kernel.refresh_messages(workspace_id)
+            except PiRuntimeError as error:
+                # Session 读取失败时保留 Python 侧最后一次已保存的消息投影。
+                # 这是只读降级，不代表 Runtime 已恢复，也不能作为新的
+                # 稳定写入上下文；这样刷新期间不会把真实对话伪装成空记录。
+                fallback = canvas_service.get_chat_messages(workspace_id)
+                fallback["read_consistency"] = "last_known_stable"
+                fallback["runtime_error_code"] = str(
+                    getattr(error, "error_code", None)
+                    or getattr(error, "code", None)
+                    or error.__class__.__name__
+                )
+                return fallback
         return canvas_service.get_chat_messages(workspace_id)
 
     @app.post("/api/canvas/workspaces/{workspace_id}/handoff/refresh")
@@ -754,6 +843,19 @@ def create_app(task_service: TaskService | None = None):
         RolePolicy.enforce(user.role, "canvas.read")
         # L3 规格已下线独立确认队列：高影响提案的确认/拒绝统一通过普通 Chat 消息触发，
         # 不再提供独立的只读确认列表路由，避免形成第二条状态通道。
+        raise HTTPException(status_code=404, detail="confirmation queue removed")
+
+    @app.post("/api/canvas/workspaces/{workspace_id}/confirmations/{proposal_id}/{action}")
+    async def removed_canvas_confirmation_action(
+        workspace_id: str,
+        proposal_id: str,
+        action: str,
+        user: User = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """明确关闭历史确认操作，避免 SPA 兜底把它误报为 405。"""
+
+        del workspace_id, proposal_id, action
+        RolePolicy.enforce(user.role, "canvas.write")
         raise HTTPException(status_code=404, detail="confirmation queue removed")
 
     @app.post("/api/canvas/workspaces/{workspace_id}/cards")

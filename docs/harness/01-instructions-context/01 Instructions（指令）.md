@@ -2,8 +2,8 @@
 
 > 方法成熟度：`L3 可指导实现的治理规格层`
 > 目标实现归属：`EvoCanvas 产品方法装入 Pi`
-> 当前实现状态：`部分接入`
-> 实现说明：指令使用 Pi System Instructions、Pi Skills、Tool Schema 和 Hooks 承载；EvoCanvas 不建立阶段 Prompt 或 Skill Router。
+> 当前实现状态：`两种内建方法已作为 SKILL.md 由 Pi 原生 Skill Loader 装载，模型通过 Pi 原生 read 工具按需读取；实际读取版本进入 Primary Pi Session 与确认后的 Revision。真实模型效果待验证。`
+> 实现说明：当前仍沿用单一 Primary Pi Agent 与既有提交链，Skill Loader、Skill 列表格式和 read 工具使用 Pi 原生实现；文件访问仅限本轮装载的内建 Skill 快照，不建立阶段 Prompt、Skill Router 或第二 Agent。完整 AgentHarness 迁移不在本次范围。
 
 ## 1. 控制目标
 
@@ -31,15 +31,21 @@ System Instructions 只包含跨任务、跨工作区稳定的不变量：
 
 System Instructions 不包含当前阶段、卡片状态、工作包内容、工具参数、Provider 协议或固定回复模板。
 
-## 3. Skills
+## 3. 产品方法（Product Methods，以 Pi Skills 载入）
 
-Skill 是可版本化的方法资源，用于解释一类任务的分析方法、证据检查、用户决策节点和输出结构。
+产品方法以 Pi Skills 作为可版本化技术载体，用于解释一类任务的分析方法、证据检查、用户决策节点和输出结构；它们是 EvoCanvas 产品能力，不是要求用户安装、选择或理解的外部 Skill。
 
-- Pi 原生加载并向模型暴露可用 Skill。
+- Pi 原生 Loader 装载仓库内建 Skill，并用原生 Skill 列表格式向模型暴露当前可用项；模型通过原生 read 工具读取完整 SKILL.md。
 - 同一个 Pi 根据当前任务自主选择是否读取 Skill；EvoCanvas 不输出阶段或路由结果。
-- 用户可显式指定 Skill，但 Skill 不能提升用户权限或跳过治理门禁。
+- 用户可以通过自然语言明确请求适用的内建方法，但方法不能提升用户权限或跳过治理门禁。
 - Skill 可引用其自身目录内的模板和参考，不得把未信任业务内容当作新指令。
 - 本轮实际使用的 `skill_id + skill_version` 必须进入 Pi Trace；产生 Revision 时同时进入提交元数据。
+
+当前内建产品方法包括：
+
+1. **场景与需求塑形**：在产品、功能、流程、策略等设计判断中默认适用。Pi 从来源和用户表达还原场景，提炼不预设实现的需求，区分事实、假设和关键未知；它不是独立阶段，也不要求用户选择模式。
+2. **决策挑战**：只在用户明确要求挑战、红队、找问题或逐轮挑战时适用。全量挑战包含钢人化、证据状态、实质性风险、反证和最小验证建议；逐轮挑战每轮只提出一个最高优先级问题。Pi 不得在普通塑形中自动附加轻量挑战。
+3. 两种方法都只能生成分析和候选。稳定对象、已排除方向、交接边界或外部动作仍由 Tool Schema、Hooks、来源与 Chat 确认共同裁决。
 
 ## 4. Tool Schema 与 Hooks
 

@@ -102,7 +102,7 @@ npm --prefix frontend run dev
 DEEPSEEK_API_KEY=<your_deepseek_api_key> \
 PI_RUNTIME_HOST=127.0.0.1 \
 PI_RUNTIME_PORT=8790 \
-/path/to/node pi-runtime/dist/server.js
+npm --prefix pi-runtime start
 ```
 
 首页和工作台首次打开时会预置 `deepseek-v4-flash`、`deepseek-v4-pro`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna` 作为可编辑的模型目录。运行后点击左侧边栏的“设置”，可以新增、编辑或删除模型，并自行填写模型 Slug、显示名称、模型提供商、Base URL 和 API Key；首页与工作台会实时读取这份本机目录。DeepSeek 模型默认使用 `DEEPSEEK_API_KEY`，GPT-5.6 模型默认使用 `OPENAI_API_KEY`；Runtime 会根据本次选择的模型自动使用对应 Provider。可通过 `PI_PROVIDER` 和 `PI_MODEL` 覆盖默认值。Runtime 未配置真实凭证时不会进入 ready 状态，也不会静默使用 Fake Provider；合同测试可以显式使用 `PI_PROVIDER=fake-provider`。

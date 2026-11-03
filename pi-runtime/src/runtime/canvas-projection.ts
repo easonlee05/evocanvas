@@ -70,11 +70,11 @@ export function renderCanvasProjection(
       updated_at: obj.updated_at,
     });
 
-    if (cardType === "problem" && obj.type_status !== "resolved") {
+    if (cardType === "problem" && ["initial", "converging"].includes(obj.type_status)) {
       activeTodos.push(`解决焦点问题: ${obj.title}`);
-    } else if (cardType === "clarification" && obj.type_status !== "answered") {
+    } else if (cardType === "clarification" && ["open", "pending_confirmation", "blocked"].includes(obj.type_status)) {
       activeTodos.push(`澄清问题: ${obj.title}`);
-    } else if (cardType === "decision" && obj.type_status === "pending") {
+    } else if (cardType === "decision" && ["pending_decision", "pending_confirmation"].includes(obj.type_status)) {
       activeTodos.push(`待决策事项: ${obj.title}`);
     }
   }
@@ -114,6 +114,23 @@ export function renderCanvasProjection(
 
 /** 交接正文按确认版本派生；包括全部未决与风险，不保存独立可编辑正文。 */
 export function renderHandoffSummary(revision: ImmutableRevision): string {
-  const labels: Record<string,string> = {evidence:"来源证据",problem:"问题",clarification:"待澄清",constraint:"约束",decision:"待决策",handoff:"交接"};
-  return Object.values(revision.objects).map(obj => `- ${labels[obj.object_type] || obj.object_type}：${obj.title}（${obj.type_status}）${obj.summary ? `\n  ${obj.summary}` : ""}${obj.data?.risks ? `\n  风险：${JSON.stringify(obj.data.risks)}` : ""}`).join("\n");
+  const statuses: Record<string, string> = { initial: "待解决", converging: "收敛中", converged: "已收敛", open: "待澄清", clarified: "已澄清", closed: "已关闭", blocked: "已阻塞", draft: "草稿", pending_confirmation: "待确认", effective: "已生效", decided: "已决策", pending_decision: "待决策", archived: "已归档", superseded: "已替代", collected: "已收录", cited: "已引用" };
+  const objects = Object.values(revision.objects);
+  const groups = [
+    { title: "当前问题与场景", objects: objects.filter(obj => obj.object_type === "problem") },
+    { title: "来源证据", objects: objects.filter(obj => obj.object_type === "evidence") },
+    { title: "已生效约束", objects: objects.filter(obj => obj.object_type === "constraint" && obj.type_status === "effective") },
+    { title: "已完成决策", objects: objects.filter(obj => obj.object_type === "decision" && obj.type_status === "decided") },
+    { title: "未决与待确认", objects: objects.filter(obj =>
+      (obj.object_type === "clarification" && ["open", "pending_confirmation", "blocked"].includes(obj.type_status))
+      || (obj.object_type === "constraint" && ["draft", "pending_confirmation"].includes(obj.type_status))
+      || (obj.object_type === "decision" && ["pending_decision", "pending_confirmation"].includes(obj.type_status))) },
+  ];
+  const groupedIds = new Set(groups.flatMap(group => group.objects.map(obj => obj.id)));
+  groups.push({ title: "其他已记录内容", objects: objects.filter(obj => !groupedIds.has(obj.id)) });
+  const body = groups.map(group => `## ${group.title}\n${group.objects.length ? group.objects.map(obj =>
+    `- ${obj.title}（${statuses[obj.type_status] || obj.type_status}）${obj.summary ? `\n  ${obj.summary}` : ""}${obj.data?.risks ? `\n  风险：${JSON.stringify(obj.data.risks)}` : ""}`
+  ).join("\n") : "当前没有已记录内容。"}`).join("\n\n");
+  const refs = objects.map(obj => `- ${obj.title} [${obj.id}]：来源 ${JSON.stringify(obj.data?.source_refs || [])}；确认 ${JSON.stringify(obj.confirmation_refs || [])}`).join("\n");
+  return `${body}\n\n## 来源与版本\n结构版本：${revision.revision_id}\n${refs}`;
 }

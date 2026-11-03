@@ -296,6 +296,7 @@ export function validateWorkspaceCommitRequest(value: unknown): import("./contra
   const toolContext = requireObject(record, "tool_context") as any;
   for (const key of ["workspace_id", "session_id", "entry_id", "actor_id"]) requireString(toolContext, key);
   if (!Array.isArray(toolContext.capabilities) || toolContext.capabilities.some((item: unknown) => typeof item !== "string")) throw new RuntimeContractError("schema_invalid", "capabilities must be a string array");
+  if (!Array.isArray(toolContext.active_skill_versions) || toolContext.active_skill_versions.some((item: unknown) => typeof item !== "string")) throw new RuntimeContractError("schema_invalid", "active_skill_versions must be a string array");
   const baseRevisionId = requireString(record, "base_revision_id");
   const idempotencyKey = requireString(record, "idempotency_key");
   const requestHash = requireString(record, "request_hash");

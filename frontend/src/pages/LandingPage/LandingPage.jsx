@@ -7,9 +7,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { ArrowUp, Zap, Search, Database, Paperclip, MoreHorizontal, ArrowRight, Loader, Loader2, ChevronDown, Check, Plus, AlertCircle, X, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { apiPostWithStatus, apiUpload } from '../../api';
+import { apiGet, apiPostWithStatus, apiUpload } from '../../api';
 import { getSelectedModel, readConfiguredModel, readModelList } from '../../modelConfig';
 import './landing-page.css';
+
+// 首页首次消息同样会进入 Primary Pi Session，允许服务端的 120 秒真实回合
+// 完整返回，避免工作区已提交但首页先显示网络错误。
+const CANVAS_MESSAGE_TIMEOUT_MS = 130_000;
 
 /**
  * 快捷推荐引导 prompt 列表
@@ -113,6 +117,7 @@ export default function LandingPage() {
   const [value, setValue] = useState('');
   const [status, setStatus] = useState('idle'); // 状态机状态: idle (空闲) | thinking (处理中/创建任务中) | done (完成)
   const [error, setError] = useState('');
+  const [savedWorkspaceId, setSavedWorkspaceId] = useState('');
   const [models, setModels] = useState(() => readModelList());
   const [model, setModel] = useState(() => getSelectedModel());
   const [isModelOpen, setIsModelOpen] = useState(false); // 模型下拉框的展示状态
@@ -191,6 +196,7 @@ export default function LandingPage() {
     if (!msg.trim()) return;
     setValue(msg);
     setError('');
+    setSavedWorkspaceId('');
     setStatus('thinking');
     
     const materialIds = uploadedMaterials
@@ -205,7 +211,7 @@ export default function LandingPage() {
       material_ids: materialIds,
       model: model,
       llm_config: readConfiguredModel(model),
-    });
+    }, CANVAS_MESSAGE_TIMEOUT_MS);
 
     if (response.ok && response.data?.workspace_id) {
       // 创建成功后，将本地上传好的文件存入 localStorage 接力给工作台
@@ -217,6 +223,16 @@ export default function LandingPage() {
       return;
     }
     const detail = response.data?.message || response.data?.detail || response.data?.error_code;
+    // 模型失败不等于原输入保存失败；确认消息已经落盘后才提供恢复入口。
+    if (response.data?.workspace_id) {
+      const saved = await apiGet(`/api/canvas/workspaces/${response.data.workspace_id}/messages`, null);
+      if (saved?.messages?.some(item => item.role === 'user' && item.content === msg.trim())) {
+        setSavedWorkspaceId(response.data.workspace_id);
+        if (uploadedMaterials.length > 0) {
+          localStorage.setItem(`evocanvas_materials_${response.data.workspace_id}`, JSON.stringify(uploadedMaterials));
+        }
+      }
+    }
     setError(response.status === 0
       ? '工作区初始化失败：无法连接后端 API，请确认本地后端已启动。'
       : `工作区初始化失败${detail ? `：${detail}` : `（HTTP ${response.status}）`}`);
@@ -292,6 +308,11 @@ export default function LandingPage() {
           {status === 'idle' && error && (
             <div className="input-error">
               {error}
+              {savedWorkspaceId && (
+                <button className="chip" onClick={() => navigate(`/workspace/${savedWorkspaceId}`)}>
+                  进入已保存工作区
+                </button>
+              )}
             </div>
           )}
           {status === 'idle' && (

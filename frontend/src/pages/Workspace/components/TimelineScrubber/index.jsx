@@ -160,7 +160,7 @@ export function TimelineScrubber({
                   </button>
                 ))
               ) : (
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>当前没有阻塞性缺口</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{timeline.emptyGapCaption}</span>
               )}
             </div>
           </div>

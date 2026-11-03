@@ -97,7 +97,7 @@ test("Pi Runtime validates tool profile scope, budgets, and gateway pairing", ()
 
 test("Pi Runtime maps provider readiness failures to a stable not_ready error", () => {
   const envelope = toErrorEnvelope(
-    new RuntimeProviderNotReadyError("deepseek", "deepseek-v4-flash", "missing credentials"),
+    new RuntimeProviderNotReadyError("deepseek", "deepseek-flash", "missing credentials"),
     "run-not-ready",
     "trace-not-ready",
   );

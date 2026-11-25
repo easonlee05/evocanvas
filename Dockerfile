@@ -61,8 +61,9 @@ ENV PYTHONUNBUFFERED=1 \
     FRONTEND_DIST_DIR=/app/frontend/dist \
     PORT=8000
 
-# 创建持久化数据卷挂载点
-RUN mkdir -p /data/pi-storage /data/evocanvas-storage
+# 创建持久化数据卷挂载点（兼容 Hugging Face Spaces 等非 root 运行环境）
+RUN mkdir -p /data/pi-storage /data/evocanvas-storage \
+    && chmod -R 777 /data
 VOLUME ["/data"]
 
 EXPOSE 8000

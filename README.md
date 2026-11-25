@@ -1,3 +1,13 @@
+---
+title: EvoCanvas
+emoji: 🎨
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
 # EvoCanvas
 
 EvoCanvas 是一个以 **Vibe Shaping（感觉塑形）** 为核心的对话驱动收敛工作台。它帮助产品经理，以及创业者、设计师、业务负责人等产品思考密集型用户，从一句尚未成形的感觉、零散聊天或多源材料开始，逐步形成可讨论、可追溯、可交接的结构化判断。
@@ -6,7 +16,17 @@ EvoCanvas 是一个以 **Vibe Shaping（感觉塑形）** 为核心的对话驱�
 
 > 当前产品真相源：[`docs/vision/EvoCanvas1.0-PRD.md`](docs/vision/EvoCanvas1.0-PRD.md)
 
-## EvoCanvas 1.0
+#---
+title: EvoCanvas
+emoji: 🎨
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
+# EvoCanvas 1.0
 
 1.0 的体验旅程是：
 

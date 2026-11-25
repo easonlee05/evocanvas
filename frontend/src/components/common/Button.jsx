@@ -3,7 +3,6 @@
  * @description 通用按钮组件。支持多种样式变体（主按钮、次按钮、幽灵按钮、图标按钮）以及尺寸定制，并可在文字两侧渲染图标。
  */
 
-import React from 'react';
 import './button.css';
 
 /**

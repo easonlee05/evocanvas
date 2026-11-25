@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Search, Plus, FileText, Shield, Layout, X, Eye } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { Search, Plus, FileText, Shield, Layout, X, Eye, Activity, Inbox, Check } from 'lucide-react';
 import { apiGet, apiPost } from '../../api';
 import './knowledge-base.css';
 
@@ -27,6 +27,11 @@ export default function KnowledgeBase() {
   const [showModal, setShowModal] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
+  const [candidates, setCandidates] = useState([]);
+  const [showCandidates, setShowCandidates] = useState(false);
+  const [approvingId, setApprovingId] = useState(null);
 
   // Pan / Zoom 状态
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -42,6 +47,47 @@ export default function KnowledgeBase() {
   const velocities = useRef({});
 
   const containerRef = useRef(null);
+
+  const refreshHealthAndCandidates = async () => {
+    setCheckingHealth(true);
+    try {
+      const [healthRes, candidatesRes] = await Promise.all([
+        apiGet('/api/knowledge/health', { status: 'degraded', items: 0 }),
+        apiGet('/api/knowledge/candidates', { items: [] }),
+      ]);
+      setHealth(healthRes);
+      setCandidates(candidatesRes?.items || []);
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
+
+  const handleApproveCandidate = async (candidate) => {
+    if (!candidate?.id || approvingId) return;
+    setApprovingId(candidate.id);
+    try {
+      const approved = await apiPost(`/api/knowledge/${candidate.id}/approve`, {
+        title: candidate.title,
+        type: candidate.type || 'doc',
+        desc: candidate.desc || '',
+        tags: candidate.tags || [],
+      }, null);
+      if (approved) {
+        setCandidates(prev => prev.filter(c => c.id !== candidate.id));
+        setItems(prev => [...prev, approved]);
+        setPositions(prev => ({
+          ...prev,
+          [approved.id]: { x: 420 + (Math.random() - 0.5) * 160, y: 260 + (Math.random() - 0.5) * 120 },
+        }));
+      }
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  useEffect(() => {
+    refreshHealthAndCandidates();
+  }, []);
 
   // 1. 数据拉取与位置初始化
   useEffect(() => {
@@ -253,12 +299,9 @@ export default function KnowledgeBase() {
   const handleCanvasWheel = (e) => {
     e.preventDefault();
     const zoomFactor = 1.06;
-    let newZoom = zoom;
-    if (e.deltaY < 0) {
-      newZoom = Math.min(zoom * zoomFactor, 2.5);
-    } else {
-      newZoom = Math.max(zoom / zoomFactor, 0.3);
-    }
+    const newZoom = e.deltaY < 0
+      ? Math.min(zoom * zoomFactor, 2.5)
+      : Math.max(zoom / zoomFactor, 0.3);
     setZoom(newZoom);
   };
 
@@ -349,10 +392,6 @@ export default function KnowledgeBase() {
     return typeMap[node.type] === tab;
   };
 
-  const getLinkCount = (nodeId) => {
-    return relations.filter(r => r.source === nodeId || r.target === nodeId).length;
-  };
-
   return (
     <div className="kb-page">
       {/* 顶部固定工具栏 */}
@@ -384,6 +423,31 @@ export default function KnowledgeBase() {
               </button>
             ))}
           </div>
+
+          <button
+            className={`kb-health-pill${health?.status === 'ok' ? ' ok' : ' degraded'}`}
+            title={health?.error ? `知识库降级：${health.error}` : '点击重新检查知识库健康状态'}
+            onClick={refreshHealthAndCandidates}
+            disabled={checkingHealth}
+          >
+            <Activity size={12} />
+            <span>
+              {checkingHealth
+                ? '检查中...'
+                : health?.status === 'ok'
+                  ? `检索正常 (${health.items ?? 0})`
+                  : '本地缓存模式'}
+            </span>
+          </button>
+
+          <button
+            className={`kb-ctrl-btn kb-candidates-btn${showCandidates ? ' active' : ''}`}
+            title="查看待审核的候选知识"
+            onClick={() => setShowCandidates(prev => !prev)}
+          >
+            <Inbox size={13} />
+            <span>候选 ({candidates.length})</span>
+          </button>
 
           <button className="kb-ctrl-btn" title="重置自适应视角" onClick={handleResetView}>
             <Eye size={13} />
@@ -611,6 +675,47 @@ export default function KnowledgeBase() {
           onClose={() => setShowModal(false)} 
           onCreate={handleCreate} 
         />
+      )}
+
+      {showCandidates && (
+        <div className="kb-candidates-drawer">
+          <div className="kb-candidates-header">
+            <div>
+              <h3>待审核候选知识</h3>
+              <p>来自工作区沉淀或资料抽取的候选条目，需确认后正式入库</p>
+            </div>
+            <button className="kb-ctrl-btn" onClick={() => setShowCandidates(false)} title="关闭">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="kb-candidates-list">
+            {candidates.length === 0 ? (
+              <div className="kb-candidates-empty">当前没有待审核的候选知识。</div>
+            ) : (
+              candidates.map((cand) => (
+                <div key={cand.id} className="kb-candidate-card">
+                  <div className="kb-candidate-top">
+                    <span className="kb-candidate-title">{cand.title}</span>
+                    <span className="kb-candidate-type">{typeMap[cand.type] || '文档'}</span>
+                  </div>
+                  <p className="kb-candidate-desc">{cand.desc}</p>
+                  {cand.source_workspace_id && (
+                    <div className="kb-candidate-source">来源工作区：{cand.source_workspace_id}</div>
+                  )}
+                  <div className="kb-candidate-actions">
+                    <button
+                      className="kb-btn-primary"
+                      onClick={() => handleApproveCandidate(cand)}
+                      disabled={approvingId === cand.id}
+                    >
+                      <Check size={12} /> {approvingId === cand.id ? '入库中...' : '确认入库'}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

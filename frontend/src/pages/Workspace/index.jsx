@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { apiGet, apiPost, apiPostWithStatus, apiPut, apiUrl, apiUpload } from '../../api';
+import { apiGet, apiPost, apiPostWithStatus, apiUrl, apiUpload } from '../../api';
 
 // Primary Pi Session 的真实模型回合允许服务端最多运行 120 秒；前端要留出
 // Python→Pi Runtime 的传输和响应收尾时间，避免请求已在服务端完成却被浏览器提前中断。
@@ -14,16 +14,16 @@ import { Markdown } from 'tiptap-markdown';
 import {
   getCanvasViewStateStorageKey,
   readStoredCanvasViewState,
-  shouldAutoRunTaskOnOpen,
 } from './workspaceSession';
-import { sanitizeWorkspaceContent } from './workspaceContent';
 import {
-  Zap, Settings2, Send, Mic, Paperclip,
-  Square, CheckCircle2, ChevronRight, ChevronDown, ChevronUp, X,
-  BookOpen, AlertCircle, Clock, Loader2, Terminal, Bot,
-  Bold, Italic, Underline, List, Code, RotateCcw, PanelRight, PanelRightClose,
-  Check, CheckSquare, FileText, ArrowUp, Database, Link2, Plus, Layers,
+  Paperclip,
+  Square, CheckCircle2, ChevronDown, X,
+  BookOpen, AlertCircle, Loader2, Bot,
+  List, PanelRight, PanelRightClose,
+  Check, CheckSquare, FileText, ArrowUp, Database, Link2,
+  Copy, Download, RefreshCw, UploadCloud,
 } from 'lucide-react';
+import { buildAiPrdMarkdown, normalizeHandoffView } from './handoffExport';
 import './workspace.css';
 import Canvas from './Canvas';
 import {
@@ -132,8 +132,6 @@ export default function Workspace() {
 
   const [chatMessages, setChatMessages] = useState([]);
   const [streamingMessage, setStreamingMessage] = useState('');
-  const [steps, setSteps] = useState([]);
-  const [streamingStep, setStreamingStep] = useState(null);
   const [taskStatus, setTaskStatus] = useState(null);
   const [taskTitle, setTaskTitle] = useState('Canvas AI');
   const [isLive, setIsLive] = useState(false);
@@ -144,9 +142,12 @@ export default function Workspace() {
   const [arbitration, setArbitration] = useState(null);
   const [userMessages, setUserMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [taskType, setTaskType] = useState('evocanvas');
   const [doc, setDoc] = useState('');
   const [docSecondary, setDocSecondary] = useState('');
+  const [handoffRaw, setHandoffRaw] = useState(null);
+  const [handoffNotice, setHandoffNotice] = useState('');
+  const [isRefreshingHandoff, setIsRefreshingHandoff] = useState(false);
+  const [isPublishingKnowledge, setIsPublishingKnowledge] = useState(false);
   const [saved, setSaved] = useState(true);
   const [openedDoc, setOpenedDoc] = useState(null); // null | 'primary' | 'secondary'
 
@@ -209,7 +210,8 @@ export default function Workspace() {
     });
     const handoffRequest = apiGet(`/api/canvas/workspaces/${id}/handoff`, null).then(res => {
       if (res) {
-        setDoc(res.handoff?.summary || '');
+        setHandoffRaw(res);
+        setDoc(res.handoff?.summary || res.content || '');
       }
     });
     return Promise.all([canvasRequest, handoffRequest]);
@@ -228,9 +230,9 @@ export default function Workspace() {
   }
 
   useEffect(() => {
-    setChatMessages([]); setSteps([]); setStreamingStep(null); setTaskStatus(null); setArbitration(null);
-    setUserMessages([]); setInput(''); setDoc(''); setDocSecondary('');
-    setSaved(true); setOpenedDoc(null); setTaskType('evocanvas'); setIsLive(false);
+    setChatMessages([]); setTaskStatus(null); setArbitration(null);
+    setUserMessages([]); setInput(''); setDoc(''); setDocSecondary(''); setHandoffRaw(null); setHandoffNotice('');
+    setSaved(true); setOpenedDoc(null); setIsLive(false);
     writerMsgIdRef.current = null;
     setSelectedCardId(null);
     setCards([]);
@@ -241,7 +243,7 @@ export default function Workspace() {
     if (savedMaterials) {
       try {
         setUploadedMaterials(JSON.parse(savedMaterials));
-      } catch (e) {
+      } catch (_e) {
         setUploadedMaterials([]);
       }
     } else {
@@ -252,7 +254,7 @@ export default function Workspace() {
     if (!taskId || taskId === 'new') { setTaskTitle('新建任务'); setIsLive(true); return; }
 
     if (taskId === 'demo') {
-      setTaskTitle(DEMO_PROJECT_TITLE); setTaskType('evocanvas');
+      setTaskTitle(DEMO_PROJECT_TITLE);
       setChatMessages(DEMO_CHAT);
       setDoc(DEMO_DOC);
       setDocSecondary(DEMO_DOC_SECONDARY);
@@ -266,7 +268,6 @@ export default function Workspace() {
       if (closed) return;
       if (data) {
         setTaskTitle(data.title || 'EvoCanvas 工作区');
-        setTaskType('evocanvas');
         setIsLive(false);
         Promise.all([loadChatMessages(taskId), loadCanvasData(taskId)]).finally(() => {
           if (!closed) setIsHydratingWorkspace(false);
@@ -322,7 +323,9 @@ export default function Workspace() {
       try {
         const eventData = JSON.parse(e.data);
         handleCanvasEvent(eventData);
-      } catch (err) {}
+      } catch (_err) {
+        // 忽略格式不完整的 SSE 事件帧
+      }
     };
     [
       'canvas.turn.started', 'canvas.mutation.proposed', 'canvas.confirmation.requested',
@@ -391,7 +394,7 @@ export default function Workspace() {
     }
   }
 
-  function saveDocument(content) {
+  function saveDocument(_content) {
     // 1.0 的交接物是由画布卡片自动 refresh_handoff 收束生成的，因此前端设为只读/自动保存态
     setSaved(true);
   }
@@ -510,6 +513,100 @@ export default function Workspace() {
 
   const isDone = taskStatus === 'completed';
   const isFailed = taskStatus === 'failed';
+
+  const handoffView = normalizeHandoffView(
+    taskId === 'demo' ? { status: 'confirmed', handoff: { version: 1, summary: doc } } : handoffRaw,
+    cards,
+  );
+
+  async function handleRefreshHandoff() {
+    if (!taskId || taskId === 'demo' || taskId === 'new' || isRefreshingHandoff) return;
+    setIsRefreshingHandoff(true);
+    setHandoffNotice('');
+    try {
+      const res = await apiPost(`/api/canvas/workspaces/${taskId}/handoff/refresh`, {}, null);
+      if (res) {
+        setHandoffRaw(res);
+        setDoc(res.handoff?.summary || res.content || '');
+        setHandoffNotice('已基于最新稳定 Revision 刷新交接草稿');
+      } else {
+        setHandoffNotice('刷新失败，请确认当前没有正在进行的对话回合');
+      }
+    } finally {
+      setIsRefreshingHandoff(false);
+    }
+  }
+
+  async function handleCopyAiPrd() {
+    const markdown = buildAiPrdMarkdown({
+      title: taskTitle,
+      workspaceId: taskId,
+      handoffView,
+      cards,
+      summary: doc,
+    });
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setHandoffNotice('已复制面向 AI 的结构化 PRD（可直接粘贴给 Codex / Claude Code / Antigravity）');
+    } catch (_err) {
+      setHandoffNotice('浏览器剪贴板受限，请改用“导出 .md”下载文件');
+    }
+  }
+
+  function handleDownloadAiPrd() {
+    const markdown = buildAiPrdMarkdown({
+      title: taskTitle,
+      workspaceId: taskId,
+      handoffView,
+      cards,
+      summary: doc,
+    });
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(taskTitle || 'evocanvas-handoff').replace(/[\\/:*?"<>|]/g, '_')}-AI-PRD.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setHandoffNotice('已导出面向 AI 的结构化 PRD Markdown 文件');
+  }
+
+  async function handlePublishToKnowledge() {
+    if (!handoffView.canPublishToKnowledge || isPublishingKnowledge) return;
+    if (!window.confirm('确认将当前已确认交接物显式发布为项目知识库来源吗？未确认草稿不会自动进入知识库。')) {
+      return;
+    }
+    setIsPublishingKnowledge(true);
+    setHandoffNotice('');
+    try {
+      const markdown = buildAiPrdMarkdown({
+        title: taskTitle,
+        workspaceId: taskId,
+        handoffView,
+        cards,
+        summary: doc,
+      });
+      const created = await apiPost('/api/knowledge', {
+        title: `${taskTitle} · 已确认交接 (${handoffView.versionLabel})`,
+        type: 'doc',
+        content: markdown,
+        tags: ['结构化交接', '已确认', workspaceIdTag(taskId)],
+        status: 'approved',
+      }, null);
+      if (created) {
+        setHandoffNotice('已显式沉淀到项目知识库，可在知识库页面回看与复用');
+        apiGet('/api/knowledge', { items: [] }).then(res => setKnowledgeItems(res?.items || []));
+      } else {
+        setHandoffNotice('沉淀到知识库失败，请检查后端服务状态');
+      }
+    } finally {
+      setIsPublishingKnowledge(false);
+    }
+  }
+
+  function workspaceIdTag(id) {
+    return id ? `ws:${id}` : 'ws:local';
+  }
 
   const outputItems = [{ key: 'primary', label: '结构化交接物', content: doc }];
   if (docSecondary) {
@@ -710,7 +807,7 @@ export default function Workspace() {
                                 : m
                             ));
                           }
-                        } catch (err) {
+                        } catch (_err) {
                           setUploadedMaterials(prev => prev.map(m => 
                             m.id === tempId 
                               ? { ...m, status: 'error' } 
@@ -833,6 +930,30 @@ export default function Workspace() {
             <PanelRight size={15} />
           </button>
         </div>
+        {/* 交接物状态与过时提醒 */}
+        {openedDoc === 'primary' && (
+          <div className="handoff-status-strip">
+            <div className="handoff-status-meta">
+              <span className={`handoff-badge handoff-badge-${handoffView.statusTone}`}>
+                {handoffView.statusLabel}
+              </span>
+              <span className="handoff-version-pill">{handoffView.versionLabel}</span>
+              {handoffView.openGapCount > 0 && (
+                <span className="handoff-gap-pill">仍未决 {handoffView.openGapCount} 项</span>
+              )}
+            </div>
+            {handoffView.isOutdated && (
+              <div className="handoff-stale-banner">
+                <AlertCircle size={13} />
+                <span>{handoffView.staleReason}</span>
+                <button type="button" className="handoff-inline-btn" onClick={handleRefreshHandoff} disabled={isRefreshingHandoff}>
+                  {isRefreshingHandoff ? '刷新中...' : '刷新草稿'}
+                </button>
+              </div>
+            )}
+            {handoffNotice && <div className="handoff-notice-banner">{handoffNotice}</div>}
+          </div>
+        )}
         {/* 抽屉内容 */}
         <div className="output-drawer-body">
           {openedDoc && (
@@ -843,10 +964,50 @@ export default function Workspace() {
             />
           )}
         </div>
-        {/* 保存状态 */}
+        {/* 底部操作与保存状态 */}
         {openedDoc && (
           <div className="output-drawer-footer">
-            <span className={`save-status${saved ? ' saved' : ''}`}>{saved ? '已保存' : '未保存'}</span>
+            <span className={`save-status${saved ? ' saved' : ''}`}>{saved ? '只读投影 · 已同步' : '同步中'}</span>
+            {openedDoc === 'primary' && (
+              <div className="handoff-footer-actions">
+                <button
+                  type="button"
+                  className="handoff-action-btn"
+                  onClick={handleRefreshHandoff}
+                  disabled={isRefreshingHandoff || taskId === 'demo' || taskId === 'new'}
+                  title="基于当前稳定 Revision 重新装配交接视图"
+                >
+                  <RefreshCw size={12} className={isRefreshingHandoff ? 'spin' : ''} /> 刷新
+                </button>
+                <button
+                  type="button"
+                  className="handoff-action-btn"
+                  onClick={handleCopyAiPrd}
+                  title="派生面向下游 AI 的结构化 PRD 并复制到剪贴板"
+                >
+                  <Copy size={12} /> 复制 AI PRD
+                </button>
+                <button
+                  type="button"
+                  className="handoff-action-btn"
+                  onClick={handleDownloadAiPrd}
+                  title="下载面向下游 AI 的 Markdown PRD"
+                >
+                  <Download size={12} /> 导出 .md
+                </button>
+                <button
+                  type="button"
+                  className="handoff-action-btn primary"
+                  onClick={handlePublishToKnowledge}
+                  disabled={!handoffView.canPublishToKnowledge || isPublishingKnowledge}
+                  title={handoffView.canPublishToKnowledge
+                    ? '将当前已确认交接物显式沉淀为项目知识库来源'
+                    : '仅已确认的交接版本允许沉淀到项目知识库，请先在对话中回复“确认交接”'}
+                >
+                  <UploadCloud size={12} /> {isPublishingKnowledge ? '沉淀中...' : '沉淀到知识库'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

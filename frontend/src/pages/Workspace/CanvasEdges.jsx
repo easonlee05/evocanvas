@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { getPortPosition, routeEdge } from './edgeRouter.js';
 
 function getGeometryCardObstacles(geometry) {
@@ -20,17 +20,14 @@ export function CustomArrow({
   endPort = null,
   geometry = null,
 }) {
-  const [path, setPath] = useState('');
-  const [arrowHead, setArrowHead] = useState('');
-  const [midPoint, setMidPoint] = useState(null);
   const [isHovered, setIsHovered] = useState(false);
 
-  useEffect(() => {
-    const sourceRect = geometry?.[start];
-    const targetRect = geometry?.[end];
-    if (!sourceRect || !targetRect) return;
+  const sourceRect = geometry?.[start];
+  const targetRect = geometry?.[end];
 
-    const route = routeEdge({
+  const route = useMemo(() => {
+    if (!sourceRect || !targetRect) return null;
+    return routeEdge({
       sourceRect,
       targetRect,
       sourcePort: startPort,
@@ -41,16 +38,12 @@ export function CustomArrow({
       targetOffsetTotal: inCount,
       obstacles: getGeometryCardObstacles(geometry),
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceRect, targetRect, outIndex, outCount, inIndex, inCount, startPort, endPort]);
 
-    setMidPoint(route.midPoint);
-    setPath(route.path);
-    setArrowHead(route.arrowHead);
-  // 依赖只收窄为端点卡片的几何引用（geometry?.[start] / geometry?.[end]），
-  // 而非整个 geometry 对象。未变化的卡片在 refreshGeometry 中复用旧引用，
-  // 因此只有端点卡片几何变化才触发重算。
-  // 取舍：非端点卡片移动改变 obstacles 布局时，箭头不会重算避障路由。
-  // 箭头不会断裂，只是避障路径可能不是最优，1.0 阶段可接受。
-  }, [start, end, outIndex, outCount, inIndex, inCount, startPort, endPort, geometry?.[start], geometry?.[end]]);
+  const path = route?.path || '';
+  const arrowHead = route?.arrowHead || '';
+  const midPoint = route?.midPoint || null;
 
   if (!path) return null;
 
@@ -166,15 +159,12 @@ export function TempConnectionLine({
   endPort,
   geometry = null,
 }) {
-  const [routePath, setRoutePath] = useState('');
-  const [arrowHead, setArrowHead] = useState('');
+  const sourceRect = geometry?.[startCardId];
+  const targetRect = geometry?.[targetCardId] || null;
 
-  useEffect(() => {
-    const sourceRect = geometry?.[startCardId];
-    const targetRect = geometry?.[targetCardId] || null;
-    if (!sourceRect) return;
-
-    const route = routeEdge({
+  const route = useMemo(() => {
+    if (!sourceRect) return null;
+    return routeEdge({
       sourceRect,
       targetRect,
       targetPoint: { x: endX, y: endY },
@@ -182,10 +172,11 @@ export function TempConnectionLine({
       targetPort: endPort,
       obstacles: getGeometryCardObstacles(geometry),
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceRect, targetRect, startPort, endX, endY, endPort]);
 
-    setRoutePath(route.path);
-    setArrowHead(route.arrowHead);
-  }, [startCardId, startPort, targetCardId, endX, endY, endPort, geometry?.[startCardId], geometry?.[targetCardId]]);
+  const routePath = route?.path || '';
+  const arrowHead = route?.arrowHead || '';
 
   if (!routePath) return null;
 

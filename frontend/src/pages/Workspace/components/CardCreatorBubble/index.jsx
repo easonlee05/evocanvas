@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 export function CardCreatorBubble({ x, y, stage, onClose, onSubmit }) {
   const [title, setTitle] = useState('');

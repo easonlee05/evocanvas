@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Pin, ChevronDown, Sparkles } from 'lucide-react';
 import {
   buildTimelineProjection,

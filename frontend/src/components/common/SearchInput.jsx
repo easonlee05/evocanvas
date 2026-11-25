@@ -3,7 +3,6 @@
  * @description 通用搜索输入框组件。集成了 Lucide 的搜索图标，并支持可选的键盘快捷键提示（如 ⌘K）。
  */
 
-import React from 'react';
 import { Search } from 'lucide-react';
 import './search-input.css';
 

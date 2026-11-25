@@ -69,7 +69,7 @@ describe('createThrottleRAF', () => {
 
   it('does not schedule a new frame when idle', () => {
     const raf = installFakeRAF();
-    const throttle = createThrottleRAF();
+    createThrottleRAF();
     assert.equal(raf.hasPending(), false);
     raf.restore();
   });

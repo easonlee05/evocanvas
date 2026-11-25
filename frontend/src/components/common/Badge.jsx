@@ -3,7 +3,6 @@
  * @description 通用徽章/标签组件。通常用于状态展示、计数标记或高亮标签。
  */
 
-import React from 'react';
 import './badge.css';
 
 /**

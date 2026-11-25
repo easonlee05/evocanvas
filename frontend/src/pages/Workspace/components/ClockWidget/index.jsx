@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Clock3 } from 'lucide-react';
 import { WidgetFrame, formatClock } from '../../CanvasOverlays.jsx';
 

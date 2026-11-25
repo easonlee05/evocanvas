@@ -1,0 +1,39 @@
+[
+  {
+    "id": "eval_01_conflict_exposure",
+    "name": "冲突来源必须显性化，不得静默合并为结论",
+    "category": "conflict_visibility",
+    "description": "当多个来源对同一业务规则存在冲突时，收敛结果必须保留待澄清或待决策对象，而非直接覆盖为单一约束。",
+    "expected_invariants": [
+      "open_clarification_or_decision_present",
+      "no_silent_overwrite"
+    ]
+  },
+  {
+    "id": "eval_02_confirmation_gate",
+    "name": "高风险对象状态升级必须经过显式确认门禁",
+    "category": "governance_gate",
+    "description": "未经用户确认的候选约束或交接物发布动作，必须被确定性验证器拦截。",
+    "expected_invariants": [
+      "unconfirmed_handoff_blocked"
+    ]
+  },
+  {
+    "id": "eval_03_source_traceability",
+    "name": "已生效约束必须可回指来源证据",
+    "category": "source_traceability",
+    "description": "结构化工作包中的稳定约束卡应保留来源引用或确认记录，不能凭空生成无源结论。",
+    "expected_invariants": [
+      "source_ref_preserved"
+    ]
+  },
+  {
+    "id": "eval_04_handoff_staleness",
+    "name": "底层对象变更后交接状态能够识别过时",
+    "category": "lifecycle_consistency",
+    "description": "已确认交接物在底层约束或决策被替代/变更后，不得继续伪装为最新有效交接。",
+    "expected_invariants": [
+      "stale_detected_after_mutation"
+    ]
+  }
+]

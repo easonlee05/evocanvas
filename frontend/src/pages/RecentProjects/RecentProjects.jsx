@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -166,9 +166,6 @@ export default function RecentProjects() {
     return localStorage.getItem('evocanvas_view_mode') || 'grid';
   });
   
-  // 运行期崩溃状态捕捉（防白屏设计）
-  const [errorBoundary, setErrorBoundary] = useState(null);
-
   // 本地持久化交互状态
   const [starredIds, setStarredIds] = useState(() => {
     try {
@@ -191,18 +188,16 @@ export default function RecentProjects() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchWorkspaces();
+    let active = true;
+    apiGet('/api/canvas/workspaces', { items: [] }).then((data) => {
+      if (!active) return;
+      if (data && data.items) {
+        setProjects(data.items);
+      }
+      setLoading(false);
+    });
+    return () => { active = false; };
   }, []);
-
-  const fetchWorkspaces = async () => {
-    setLoading(true);
-    const data = await apiGet('/api/canvas/workspaces', { items: [] });
-    console.log('[EvoCanvas Debug] Loaded raw workspaces data:', data);
-    if (data && data.items) {
-      setProjects(data.items);
-    }
-    setLoading(false);
-  };
 
   const handleToggleView = (mode) => {
     setViewMode(mode);
@@ -244,31 +239,8 @@ export default function RecentProjects() {
     }
   };
 
-  // 错误渲染展示
-  if (errorBoundary) {
-    return (
-      <div style={{ padding: '40px', color: '#ef4444', background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '8px', margin: '20px' }}>
-        <h3>页面发生运行期崩溃 (Render Crash)</h3>
-        <p>错误原因：{errorBoundary.message}</p>
-        <pre style={{ fontSize: '12px', whiteSpace: 'pre-wrap', background: '#fff', padding: '10px', borderRadius: '4px', border: '1px solid #eee' }}>{errorBoundary.stack}</pre>
-        <button 
-          onClick={() => {
-            localStorage.clear();
-            setErrorBoundary(null);
-            window.location.reload();
-          }} 
-          className="empty-action-btn"
-          style={{ background: '#ef4444', color: '#fff', border: 'none', height: '36px', borderRadius: '4px', padding: '0 15px', cursor: 'pointer' }}
-        >
-          清空本地缓存并重试
-        </button>
-      </div>
-    );
-  }
-
-  try {
-    const safeProjects = Array.isArray(projects) ? projects.filter(Boolean) : [];
-    const formattedProjects = safeProjects.map(item => {
+  const safeProjects = Array.isArray(projects) ? projects.filter(Boolean) : [];
+  const formattedProjects = safeProjects.map(item => {
       const card = buildRecentProjectCard(item);
       return {
         ...card,
@@ -586,8 +558,4 @@ export default function RecentProjects() {
         )}
       </div>
     );
-  } catch (err) {
-    setErrorBoundary(err);
-    return null;
-  }
 }

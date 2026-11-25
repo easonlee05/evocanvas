@@ -1,0 +1,32 @@
+# Render Blueprint：一键免费部署 EvoCanvas（Frontend + Pi Runtime + FastAPI 后端）
+# 使用方式：登录 https://dashboard.render.com -> New -> Blueprint -> 选择本仓库
+# 部署时在环境变量中填入 DEEPSEEK_API_KEY 即可获得永久 HTTPS 域名。
+# 如需重启后长期持久化磁盘数据，可将 plan 改为 starter 并取消下方 disk 注释。
+
+services:
+  - type: web
+    name: evocanvas
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true
+    # disk:
+    #   name: evocanvas-data
+    #   mountPath: /data
+    #   sizeGB: 5
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: PI_PROVIDER
+        value: deepseek
+      - key: PI_MODEL
+        value: deepseek-v4-flash
+      - key: EVO_STORAGE_DIR
+        value: /data/evocanvas-storage
+      - key: PI_STORAGE_DIR
+        value: /data/pi-storage
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: PI_RUNTIME_INTERNAL_SECRET
+        generateValue: true

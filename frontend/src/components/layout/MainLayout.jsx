@@ -3,9 +3,7 @@
  * @description 应用的全局通用主体布局组件。包含固定的左侧边栏 (Sidebar)，以及居右填充的页面主内容渲染区 (main)。
  */
 
-import React from 'react';
 import { Sidebar } from './Sidebar';
-import { Header } from './Header';
 import './main-layout.css';
 
 /**
@@ -17,7 +15,7 @@ import './main-layout.css';
  * @param {Array<Object>} [props.breadcrumbs] - 面包屑配置数据（留作备用或由子页面自己消费）
  * @param {boolean} [props.noHeader] - 是否隐藏头部导航栏标志（留作备用或由子页面自己消费）
  */
-export function MainLayout({ children, title, breadcrumbs, noHeader }) {
+export function MainLayout({ children }) {
   return (
     <div className="main-layout">
       <Sidebar />

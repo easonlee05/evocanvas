@@ -1,23 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
 import { isCanvasCardResolved, isActiveTypedGap } from './canvasProjection.js';
 import {
-  AlertTriangle,
-  Archive,
   ChevronDown,
   ChevronUp,
-  ChevronsRight,
-  Clock3,
-  HelpCircle,
-  ListTodo,
-  Paperclip,
-  Pause,
   Pin,
-  Play,
-  RotateCcw,
-  Scale,
-  Sparkles,
-  StickyNote,
-  Timer,
   Trash2,
 } from 'lucide-react';
 

@@ -4,8 +4,8 @@
  * 多源材料和上下文片段启动一张新的需求收敛工作面。
  */
 
-import React, { useEffect, useState, useRef } from 'react';
-import { ArrowUp, Zap, Search, Database, Paperclip, MoreHorizontal, ArrowRight, Loader, Loader2, ChevronDown, Check, Plus, AlertCircle, X, Layers } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { ArrowUp, Search, Database, Paperclip, MoreHorizontal, ArrowRight, Loader, Loader2, ChevronDown, Check, AlertCircle, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiGet, apiPostWithStatus, apiUpload } from '../../api';
 import { getSelectedModel, readConfiguredModel, readModelList } from '../../modelConfig';
@@ -177,7 +177,7 @@ export default function LandingPage() {
               : m
           ));
         }
-      } catch (err) {
+      } catch (_err) {
         setUploadedMaterials(prev => prev.map(m =>
           m.id === tempId
             ? { ...m, status: 'error' }

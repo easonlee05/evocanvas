@@ -24,6 +24,8 @@ venv/
 
 # Runtime workspace
 /workspace/
+/workspace-data/
+*.ses
 .manual-agent/
 .pi-storage/
 

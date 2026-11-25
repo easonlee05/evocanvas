@@ -86,7 +86,7 @@ echo "本地服务健康检查通过！"
 
 # 8. 启动 Cloudflare 免费公网隧道
 echo "4. 正在建立免费全球公网 HTTPS 隧道..."
-cloudflared tunnel --url http://127.0.0.1:8000 2>&1 | tee /tmp/cloudflared_evocanvas.log &
+cloudflared tunnel --protocol http2 --url http://127.0.0.1:8000 2>&1 | tee /tmp/cloudflared_evocanvas.log &
 CLOUDFLARE_PID=$!
 
 # 从日志中提取分配的公网 URL

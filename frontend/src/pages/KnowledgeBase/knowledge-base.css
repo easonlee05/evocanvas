@@ -351,3 +351,149 @@ marker#arrow path {
   flex-direction: column;
   overflow: hidden;
 }
+
+/* ── 健康检查胶囊与候选审核抽屉 ── */
+.kb-health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.kb-health-pill.ok {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.kb-health-pill.degraded {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.kb-candidates-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  width: auto;
+  font-size: 12px;
+}
+
+.kb-candidates-btn.active {
+  background: #111827;
+  color: #fff;
+  border-color: #111827;
+}
+
+.kb-candidates-drawer {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  bottom: 16px;
+  width: 340px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+  overflow: hidden;
+}
+
+.kb-candidates-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.kb-candidates-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.kb-candidates-header p {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.kb-candidates-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kb-candidates-empty {
+  padding: 36px 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: #94a3b8;
+}
+
+.kb-candidate-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kb-candidate-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kb-candidate-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.kb-candidate-type {
+  font-size: 11px;
+  color: #475569;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.kb-candidate-desc {
+  margin: 0;
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.kb-candidate-source {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.kb-candidate-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}

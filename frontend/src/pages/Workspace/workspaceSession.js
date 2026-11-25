@@ -53,7 +53,7 @@ export function readStoredCanvasViewState(storageKey) {
   try {
     const raw = localStorage.getItem(storageKey);
     return raw ? JSON.parse(raw) : null;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }

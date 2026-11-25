@@ -3,7 +3,6 @@
  * @description 通用头像组件。支持自定义大小，当没有传入头像图片链接时，显示后备 fallback（用户名首字母的大写形式）。
  */
 
-import React from 'react';
 import './avatar.css';
 
 /**

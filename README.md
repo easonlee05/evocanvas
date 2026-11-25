@@ -16,17 +16,7 @@ EvoCanvas 是一个以 **Vibe Shaping（感觉塑形）** 为核心的对话驱�
 
 > 当前产品真相源：[`docs/vision/EvoCanvas1.0-PRD.md`](docs/vision/EvoCanvas1.0-PRD.md)
 
-#---
-title: EvoCanvas
-emoji: 🎨
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 8000
-pinned: false
----
-
-# EvoCanvas 1.0
+## EvoCanvas 1.0
 
 1.0 的体验旅程是：
 
